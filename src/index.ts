@@ -15,6 +15,9 @@ import { registerDocTool } from './tools/doc.js';
 import { registerCompileCheckTool } from './tools/compile-check.js';
 import { registerTraceMacroTool } from './tools/trace-macro.js';
 import { registerReplSessionTool } from './tools/repl-session.js';
+import { registerRunTestsTool } from './tools/run-tests.js';
+import { registerFfiInspectTool } from './tools/ffi-inspect.js';
+import { registerClassInfoTool } from './tools/class-info.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -31,6 +34,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues beyond syntax checking.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
 - For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations (define functions, import modules, test incrementally).
+- To run test suites: use gerbil_run_tests to execute :std/test files and see pass/fail results with failure details.
+- To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
+- To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -52,6 +58,9 @@ registerDocTool(server);
 registerCompileCheckTool(server);
 registerTraceMacroTool(server);
 registerReplSessionTool(server);
+registerRunTestsTool(server);
+registerFfiInspectTool(server);
+registerClassInfoTool(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

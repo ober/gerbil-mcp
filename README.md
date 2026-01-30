@@ -338,6 +338,86 @@ action: "destroy", session_id: "a1b2c3d4"
 
 Sessions auto-expire after 10 minutes of inactivity. Maximum 5 concurrent sessions.
 
+### gerbil_run_tests
+
+Run a Gerbil test file that uses `:std/test` and return structured results. The file should define test suites with `test-suite`/`test-case`/`check-equal?` etc., call `(run-tests!)` and `(test-report-summary!)`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Path to a `.ss` test file that uses `:std/test` |
+
+```
+file_path: "/path/to/tests.ss"
+=> Result: PASSED
+
+   Test Summary:
+     math: OK
+
+   Checks: 3 total
+
+   --- Full output ---
+   ... check (+ 1 2) is equal? to 3
+   ...
+```
+
+### gerbil_ffi_inspect
+
+Inspect a Gerbil module's FFI (Foreign Function Interface) bindings. Classifies exports as C constants (UPPERCASE), C-style functions (underscore_names), or Gerbil wrappers. Shows values for constants and arity for functions. Optionally provide a source `file_path` to also extract `begin-foreign` and `extern` declarations.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `module_path` | string | yes | Module path to inspect (e.g. `:std/os/signal`) |
+| `file_path` | string | no | Source file for deeper analysis of begin-foreign/extern blocks |
+
+```
+module_path: ":std/os/signal"
+=> FFI inspection of :std/os/signal:
+
+   C Constants (35):
+     SIG_SETMASK = 3
+     SIG_BLOCK = 1
+     SIGTERM = 15
+     SIGKILL = 9
+     ...
+
+   C-style Functions (1):
+     make_sigset  arity:0
+
+   Gerbil Wrappers (8):
+     sigprocmask  procedure arity:3
+     kill  procedure arity:2
+     ...
+```
+
+### gerbil_class_info
+
+Inspect a Gerbil `defclass`/`defstruct` type descriptor. Shows type name, slots, own fields, struct vs class, super type, precedence list (MRO), and constructor.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `type_name` | string | yes | Type name without `::t` suffix (e.g. `"Error"`, `"JSON"`) |
+| `module_path` | string | no | Module to import to bring the type in scope |
+
+```
+type_name: "Error", module_path: ":std/error"
+=> Type: Error (class)
+
+   Slots: continuation message irritants where
+   Own fields: continuation message irritants where
+   Super: (none)
+   Precedence: StackTrace -> Exception -> object -> t
+   Constructor: :init!
+
+type_name: "JSON", module_path: ":std/text/json"
+=> Type: JSON (class)
+
+   Slots: (none)
+   Own fields: (none)
+   Super: (none)
+   Precedence: object -> t
+   Constructor: (none)
+```
+
 ## How It Works
 
 Most tools invoke `gxi -e` as a short-lived subprocess — no persistent state between calls. Expressions are wrapped in error-handling code using `with-catch` and output structured markers (`GERBIL-MCP-RESULT:` / `GERBIL-MCP-ERROR:`) that the TypeScript layer parses.
@@ -368,6 +448,9 @@ src/
     compile-check.ts      gerbil_compile_check
     trace-macro.ts        gerbil_trace_macro
     repl-session.ts       gerbil_repl_session
+    run-tests.ts          gerbil_run_tests
+    ffi-inspect.ts        gerbil_ffi_inspect
+    class-info.ts         gerbil_class_info
 ```
 
 ## License
