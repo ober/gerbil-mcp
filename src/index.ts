@@ -12,6 +12,9 @@ import { registerFunctionSignatureTool } from './tools/function-signature.js';
 import { registerModuleDepsTool } from './tools/module-deps.js';
 import { registerLoadFileTool } from './tools/load-file.js';
 import { registerDocTool } from './tools/doc.js';
+import { registerCompileCheckTool } from './tools/compile-check.js';
+import { registerTraceMacroTool } from './tools/trace-macro.js';
+import { registerReplSessionTool } from './tools/repl-session.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -25,6 +28,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - When understanding module structure: use gerbil_module_deps to see what a module imports and depends on.
 - When analyzing user code: use gerbil_load_file to extract definitions from Gerbil source files.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
+- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues beyond syntax checking.
+- To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
+- For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations (define functions, import modules, test incrementally).
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -43,6 +49,9 @@ registerFunctionSignatureTool(server);
 registerModuleDepsTool(server);
 registerLoadFileTool(server);
 registerDocTool(server);
+registerCompileCheckTool(server);
+registerTraceMacroTool(server);
+registerReplSessionTool(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
