@@ -18,6 +18,12 @@ import { registerReplSessionTool } from './tools/repl-session.js';
 import { registerRunTestsTool } from './tools/run-tests.js';
 import { registerFfiInspectTool } from './tools/ffi-inspect.js';
 import { registerClassInfoTool } from './tools/class-info.js';
+import { registerFindDefinitionTool } from './tools/find-definition.js';
+import { registerBuildProjectTool } from './tools/build-project.js';
+import { registerPackageInfoTool } from './tools/package-info.js';
+import { registerFormatTool } from './tools/format.js';
+import { registerBenchmarkTool } from './tools/benchmark.js';
+import { registerErrorHierarchyTool } from './tools/error-hierarchy.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -37,6 +43,12 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To run test suites: use gerbil_run_tests to execute :std/test files and see pass/fail results with failure details.
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
+- To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol.
+- To build a Gerbil project: use gerbil_build_project to compile or clean a project directory using gxpkg.
+- To explore packages: use gerbil_package_info to list installed packages, search the package directory, or view package metadata.
+- To format Gerbil code: use gerbil_format to pretty-print expressions using Gambit's pretty-print.
+- To benchmark expressions: use gerbil_benchmark to measure wall-clock time, CPU time, GC stats, and memory allocation.
+- To understand error types: use gerbil_error_hierarchy to see the full exception/error class hierarchy tree.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -61,6 +73,12 @@ registerReplSessionTool(server);
 registerRunTestsTool(server);
 registerFfiInspectTool(server);
 registerClassInfoTool(server);
+registerFindDefinitionTool(server);
+registerBuildProjectTool(server);
+registerPackageInfoTool(server);
+registerFormatTool(server);
+registerBenchmarkTool(server);
+registerErrorHierarchyTool(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

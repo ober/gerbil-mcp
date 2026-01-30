@@ -169,6 +169,79 @@ export async function runGxc(
   });
 }
 
+// ── gxpkg binary resolution & runner ────────────────────────────────
+
+let resolvedGxpkgPath: string | null = null;
+
+async function findGxpkg(): Promise<string> {
+  if (resolvedGxpkgPath) return resolvedGxpkgPath;
+
+  const candidates = [
+    process.env.GERBIL_MCP_GXPKG_PATH,
+    '/opt/gerbil/bin/gxpkg',
+    'gxpkg',
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      resolvedGxpkgPath = candidate;
+      return candidate;
+    } catch {
+      // not found or not executable, try next
+    }
+  }
+
+  resolvedGxpkgPath = 'gxpkg';
+  return 'gxpkg';
+}
+
+export async function runGxpkg(
+  args: string[],
+  options?: { timeout?: number; cwd?: string },
+): Promise<GxiResult> {
+  const gxpkgPath = await findGxpkg();
+  const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
+
+  return new Promise((resolve) => {
+    execFile(
+      gxpkgPath,
+      args,
+      {
+        timeout,
+        maxBuffer: MAX_BUFFER,
+        env: { ...process.env },
+        cwd: options?.cwd,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const timedOut = error.killed === true;
+          const code = (error as NodeJS.ErrnoException).code;
+          const exitCode =
+            typeof error.code === 'number'
+              ? error.code
+              : code === 'ENOENT'
+                ? 127
+                : 1;
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode,
+            timedOut,
+          });
+        } else {
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+      },
+    );
+  });
+}
+
 // ── String escaping ────────────────────────────────────────────────
 
 /**

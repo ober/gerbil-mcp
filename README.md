@@ -52,6 +52,7 @@ node /path/to/gerbil-mcp/dist/index.js
 |----------|---------|-------------|
 | `GERBIL_MCP_GXI_PATH` | `gxi` in PATH, then `/opt/gerbil/bin/gxi` | Path to the `gxi` binary |
 | `GERBIL_MCP_GXC_PATH` | `gxc` in PATH, then `/opt/gerbil/bin/gxc` | Path to the `gxc` compiler binary |
+| `GERBIL_MCP_GXPKG_PATH` | `gxpkg` in PATH, then `/opt/gerbil/bin/gxpkg` | Path to the `gxpkg` package manager binary |
 | `GERBIL_HOME` | `/opt/gerbil` | Gerbil installation directory (used for module listing) |
 
 ## Tools
@@ -418,6 +419,144 @@ type_name: "JSON", module_path: ":std/text/json"
    Constructor: (none)
 ```
 
+### gerbil_find_definition
+
+Find where a Gerbil symbol is defined. Returns the qualified name, module file path, source file path (if available), kind, and arity.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | yes | Symbol name to look up (e.g. `"read-json"`, `"map"`) |
+| `module_path` | string | no | Module to import for context (e.g. `:std/text/json`) |
+
+```
+symbol: "read-json", module_path: ":std/text/json"
+=> Symbol: read-json
+
+   Kind: procedure
+   Qualified name: std/text/json/util#read-json
+   Arity: 1
+   Module: :std/text/json
+   Module file: /opt/gerbil/.../std/text/json/util.ssi
+   Source file: (not available — compiled module)
+```
+
+### gerbil_build_project
+
+Build or clean a Gerbil project directory using gxpkg.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory containing the Gerbil project (with `gerbil.pkg`) |
+| `action` | string | no | `"build"` (default) or `"clean"` |
+| `release` | boolean | no | Build released (static) executables |
+| `optimized` | boolean | no | Build full program optimized executables |
+| `debug` | boolean | no | Build with debug symbols |
+
+```
+project_path: "/path/to/my-project", action: "build", release: true
+=> Build succeeded (release).
+
+   ... compilation output ...
+```
+
+### gerbil_package_info
+
+List installed Gerbil packages, search the package directory, or show package metadata.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | yes | `"list"`, `"search"`, or `"info"` |
+| `query` | string | no | Keywords for search, or package name for info (required for search/info) |
+
+```
+action: "list"
+=> Installed packages (3):
+
+     github.com/user/pkg1
+     github.com/user/pkg2
+     ...
+
+action: "search", query: "json"
+=> Search results for "json":
+
+     github.com/... json processing library
+     ...
+```
+
+### gerbil_format
+
+Pretty-print/format Gerbil Scheme expressions using Gambit's `pretty-print`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `code` | string | yes | Gerbil Scheme code to format |
+
+```
+code: "(define (f x y) (cond ((> x y) (+ x 1)) ((< x y) (- y 1)) (else 0)))"
+=> (define (f x y)
+     (cond ((> x y) (+ x 1))
+           ((< x y) (- y 1))
+           (else 0)))
+```
+
+### gerbil_benchmark
+
+Time a Gerbil expression's execution with detailed performance statistics.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | The Gerbil Scheme expression to benchmark |
+| `imports` | string[] | no | Modules to import first |
+| `iterations` | number | no | Number of times to run (default: 1) |
+
+```
+expression: "(let loop ((i 0) (s 0)) (if (< i 10000) (loop (+ i 1) (+ s i)) s))"
+iterations: 3
+=> Benchmark: (let loop ...)
+
+   Iterations: 3
+   Total wall time: 1.71ms
+   Avg wall time: 571.6us
+   User time: 1.50ms
+   System time: 0.0us
+   GC time: 0.0us
+   GC count: 0
+   Bytes allocated: 2.3 MB
+
+   Result: 49995000
+```
+
+### gerbil_error_hierarchy
+
+Show the full Gerbil exception/error class hierarchy as a tree.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `modules` | string[] | no | Additional modules to scan for error types beyond `:std/error` |
+
+```
+=> Gerbil Error Type Hierarchy:
+
+   t
+   \-- object
+       \-- Exception
+           |-- StackTrace
+           |   |-- Error
+           |   |   |-- ContractViolation
+           |   |   |-- UnboundKeyError
+           |   |   |-- IOError
+           |   |   |   |-- PrematureEndOfInput
+           |   |   |   \-- Closed
+           |   |   |-- Timeout
+           |   |   \-- ContextError
+           |   \-- RuntimeException
+
+   Precedence lists:
+     Error: StackTrace -> Exception -> object -> t
+     IOError: Error -> StackTrace -> Exception -> object -> t
+     ...
+```
+
 ## How It Works
 
 Most tools invoke `gxi -e` as a short-lived subprocess — no persistent state between calls. Expressions are wrapped in error-handling code using `with-catch` and output structured markers (`GERBIL-MCP-RESULT:` / `GERBIL-MCP-ERROR:`) that the TypeScript layer parses.
@@ -426,6 +565,8 @@ The `gerbil_compile_check` tool uses `gxc -S` (the Gerbil compiler in expand-onl
 
 The `gerbil_repl_session` tool spawns a persistent `gxi` subprocess with piped stdin/stdout, using a sentinel-based protocol to delimit expression output across multiple evaluations.
 
+The `gerbil_build_project` and `gerbil_package_info` tools invoke `gxpkg` as a subprocess for package management and project building.
+
 User input is injected via `(read (open-input-string ...))` rather than string interpolation, letting Scheme's reader handle all quoting. Subprocess execution uses `execFile` (not `exec`) to avoid shell injection.
 
 ## Project Structure
@@ -433,7 +574,7 @@ User input is injected via `(read (open-input-string ...))` rather than string i
 ```
 src/
   index.ts                Server entry point, tool registration
-  gxi.ts                  gxi/gxc subprocess wrapper, REPL session manager
+  gxi.ts                  gxi/gxc/gxpkg subprocess wrapper, REPL session manager
   tools/
     eval.ts               gerbil_eval
     module-exports.ts     gerbil_module_exports
@@ -451,6 +592,12 @@ src/
     run-tests.ts          gerbil_run_tests
     ffi-inspect.ts        gerbil_ffi_inspect
     class-info.ts         gerbil_class_info
+    find-definition.ts  gerbil_find_definition
+    build-project.ts    gerbil_build_project
+    package-info.ts     gerbil_package_info
+    format.ts           gerbil_format
+    benchmark.ts        gerbil_benchmark
+    error-hierarchy.ts  gerbil_error_hierarchy
 ```
 
 ## License
