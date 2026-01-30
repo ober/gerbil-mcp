@@ -38,6 +38,125 @@ claude mcp add -s project gerbil \
 
 This writes the config to `~/.claude.json` (user scope) or `.mcp.json` in the project root (project scope). Start a new Claude Code session to pick up the server.
 
+### GitHub Copilot (VS Code)
+
+Add a `.vscode/mcp.json` file to your project:
+
+```json
+{
+  "servers": {
+    "gerbil": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "env": {
+        "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
+      }
+    }
+  }
+}
+```
+
+Or add it to your VS Code user settings (`settings.json`) to make it available across all projects:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "gerbil": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
+        "env": {
+          "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
+        }
+      }
+    }
+  }
+}
+```
+
+### GitHub Copilot Coding Agent
+
+The [Copilot coding agent](https://docs.github.com/copilot/how-tos/agents/copilot-coding-agent/extending-copilot-coding-agent-with-mcp) runs in a GitHub Actions environment. Configure MCP servers in your repository settings on GitHub.com under **Settings → Copilot → Coding agent**, using this JSON:
+
+```json
+{
+  "mcpServers": {
+    "gerbil": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/home/runner/gerbil-mcp/dist/index.js"],
+      "tools": ["*"],
+      "env": {
+        "GERBIL_MCP_GXI_PATH": "$COPILOT_MCP_GERBIL_GXI_PATH"
+      }
+    }
+  }
+}
+```
+
+Since the agent runs on a GitHub Actions runner, Gerbil and this server must be installed during setup. Create `.github/workflows/copilot-setup-steps.yml`:
+
+```yaml
+name: "Copilot Setup Steps"
+on: workflow_dispatch
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Install Gerbil — adjust to your preferred method
+      - name: Install Gerbil
+        run: |
+          # Example: install from a release or package manager
+          # See https://cons.io/guide/install.html
+          sudo apt-get update && sudo apt-get install -y gerbil
+
+      # Clone and build gerbil-mcp
+      - name: Setup gerbil-mcp
+        run: |
+          git clone https://github.com/ober/gerbil-mcp.git /home/runner/gerbil-mcp
+          cd /home/runner/gerbil-mcp
+          npm install
+          npm run build
+```
+
+Add a `COPILOT_MCP_GERBIL_GXI_PATH` secret in your repository's `copilot` environment (e.g. `/usr/bin/gxi`) pointing to the `gxi` binary.
+
+### GitHub Copilot CLI
+
+Add the server to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "gerbil": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "env": {
+        "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
+      }
+    }
+  }
+}
+```
+
+To auto-load Gerbil-specific instructions for the CLI in your project, copy the example file to `.github/copilot-instructions.md`:
+
+```sh
+mkdir -p .github
+cp /path/to/gerbil-mcp/copilot-instructions.md.example .github/copilot-instructions.md
+```
+
 ### Other MCP clients
 
 Any MCP-compatible client can connect using the stdio transport. The server reads JSON-RPC from stdin and writes to stdout:
