@@ -197,7 +197,7 @@ function buildFindExpr(escapedSym: string, modulePath?: string): string {
     `                                 (display "${RESULT_MARKER}source-path\\t")`,
     '                                 (display ss-path)',
     '                                 (newline)))))))',
-    `                     ${modResolution})))`,
+    `                     ${modResolution}))))`,
     '              (else',
     `               (display "${RESULT_MARKER}kind\\tvalue\\n")`,
     `               (display "${RESULT_MARKER}name\\t${escapedSym}\\n")`,

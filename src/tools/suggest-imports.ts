@@ -65,7 +65,7 @@ export function registerSuggestImportsTool(server: McpServer): void {
       const escapedSym = escapeSchemeString(symbol);
       const expr = buildSuggestExpr(escapedSym);
 
-      const result = await runGxi([expr], { timeout: 60_000 });
+      const result = await runGxi(['(import :gerbil/expander)', expr], { timeout: 60_000 });
 
       if (result.timedOut) {
         return {
@@ -152,7 +152,6 @@ function buildSuggestExpr(escapedSym: string): string {
     `    (display "${ERROR_MARKER}\\n")`,
     '    (display-exception e (current-output-port)))',
     '  (lambda ()',
-    '    (import :gerbil/expander)',
     `    (let* ((target (string->symbol "${escapedSym}"))`,
     `           (modules (list ${moduleList})))`,
     '      (for-each',

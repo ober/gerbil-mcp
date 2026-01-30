@@ -77,7 +77,7 @@ export function registerDocTool(server: McpServer): void {
         '               (newline))))))',
         // Apropos output after all markers, with a clear delimiter
         `      (display "\\n${APROPOS_MARKER}\\n")`,
-        `      (##apropos "${escapedSym}")))`,
+        `      (##apropos "${escapedSym}"))))`,
       ].join(' ');
 
       exprs.push(schemeExpr);
