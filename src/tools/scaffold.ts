@@ -1,6 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { access, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { runGxpkg } from '../gxi.js';
+
+// Files that gxpkg new generates and would overwrite.
+const CONFLICT_FILES = ['gerbil.pkg', 'Makefile', 'build.ss'];
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function registerScaffoldTool(server: McpServer): void {
   server.registerTool(
@@ -9,13 +25,16 @@ export function registerScaffoldTool(server: McpServer): void {
       title: 'Scaffold Gerbil Project',
       description:
         'Create a new Gerbil project from a template using gxpkg new. ' +
-        'Generates gerbil.pkg, build.ss, and initial source files. ' +
-        'The target directory must already exist.',
+        'Generates gerbil.pkg, build.ss, Makefile, and initial source files. ' +
+        'If project_path is omitted, creates a temporary directory. ' +
+        'Refuses to run if the target already contains gerbil.pkg, Makefile, or build.ss.',
       inputSchema: {
         project_path: z
           .string()
+          .optional()
           .describe(
-            'Directory to create the project in. The directory should already exist.',
+            'Directory to create the project in. If omitted, a temporary directory is created. ' +
+            'If provided, the directory must already exist and not contain gerbil.pkg, Makefile, or build.ss.',
           ),
         package: z
           .string()
@@ -36,6 +55,41 @@ export function registerScaffoldTool(server: McpServer): void {
       },
     },
     async ({ project_path, package: pkg, name, link }) => {
+      // Resolve target directory: use provided path or create a temp dir.
+      let targetDir: string;
+      let createdTmp = false;
+      if (project_path) {
+        targetDir = project_path;
+      } else {
+        const dirName = name ?? `gerbil-project-${randomUUID().slice(0, 8)}`;
+        targetDir = join(tmpdir(), dirName);
+        await mkdir(targetDir, { recursive: true });
+        createdTmp = true;
+      }
+
+      // Safety check: refuse to overwrite existing project files.
+      const conflicts: string[] = [];
+      for (const file of CONFLICT_FILES) {
+        if (await fileExists(join(targetDir, file))) {
+          conflicts.push(file);
+        }
+      }
+      if (conflicts.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                `Refusing to scaffold: the target directory already contains ${conflicts.join(', ')}. ` +
+                `Running gxpkg new here would overwrite existing files.\n\n` +
+                `Target: ${targetDir}\n\n` +
+                `Use an empty directory or omit project_path to create a temporary directory.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const args: string[] = ['new'];
       if (pkg) {
         args.push('--package', pkg);
@@ -48,7 +102,7 @@ export function registerScaffoldTool(server: McpServer): void {
       }
 
       const result = await runGxpkg(args, {
-        cwd: project_path,
+        cwd: targetDir,
         timeout: 30_000,
       });
 
@@ -94,8 +148,11 @@ export function registerScaffoldTool(server: McpServer): void {
       }
 
       const sections: string[] = [
-        `Project scaffolded in ${project_path}.`,
+        `Project scaffolded in ${targetDir}.`,
       ];
+      if (createdTmp) {
+        sections.push(`(created temporary directory)`);
+      }
       if (output) {
         sections.push('');
         sections.push(output);
