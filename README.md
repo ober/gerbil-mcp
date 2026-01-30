@@ -139,12 +139,13 @@ Add the server to `~/.copilot/mcp-config.json`:
 {
   "mcpServers": {
     "gerbil": {
-      "type": "stdio",
+      "type": "local",
       "command": "node",
       "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
       "env": {
         "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
-      }
+      },
+      "tools": ["*"]
     }
   }
 }
