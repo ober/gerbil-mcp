@@ -155,13 +155,13 @@ To auto-load Gerbil-specific instructions for the CLI in your project, copy the 
 
 ```sh
 mkdir -p .github
-cp /path/to/gerbil-mcp/copilot-instructions.md.example .github/copilot-instructions.md
+cp /path/to/gerbil-mcp/copilot-instructions.md.gerbil-example .github/copilot-instructions.md
 ```
 
 Or for global instructions across all projects, copy to `~/.copilot-instructions.md`:
 
 ```sh
-cp /path/to/gerbil-mcp/copilot-instructions.md.example ~/.copilot-instructions.md
+cp /path/to/gerbil-mcp/copilot-instructions.md.gerbil-example ~/.copilot-instructions.md
 ```
 
 ### Other MCP clients
