@@ -157,6 +157,12 @@ mkdir -p .github
 cp /path/to/gerbil-mcp/copilot-instructions.md.example .github/copilot-instructions.md
 ```
 
+Or for global instructions across all projects, copy to `~/.copilot-instructions.md`:
+
+```sh
+cp /path/to/gerbil-mcp/copilot-instructions.md.example ~/.copilot-instructions.md
+```
+
 ### Other MCP clients
 
 Any MCP-compatible client can connect using the stdio transport. The server reads JSON-RPC from stdin and writes to stdout:
