@@ -20,34 +20,23 @@ npm run build
 
 ### Claude Code
 
-Add to `~/.claude/settings.json`:
+Add the MCP server using the CLI (user scope — available across all projects):
 
-```json
-{
-  "mcpServers": {
-    "gerbil": {
-      "command": "node",
-      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
-      "env": {
-        "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
-      }
-    }
-  }
-}
+```sh
+claude mcp add -s user gerbil \
+  -e GERBIL_MCP_GXI_PATH=/opt/gerbil/bin/gxi \
+  -- node /absolute/path/to/gerbil-mcp/dist/index.js
 ```
 
-Or for a specific project, create `.mcp.json` in the project root:
+Or for a single project only:
 
-```json
-{
-  "mcpServers": {
-    "gerbil": {
-      "command": "node",
-      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"]
-    }
-  }
-}
+```sh
+claude mcp add -s project gerbil \
+  -e GERBIL_MCP_GXI_PATH=/opt/gerbil/bin/gxi \
+  -- node /absolute/path/to/gerbil-mcp/dist/index.js
 ```
+
+This writes the config to `~/.claude.json` (user scope) or `.mcp.json` in the project root (project scope). Start a new Claude Code session to pick up the server.
 
 ### Other MCP clients
 
