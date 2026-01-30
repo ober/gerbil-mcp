@@ -1,11 +1,11 @@
 # gerbil-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, and maintain persistent REPL sessions — all against a real Gerbil runtime instead of guessing from training data.
+An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, manage packages, scaffold projects, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
 
 ## Prerequisites
 
 - **Node.js** >= 18
-- **Gerbil Scheme** installed with `gxi` and `gxc` available (tested with v0.19+)
+- **Gerbil Scheme** installed with `gxi`, `gxc`, and `gxpkg` available (tested with v0.19+)
 
 ## Install
 
@@ -557,6 +557,143 @@ Show the full Gerbil exception/error class hierarchy as a tree.
      ...
 ```
 
+### gerbil_version
+
+Report Gerbil and Gambit versions, installation path, and system type. No parameters required.
+
+```
+=> Gerbil Environment
+
+   Gerbil version: v0.19-dev
+   Gambit version: v4.9.7-6-g64f4d369
+   Gerbil home: /opt/gerbil/v0.19-dev/
+   System type: (os . "linux")
+```
+
+### gerbil_scaffold
+
+Create a new Gerbil project from a template using `gxpkg new`. Generates `gerbil.pkg`, `build.ss`, and initial source files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory to create the project in (must already exist) |
+| `package` | string | no | Package prefix (default: current username) |
+| `name` | string | no | Package name (default: directory name) |
+| `link` | string | no | Public package link (e.g. `"github.com/user/project"`) |
+
+```
+project_path: "/tmp/my-project", package: "myapp", link: "github.com/user/my-project"
+=> Project scaffolded in /tmp/my-project.
+```
+
+### gerbil_package_manage
+
+Install, update, or uninstall Gerbil packages.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | yes | `"install"`, `"update"`, or `"uninstall"` |
+| `package` | string | yes | Package name, optionally with `@tag`. Use `"all"` with update. |
+| `global_env` | boolean | no | Use global environment even in local package context |
+| `force` | boolean | no | Force the action (only applies to uninstall) |
+| `cwd` | string | no | Working directory for local package context |
+
+```
+action: "install", package: "github.com/mighty-gerbils/gerbil-crypto"
+=> Package github.com/mighty-gerbils/gerbil-crypto installed successfully.
+
+action: "update", package: "all"
+=> Package all updated successfully.
+
+action: "uninstall", package: "github.com/mighty-gerbils/gerbil-crypto", force: true
+=> Package github.com/mighty-gerbils/gerbil-crypto uninstalled successfully.
+```
+
+### gerbil_find_callers
+
+Find all files that reference a given symbol. Recursively scans `.ss` files in a directory for occurrences and reports file paths with line numbers.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | yes | Symbol name to find usages of |
+| `directory` | string | yes | Directory to search in (absolute path) |
+| `module_path` | string | no | Module the symbol comes from, for import verification |
+
+```
+symbol: "read-json", directory: "/path/to/project"
+=> References to "read-json" (2 files):
+
+     /path/to/project/server.ss
+       lines: 15,28
+     /path/to/project/api.ss
+       lines: 7
+
+symbol: "read-json", directory: "/path/to/project", module_path: ":std/text/json"
+=> References to "read-json" (1 file):
+
+     /path/to/project/server.ss
+       lines: 15,28
+```
+
+### gerbil_suggest_imports
+
+Find which standard library module exports a given symbol. Scans common `:std/*` modules and reports matching import statements.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | yes | Symbol to find the import for |
+
+```
+symbol: "read-json"
+=> Symbol "read-json" is exported by:
+
+     (import :std/text/json)
+
+symbol: "for/collect"
+=> Symbol "for/collect" is exported by:
+
+     (import :std/iter)
+```
+
+For less common modules, use `gerbil_apropos` + `gerbil_module_exports` as a fallback.
+
+## Prompts
+
+The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
+
+### explain-code
+
+Explain a piece of Gerbil Scheme code with awareness of Gerbil-specific idioms (bracket list syntax, keyword colons, dot-syntax methods, macros).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The Gerbil Scheme code to explain |
+
+### convert-to-gerbil
+
+Convert code from another language to idiomatic Gerbil Scheme, following Gerbil conventions (`def`, brackets, `:std/iter`, `match`, `chain`, etc.).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The source code to convert |
+| `source_language` | string | no | Source language (auto-detected if omitted) |
+
+### generate-tests
+
+Generate comprehensive tests for a Gerbil module using the `:std/test` framework, following naming conventions (`*-test.ss`, `*-test` export).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `module_path` | string | yes | Module path to generate tests for |
+
+### review-code
+
+Review Gerbil Scheme code for issues with a checklist of common Gerbil pitfalls (`define` vs `def`, `#f` vs `'()`, missing `-O`, unsafe declares, etc.).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The Gerbil Scheme code to review |
+
 ## How It Works
 
 Most tools invoke `gxi -e` as a short-lived subprocess — no persistent state between calls. Expressions are wrapped in error-handling code using `with-catch` and output structured markers (`GERBIL-MCP-RESULT:` / `GERBIL-MCP-ERROR:`) that the TypeScript layer parses.
@@ -565,7 +702,7 @@ The `gerbil_compile_check` tool uses `gxc -S` (the Gerbil compiler in expand-onl
 
 The `gerbil_repl_session` tool spawns a persistent `gxi` subprocess with piped stdin/stdout, using a sentinel-based protocol to delimit expression output across multiple evaluations.
 
-The `gerbil_build_project` and `gerbil_package_info` tools invoke `gxpkg` as a subprocess for package management and project building.
+The `gerbil_build_project`, `gerbil_package_info`, `gerbil_scaffold`, and `gerbil_package_manage` tools invoke `gxpkg` as a subprocess for package management, project scaffolding, and building.
 
 User input is injected via `(read (open-input-string ...))` rather than string interpolation, letting Scheme's reader handle all quoting. Subprocess execution uses `execFile` (not `exec`) to avoid shell injection.
 
@@ -573,8 +710,9 @@ User input is injected via `(read (open-input-string ...))` rather than string i
 
 ```
 src/
-  index.ts                Server entry point, tool registration
+  index.ts                Server entry point, tool & prompt registration
   gxi.ts                  gxi/gxc/gxpkg subprocess wrapper, REPL session manager
+  prompts.ts              MCP prompt templates (explain, convert, test, review)
   tools/
     eval.ts               gerbil_eval
     module-exports.ts     gerbil_module_exports
@@ -592,12 +730,17 @@ src/
     run-tests.ts          gerbil_run_tests
     ffi-inspect.ts        gerbil_ffi_inspect
     class-info.ts         gerbil_class_info
-    find-definition.ts  gerbil_find_definition
-    build-project.ts    gerbil_build_project
-    package-info.ts     gerbil_package_info
-    format.ts           gerbil_format
-    benchmark.ts        gerbil_benchmark
-    error-hierarchy.ts  gerbil_error_hierarchy
+    find-definition.ts    gerbil_find_definition
+    build-project.ts      gerbil_build_project
+    package-info.ts       gerbil_package_info
+    format.ts             gerbil_format
+    benchmark.ts          gerbil_benchmark
+    error-hierarchy.ts    gerbil_error_hierarchy
+    version.ts            gerbil_version
+    scaffold.ts           gerbil_scaffold
+    package-manage.ts     gerbil_package_manage
+    find-callers.ts       gerbil_find_callers
+    suggest-imports.ts    gerbil_suggest_imports
 ```
 
 ## License

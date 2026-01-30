@@ -24,6 +24,12 @@ import { registerPackageInfoTool } from './tools/package-info.js';
 import { registerFormatTool } from './tools/format.js';
 import { registerBenchmarkTool } from './tools/benchmark.js';
 import { registerErrorHierarchyTool } from './tools/error-hierarchy.js';
+import { registerVersionTool } from './tools/version.js';
+import { registerScaffoldTool } from './tools/scaffold.js';
+import { registerPackageManageTool } from './tools/package-manage.js';
+import { registerFindCallersTool } from './tools/find-callers.js';
+import { registerSuggestImportsTool } from './tools/suggest-imports.js';
+import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -49,6 +55,11 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To format Gerbil code: use gerbil_format to pretty-print expressions using Gambit's pretty-print.
 - To benchmark expressions: use gerbil_benchmark to measure wall-clock time, CPU time, GC stats, and memory allocation.
 - To understand error types: use gerbil_error_hierarchy to see the full exception/error class hierarchy tree.
+- To check environment: use gerbil_version to see Gerbil/Gambit versions, home directory, and system info.
+- To create a new project: use gerbil_scaffold to generate a project template with gerbil.pkg and build.ss.
+- To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages.
+- To find symbol usages: use gerbil_find_callers to search a directory for files that reference a given symbol.
+- To find imports: use gerbil_suggest_imports to discover which module exports a given symbol.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -79,6 +90,13 @@ registerPackageInfoTool(server);
 registerFormatTool(server);
 registerBenchmarkTool(server);
 registerErrorHierarchyTool(server);
+registerVersionTool(server);
+registerScaffoldTool(server);
+registerPackageManageTool(server);
+registerFindCallersTool(server);
+registerSuggestImportsTool(server);
+
+registerPrompts(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -1,12 +1,22 @@
-.PHONY: all install build clean
+ARCH := $(shell uname -m)
+DOCKER_IMAGE := "gerbil/gerbilxx:$(ARCH)"
+default: linux-static
 
-all: install build
+build-release:
+	/opt/gerbil/bin/gxpkg deps -i
+	/opt/gerbil/bin/gxpkg build --release
+
+linux-static:
+	docker run -it \
+	-e USER=$(USER) \
+	-e GERBIL_PATH=/src/.gerbil \
+	-v $(PWD):/src:z \
+	$(DOCKER_IMAGE) \
+	make -C /src/ build-release
 
 install:
-	npm install
-
-build:
-	npm run build
+	mv .gerbil/bin/gerbil-mcp /usr/local/bin/gerbil-mcp
 
 clean:
-	rm -rf dist node_modules
+	gerbil clean
+	gerbil clean all

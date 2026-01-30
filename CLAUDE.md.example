@@ -39,11 +39,19 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
 - **`gerbil_run_tests`**: Execute `:std/test` files and see pass/fail results with failure details.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
+- **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.
+- **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
 
 ### For Code Quality
 
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
+
+### For Navigation and Discovery
+
+- **`gerbil_find_callers`**: Find all files in a directory that reference a given symbol, with line numbers.
+- **`gerbil_suggest_imports`**: Discover which standard library module exports a given symbol.
+- **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
 
 ### Key Principle
 
