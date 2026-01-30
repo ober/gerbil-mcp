@@ -29,6 +29,12 @@ import { registerScaffoldTool } from './tools/scaffold.js';
 import { registerPackageManageTool } from './tools/package-manage.js';
 import { registerFindCallersTool } from './tools/find-callers.js';
 import { registerSuggestImportsTool } from './tools/suggest-imports.js';
+import { registerDiagnosticsTool } from './tools/diagnostics.js';
+import { registerDocumentSymbolsTool } from './tools/document-symbols.js';
+import { registerWorkspaceSymbolsTool } from './tools/workspace-symbols.js';
+import { registerRenameSymbolTool } from './tools/rename-symbol.js';
+import { registerLintTool } from './tools/lint.js';
+import { registerProjectInfoTool } from './tools/project-info.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -60,6 +66,12 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages.
 - To find symbol usages: use gerbil_find_callers to search a directory for files that reference a given symbol.
 - To find imports: use gerbil_suggest_imports to discover which module exports a given symbol.
+- To get structured diagnostics: use gerbil_diagnostics for file/project compilation diagnostics with file, line, column, severity.
+- To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
+- To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
+- To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, compilation errors).
+- To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -95,6 +107,12 @@ registerScaffoldTool(server);
 registerPackageManageTool(server);
 registerFindCallersTool(server);
 registerSuggestImportsTool(server);
+registerDiagnosticsTool(server);
+registerDocumentSymbolsTool(server);
+registerWorkspaceSymbolsTool(server);
+registerRenameSymbolTool(server);
+registerLintTool(server);
+registerProjectInfoTool(server);
 
 registerPrompts(server);
 

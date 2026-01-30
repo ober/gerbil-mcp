@@ -44,14 +44,26 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Code Quality
 
+- **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, and compilation errors.
+- **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
 
 ### For Navigation and Discovery
 
+- **`gerbil_document_symbols`**: List all definitions in a file with name, kind, and line number.
+- **`gerbil_workspace_symbols`**: Search for symbol definitions across all `.ss` files in a project directory.
 - **`gerbil_find_callers`**: Find all files in a directory that reference a given symbol, with line numbers.
 - **`gerbil_suggest_imports`**: Discover which standard library module exports a given symbol.
 - **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
+
+### For Refactoring
+
+- **`gerbil_rename_symbol`**: Rename a symbol across all `.ss` files in a project with word-boundary safety. Dry-run by default.
+
+### For Project Context
+
+- **`gerbil_project_info`**: Single-call project summary: package name, build targets, source files, and external dependencies.
 
 ### Key Principle
 
