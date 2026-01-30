@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Gerbil
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev
+          # Install Gambit
+          git clone --depth 1 https://github.com/gambit/gambit.git /tmp/gambit
+          cd /tmp/gambit
+          ./configure --enable-single-host --prefix=/opt/gambit
+          make -j$(nproc)
+          sudo make install
+          # Install Gerbil
+          git clone --depth 1 https://github.com/mighty-gerbils/gerbil.git /tmp/gerbil
+          cd /tmp/gerbil
+          ./configure --prefix=/opt/gerbil --with-gambit=/opt/gambit
+          make -j$(nproc)
+          sudo make install
+          echo "/opt/gerbil/bin" >> $GITHUB_PATH
+
+      - name: Verify Gerbil installation
+        run: |
+          gxi -e '(displayln (gerbil-version-string))'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm run test

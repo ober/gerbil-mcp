@@ -155,7 +155,7 @@ function buildFindCallersExpr(
     '                (lambda ()',
     '                  (cond',
     '                    ((string-prefix? "." entry) (void))',
-    '                    ((file-info-directory? (file-info path #t))',
+    '                    ((eq? (quote directory) (file-info-type (file-info path #t)))',
     '                     (scan-dir path))',
     '                    ((string-suffix? ".ss" entry)',
     '                     (scan-file path)))))))',
