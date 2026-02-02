@@ -38,6 +38,20 @@ claude mcp add -s project gerbil \
 
 This writes the config to `~/.claude.json` (user scope) or `.mcp.json` in the project root (project scope). Start a new Claude Code session to pick up the server.
 
+#### Auto-approve all Gerbil tools
+
+By default Claude Code asks for confirmation each time an MCP tool is called. Since the Gerbil tools are read-only introspection (no filesystem writes, no network access), you can safely auto-approve them all with a wildcard in your settings file (`~/.claude/settings.json` for user scope, or `.claude/settings.json` in a project):
+
+```json
+{
+  "permissions": {
+    "allowedTools": [
+      "mcp__gerbil__*"
+    ]
+  }
+}
+```
+
 ### GitHub Copilot (VS Code)
 
 Add a `.vscode/mcp.json` file to your project:
