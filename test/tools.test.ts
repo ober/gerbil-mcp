@@ -187,6 +187,41 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Balance checking fixtures
+    writeFileSync(
+      join(TEST_DIR, 'balanced.ss'),
+      `(import :std/text/json)
+(def (f x) (+ x 1))
+(def (g y) [y (+ y 2)])
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'unclosed.ss'),
+      `(def (f x)
+  (+ x 1)
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'extra-close.ss'),
+      `(def (f x) (+ x 1)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'mismatch.ss'),
+      `(def (f x) [+ x 1)
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'reader-error.ss'),
+      `(def (f x) (+ x 1))
+(def (g y "unterminated
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -476,6 +511,85 @@ describe('Gerbil MCP Tools', () => {
       expect(result.isError).toBe(false);
       // May have no packages installed, which is fine
       expect(result.text).toBeDefined();
+    });
+  });
+
+  describe('Balance checking tools', () => {
+    it('gerbil_check_balance reports balanced file', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        file_path: join(TEST_DIR, 'balanced.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance OK');
+      expect(result.text).toContain('top-level form');
+    });
+
+    it('gerbil_check_balance detects unclosed delimiter', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        file_path: join(TEST_DIR, 'unclosed.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text.toLowerCase()).toContain('unclosed');
+    });
+
+    it('gerbil_check_balance detects extra closer', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        file_path: join(TEST_DIR, 'extra-close.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text.toLowerCase()).toContain('unexpected');
+    });
+
+    it('gerbil_check_balance detects mismatched delimiters', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        file_path: join(TEST_DIR, 'mismatch.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text.toLowerCase()).toContain('mismatch');
+    });
+
+    it('gerbil_check_balance ignores parens in strings', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def x "hello (world) [foo]")',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance OK');
+    });
+
+    it('gerbil_check_balance ignores parens in comments', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def x 1) ; unclosed ( in comment\n#| nested ([ |#\n(def y 2)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance OK');
+    });
+
+    it('gerbil_check_balance works with inline code', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def (f x) (+ x 1)',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text.toLowerCase()).toContain('unclosed');
+    });
+  });
+
+  describe('Read forms tool', () => {
+    it('gerbil_read_forms lists forms with line numbers', async () => {
+      const result = await client.callTool('gerbil_read_forms', {
+        file_path: join(TEST_DIR, 'sample.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Forms');
+      expect(result.text).toContain('import');
+      expect(result.text).toContain('def');
+    });
+
+    it('gerbil_read_forms reports reader errors', async () => {
+      const result = await client.callTool('gerbil_read_forms', {
+        file_path: join(TEST_DIR, 'reader-error.ss'),
+      });
+      // Should report the error
+      expect(result.text.toLowerCase()).toContain('error');
     });
   });
 

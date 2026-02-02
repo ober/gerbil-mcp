@@ -35,6 +35,8 @@ import { registerWorkspaceSymbolsTool } from './tools/workspace-symbols.js';
 import { registerRenameSymbolTool } from './tools/rename-symbol.js';
 import { registerLintTool } from './tools/lint.js';
 import { registerProjectInfoTool } from './tools/project-info.js';
+import { registerCheckBalanceTool } from './tools/check-balance.js';
+import { registerReadFormsTool } from './tools/read-forms.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -72,6 +74,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
 - To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
+- To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
+- To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -113,6 +117,8 @@ registerWorkspaceSymbolsTool(server);
 registerRenameSymbolTool(server);
 registerLintTool(server);
 registerProjectInfoTool(server);
+registerCheckBalanceTool(server);
+registerReadFormsTool(server);
 
 registerPrompts(server);
 
