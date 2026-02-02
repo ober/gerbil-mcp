@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 40 tests must pass before considering any change complete. The test suite covers:
+All 45 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -43,7 +43,8 @@ All 40 tests must pass before considering any change complete. The test suite co
 - Balance checking tools (delimiter balance, inline code)
 - Read forms tool (top-level form listing, reader errors)
 - Project tools (workspace symbols, find callers, rename)
-- REPL session tools (create, eval, destroy lifecycle)
+- REPL session tools (create, eval, destroy lifecycle, loadpath, project_path)
+- Run tests tool (timeout parameter)
 
 ### Adding a New Tool
 
@@ -56,9 +57,12 @@ All 40 tests must pass before considering any change complete. The test suite co
 ### Common Patterns
 
 - Tool implementations use `runGxi()` to invoke Gerbil expressions
+- Use `runGxiFile()` to run a `.ss` file directly (used by `run-tests`)
 - Use `escapeSchemeString()` for user input embedded in Scheme code
+- Use `buildLoadpathEnv()` to construct `GERBIL_LOADPATH` env overlay from a loadpath array
 - Use markers like `GERBIL-MCP-RESULT:` to delimit output for parsing
 - Wrap Scheme code in `(with-catch ...)` for error handling
+- Pass custom env to subprocesses via the `env` field in `GxiOptions` (used by loadpath support)
 
 ## Testing Details
 

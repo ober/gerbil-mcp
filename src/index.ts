@@ -43,18 +43,18 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
-- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions.
-- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues.
+- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath to import project-local modules.
+- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath for project context.
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
 - When understanding macros: use gerbil_expand_macro to see what sugar forms expand to.
 - BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities, avoiding wrong number of arguments errors.
 - When understanding module structure: use gerbil_module_deps to see what a module imports and depends on.
 - When analyzing user code: use gerbil_load_file to extract definitions from Gerbil source files.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
-- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues beyond syntax checking.
+- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Enhanced error messages help diagnose internal compiler crashes.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
-- For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations (define functions, import modules, test incrementally).
-- To run test suites: use gerbil_run_tests to execute :std/test files and see pass/fail results with failure details.
+- For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context.
+- To run test suites: use gerbil_run_tests to execute :std/test files and see pass/fail results. Use timeout for long-running test suites.
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
 - To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol.

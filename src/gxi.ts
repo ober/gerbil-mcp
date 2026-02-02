@@ -13,6 +13,7 @@ export interface GxiResult {
 export interface GxiOptions {
   timeout?: number;
   gxiPath?: string;
+  env?: Record<string, string>;
 }
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -66,7 +67,7 @@ export async function runGxi(
       {
         timeout,
         maxBuffer: MAX_BUFFER,
-        env: { ...process.env },
+        env: { ...process.env, ...options?.env },
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -138,7 +139,7 @@ export async function runGxc(
       {
         timeout,
         maxBuffer: MAX_BUFFER,
-        env: { ...process.env },
+        env: { ...process.env, ...options?.env },
       },
       (error, stdout, stderr) => {
         if (error) {
@@ -257,6 +258,66 @@ export function escapeSchemeString(s: string): string {
     .replace(/\t/g, '\\t');
 }
 
+/**
+ * Build environment overlay for GERBIL_LOADPATH.
+ * Merges with any existing GERBIL_LOADPATH from process.env.
+ */
+export function buildLoadpathEnv(
+  loadpath: string[],
+): Record<string, string> {
+  if (loadpath.length === 0) return {};
+  const existing = process.env.GERBIL_LOADPATH ?? '';
+  const parts = [...loadpath, ...(existing ? [existing] : [])];
+  return { GERBIL_LOADPATH: parts.join(':') };
+}
+
+// ── Run gxi with a file argument ──────────────────────────────────
+
+export async function runGxiFile(
+  filePath: string,
+  options?: GxiOptions,
+): Promise<GxiResult> {
+  const gxiPath = await findGxi(options?.gxiPath);
+  const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
+
+  return new Promise((resolve) => {
+    execFile(
+      gxiPath,
+      [filePath],
+      {
+        timeout,
+        maxBuffer: MAX_BUFFER,
+        env: { ...process.env, ...options?.env },
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const timedOut = error.killed === true;
+          const code = (error as NodeJS.ErrnoException).code;
+          const exitCode =
+            typeof error.code === 'number'
+              ? error.code
+              : code === 'ENOENT'
+                ? 127
+                : 1;
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode,
+            timedOut,
+          });
+        } else {
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+      },
+    );
+  });
+}
+
 // ── Markers used by tools to delimit output ────────────────────────
 
 export const RESULT_MARKER = 'GERBIL-MCP-RESULT:';
@@ -297,7 +358,9 @@ function cleanupIdleSessions(): void {
   }
 }
 
-export async function createReplSession(): Promise<{
+export async function createReplSession(options?: {
+  env?: Record<string, string>;
+}): Promise<{
   id: string;
   error?: string;
 }> {
@@ -315,7 +378,7 @@ export async function createReplSession(): Promise<{
 
   const proc = spawn(gxiPath, [], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env },
+    env: { ...process.env, ...options?.env },
   });
 
   const session: ReplSession = {

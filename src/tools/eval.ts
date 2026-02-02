@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { runGxi, escapeSchemeString, RESULT_MARKER, ERROR_MARKER } from '../gxi.js';
+import { runGxi, escapeSchemeString, RESULT_MARKER, ERROR_MARKER, buildLoadpathEnv } from '../gxi.js';
 
 export function registerEvalTool(server: McpServer): void {
   server.registerTool(
@@ -19,9 +19,16 @@ export function registerEvalTool(server: McpServer): void {
           .describe(
             'Module paths to import before evaluation (e.g. [":std/text/json", ":std/iter"])',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution ' +
+            '(e.g. ["/path/to/project/.gerbil/lib"])',
+          ),
       },
     },
-    async ({ expression, imports }) => {
+    async ({ expression, imports, loadpath }) => {
       const escaped = escapeSchemeString(expression);
 
       const exprs: string[] = [];
@@ -50,7 +57,8 @@ export function registerEvalTool(server: McpServer): void {
 
       exprs.push(wrapper);
 
-      const result = await runGxi(exprs);
+      const env = loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
+      const result = await runGxi(exprs, { env });
 
       if (result.timedOut) {
         return {

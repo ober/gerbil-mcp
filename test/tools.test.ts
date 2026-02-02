@@ -222,6 +222,21 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Minimal test file for run_tests timeout test
+    writeFileSync(
+      join(TEST_DIR, 'timeout-test.ss'),
+      `(import :std/test)
+(def timeout-test
+  (test-suite "timeout"
+    (test-case "fast" (check (+ 1 1) => 2))))
+(run-tests! timeout-test)
+(test-report-summary!)
+`,
+    );
+
+    // Package file for project tools and REPL project_path tests
+    writeFileSync(join(TEST_DIR, 'gerbil.pkg'), '(package: test-pkg)');
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -257,6 +272,16 @@ describe('Gerbil MCP Tools', () => {
       expect(result.text).toContain('a');
     });
 
+    it('gerbil_eval accepts loadpath parameter', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(+ 1 2)',
+        loadpath: ['/nonexistent/path'],
+      });
+      // Should still work — loadpath just adds to env
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('3');
+    });
+
     it('gerbil_check_syntax validates correct code', async () => {
       const result = await client.callTool('gerbil_check_syntax', {
         code: '(define (f x) (+ x 1))',
@@ -276,6 +301,15 @@ describe('Gerbil MCP Tools', () => {
     it('gerbil_compile_check validates compilable code', async () => {
       const result = await client.callTool('gerbil_compile_check', {
         code: '(import :std/text/json) (define (f x) (read-json x))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('passed');
+    });
+
+    it('gerbil_compile_check accepts loadpath parameter', async () => {
+      const result = await client.callTool('gerbil_compile_check', {
+        code: '(import :std/text/json) (define (f x) (read-json x))',
+        loadpath: ['/nonexistent/path'],
       });
       expect(result.isError).toBe(false);
       expect(result.text).toContain('passed');
@@ -494,9 +528,6 @@ describe('Gerbil MCP Tools', () => {
     });
 
     it('gerbil_project_info shows project metadata', async () => {
-      // Create a minimal gerbil.pkg
-      writeFileSync(join(TEST_DIR, 'gerbil.pkg'), '(package: test-pkg)');
-
       const result = await client.callTool('gerbil_project_info', {
         project_path: TEST_DIR,
       });
@@ -593,6 +624,17 @@ describe('Gerbil MCP Tools', () => {
     });
   });
 
+  describe('Run tests tool', () => {
+    it('gerbil_run_tests accepts timeout parameter', async () => {
+      const result = await client.callTool('gerbil_run_tests', {
+        file_path: join(TEST_DIR, 'timeout-test.ss'),
+        timeout: 60000,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('PASSED');
+    });
+  });
+
   describe('REPL session tools', () => {
     it('gerbil_repl_session creates and uses sessions', async () => {
       // Create session
@@ -638,6 +680,45 @@ describe('Gerbil MCP Tools', () => {
       });
       expect(destroyResult.isError).toBe(false);
       expect(destroyResult.text).toContain('destroyed');
+    });
+
+    it('gerbil_repl_session create accepts loadpath', async () => {
+      const createResult = await client.callTool('gerbil_repl_session', {
+        action: 'create',
+        loadpath: ['/tmp/test-loadpath'],
+      });
+      expect(createResult.isError).toBe(false);
+      expect(createResult.text).toContain('Session created');
+      expect(createResult.text).toContain('GERBIL_LOADPATH');
+
+      // Clean up session
+      const match = createResult.text.match(/Session created: (\w+)/);
+      if (match) {
+        await client.callTool('gerbil_repl_session', {
+          action: 'destroy',
+          session_id: match[1],
+        });
+      }
+    });
+
+    it('gerbil_repl_session create accepts project_path', async () => {
+      const createResult = await client.callTool('gerbil_repl_session', {
+        action: 'create',
+        project_path: TEST_DIR,
+      });
+      expect(createResult.isError).toBe(false);
+      expect(createResult.text).toContain('Session created');
+      expect(createResult.text).toContain('GERBIL_LOADPATH');
+      expect(createResult.text).toContain('test-pkg');
+
+      // Clean up session
+      const match = createResult.text.match(/Session created: (\w+)/);
+      if (match) {
+        await client.callTool('gerbil_repl_session', {
+          action: 'destroy',
+          session_id: match[1],
+        });
+      }
     });
   });
 });

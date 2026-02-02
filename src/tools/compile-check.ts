@@ -4,7 +4,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { runGxc } from '../gxi.js';
+import { runGxc, buildLoadpathEnv } from '../gxi.js';
 
 export function registerCompileCheckTool(server: McpServer): void {
   server.registerTool(
@@ -27,9 +27,15 @@ export function registerCompileCheckTool(server: McpServer): void {
           .describe(
             'Path to a .ss/.scm file to compile-check (alternative to code)',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution',
+          ),
       },
     },
-    async ({ code, file_path }) => {
+    async ({ code, file_path, loadpath }) => {
       if (!code && !file_path) {
         return {
           content: [
@@ -70,7 +76,8 @@ export function registerCompileCheckTool(server: McpServer): void {
       }
 
       try {
-        const result = await runGxc(targetPath);
+        const env = loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
+        const result = await runGxc(targetPath, { env });
 
         if (result.timedOut) {
           return {
@@ -104,11 +111,12 @@ export function registerCompileCheckTool(server: McpServer): void {
             errorOutput = errorOutput.replaceAll(targetPath, '<input>');
           }
 
+          const enhanced = enhanceGxcError(errorOutput);
           return {
             content: [
               {
                 type: 'text' as const,
-                text: `Compilation errors found:\n\n${errorOutput}`,
+                text: `Compilation errors found:\n\n${enhanced}`,
               },
             ],
             isError: true,
@@ -137,4 +145,60 @@ export function registerCompileCheckTool(server: McpServer): void {
       }
     },
   );
+}
+
+function enhanceGxcError(errorOutput: string): string {
+  const sections: string[] = [errorOutput];
+
+  // Detect known compiler-internal crash patterns
+  const internalPatterns = [
+    {
+      pattern: /stx-car-e/,
+      hint: 'The compiler tried to destructure a non-pair syntax object (stx-car-e). This usually means a macro or form produced unexpected syntax. Try simplifying the expression — e.g., replace (or ...) with (let ((v ...)) (if v v ...)).',
+    },
+    {
+      pattern: /gx-core-expand/,
+      hint: 'The compiler crashed during core expansion. The code may use a macro form incorrectly.',
+    },
+    {
+      pattern: /code generation/i,
+      hint: 'The compiler crashed during code generation. This may be a gxc bug or an unsupported code pattern.',
+    },
+    {
+      pattern: /Segmentation fault|SIGSEGV/,
+      hint: 'The compiler segfaulted. This is almost certainly a gxc bug.',
+    },
+    {
+      pattern: /##raise-heap-overflow/,
+      hint: 'The compiler ran out of heap space. The code may have deeply nested or recursive macro expansions.',
+    },
+  ];
+
+  for (const { pattern, hint } of internalPatterns) {
+    if (pattern.test(errorOutput)) {
+      sections.push('');
+      sections.push(`Hint: ${hint}`);
+      break;
+    }
+  }
+
+  // Try to extract source location from expansion context
+  const contextMatch = errorOutput.match(
+    /--- expansion context ---[\s\S]*?at:\s+(.+)/,
+  );
+  if (contextMatch) {
+    sections.push('');
+    sections.push(`Expansion context location: ${contextMatch[1]}`);
+  }
+
+  // Extract the first "at:" location if present (but not if already found above)
+  if (!contextMatch) {
+    const atMatch = errorOutput.match(/at:\s+([^\n]+)/);
+    if (atMatch) {
+      sections.push('');
+      sections.push(`Error location: ${atMatch[1]}`);
+    }
+  }
+
+  return sections.join('\n');
 }

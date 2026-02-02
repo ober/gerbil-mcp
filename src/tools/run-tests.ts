@@ -1,5 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { runGxiFile } from '../gxi.js';
+
 export function registerRunTestsTool(server: McpServer): void {
   server.registerTool(
     'gerbil_run_tests',
@@ -16,17 +18,24 @@ export function registerRunTestsTool(server: McpServer): void {
           .describe(
             'Path to a .ss test file that uses :std/test',
           ),
+        timeout: z
+          .number()
+          .optional()
+          .describe(
+            'Timeout in milliseconds for test execution (default: 30000)',
+          ),
       },
     },
-    async ({ file_path }) => {
-      const testResult = await runGxiFile(file_path);
+    async ({ file_path, timeout }) => {
+      const effectiveTimeout = timeout ?? 30_000;
+      const testResult = await runGxiFile(file_path, { timeout: effectiveTimeout });
 
       if (testResult.timedOut) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'Test execution timed out after 30 seconds.',
+              text: `Test execution timed out after ${Math.round(effectiveTimeout / 1000)} seconds.`,
             },
           ],
           isError: true,
@@ -149,73 +158,4 @@ function parseTestOutput(output: string): TestParseResult {
     failures.length === 0;
 
   return { passed, failures, summary, checkCount };
-}
-
-// Run gxi with a file argument instead of -e expressions
-async function runGxiFile(
-  filePath: string,
-): Promise<{
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  timedOut: boolean;
-}> {
-  const { execFile } = await import('node:child_process');
-  const { access } = await import('node:fs/promises');
-  const { constants } = await import('node:fs');
-
-  // Find gxi
-  const candidates = [
-    process.env.GERBIL_MCP_GXI_PATH,
-    '/opt/gerbil/bin/gxi',
-    'gxi',
-  ].filter(Boolean) as string[];
-
-  let gxiPath = 'gxi';
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, constants.X_OK);
-      gxiPath = candidate;
-      break;
-    } catch {
-      // try next
-    }
-  }
-
-  return new Promise((resolve) => {
-    execFile(
-      gxiPath,
-      [filePath],
-      {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-        env: { ...process.env },
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const timedOut = error.killed === true;
-          const code = (error as NodeJS.ErrnoException).code;
-          const exitCode =
-            typeof error.code === 'number'
-              ? error.code
-              : code === 'ENOENT'
-                ? 127
-                : 1;
-          resolve({
-            stdout: stdout ?? '',
-            stderr: stderr ?? '',
-            exitCode,
-            timedOut,
-          });
-        } else {
-          resolve({
-            stdout: stdout ?? '',
-            stderr: stderr ?? '',
-            exitCode: 0,
-            timedOut: false,
-          });
-        }
-      },
-    );
-  });
 }

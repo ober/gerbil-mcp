@@ -205,6 +205,7 @@ Evaluate a Gerbil Scheme expression and return the result.
 |-----------|------|----------|-------------|
 | `expression` | string | yes | Gerbil expression to evaluate |
 | `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
 
 ```
 expression: "(+ 1 2)"
@@ -213,6 +214,11 @@ expression: "(+ 1 2)"
 expression: "(json-object->string (hash (\"a\" 1)))"
 imports: [":std/text/json"]
 => Result: "{\"a\":1}"
+
+expression: "(config-omit-events (load-config))"
+imports: [":myproject/config"]
+loadpath: ["/path/to/myproject/.gerbil/lib"]
+=> Result: ("event-a" "event-b")
 ```
 
 ### gerbil_module_exports
@@ -396,12 +402,13 @@ symbol: "when-let", module_path: ":std/sugar"
 
 ### gerbil_compile_check
 
-Run the Gerbil compiler (`gxc -S`) on code to catch compilation errors such as unbound identifiers that syntax checking alone misses. Validates the full compilation pipeline without producing C output.
+Run the Gerbil compiler (`gxc -S`) on code to catch compilation errors such as unbound identifiers that syntax checking alone misses. Validates the full compilation pipeline without producing C output. Enhanced error messages detect known compiler-internal crashes and provide diagnostic hints.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `code` | string | no | Gerbil source code to check (one of `code` or `file_path` required) |
 | `file_path` | string | no | Path to a `.ss` file to check |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
 
 ```
 code: "(import :std/text/json) (define (f x) (read-json x))"
@@ -412,7 +419,13 @@ code: "(import :std/text/json) (define (f x) (nonexistent-fn x))"
    *** ERROR IN "<input>"@1.42-1.56
    --- Syntax Error: Reference to unbound identifier
    ... detail: nonexistent-fn
+
+file_path: "/path/to/project/config.ss"
+loadpath: ["/path/to/project/.gerbil/lib"]
+=> Compilation check passed. /path/to/project/config.ss compiled successfully (gxc -S).
 ```
+
+When gxc hits internal errors (e.g., `stx-car-e`, code generation crashes), the tool appends a hint explaining the likely cause and suggesting workarounds.
 
 ### gerbil_trace_macro
 
@@ -452,22 +465,30 @@ Manage persistent Gerbil REPL sessions. State (definitions, imports, variables) 
 | `action` | string | yes | `"create"`, `"eval"`, `"destroy"`, or `"list"` |
 | `session_id` | string | no | Session ID (required for `eval` and `destroy`) |
 | `expression` | string | no | Expression to evaluate (required for `eval`) |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` (used with `create`) |
+| `project_path` | string | no | Project directory for auto-configuring `GERBIL_LOADPATH` from `.gerbil/lib` (used with `create`) |
 
 ```
 action: "create"
 => Session created: a1b2c3d4
+
+action: "create", project_path: "/path/to/myproject"
+=> Session created: b2c3d4e5
+   GERBIL_LOADPATH configured with:
+     /path/to/myproject/.gerbil/lib
+   Project package: myproject
+
+action: "create", loadpath: ["/path/to/myproject/.gerbil/lib", "/other/lib"]
+=> Session created: c3d4e5f6
+   GERBIL_LOADPATH configured with:
+     /path/to/myproject/.gerbil/lib
+     /other/lib
 
 action: "eval", session_id: "a1b2c3d4", expression: "(define x 42)"
 => (void)
 
 action: "eval", session_id: "a1b2c3d4", expression: "(+ x 10)"
 => 52
-
-action: "eval", session_id: "a1b2c3d4", expression: "(import :std/text/json)"
-=> (void)
-
-action: "eval", session_id: "a1b2c3d4", expression: "(json-object->string (hash (\"x\" x)))"
-=> {"x":42}
 
 action: "list"
 => Active REPL sessions (1):
@@ -479,6 +500,8 @@ action: "destroy", session_id: "a1b2c3d4"
 
 Sessions auto-expire after 10 minutes of inactivity. Maximum 5 concurrent sessions.
 
+When `project_path` is provided, the session automatically adds `{project_path}/.gerbil/lib` to the load path and reads `gerbil.pkg` for informational display. This lets you interactively import and test project-local modules without fighting import paths.
+
 ### gerbil_run_tests
 
 Run a Gerbil test file that uses `:std/test` and return structured results. The file should define test suites with `test-suite`/`test-case`/`check-equal?` etc., call `(run-tests!)` and `(test-report-summary!)`.
@@ -486,6 +509,7 @@ Run a Gerbil test file that uses `:std/test` and return structured results. The 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `file_path` | string | yes | Path to a `.ss` test file that uses `:std/test` |
+| `timeout` | number | no | Timeout in milliseconds for test execution (default: 30000) |
 
 ```
 file_path: "/path/to/tests.ss"
@@ -498,6 +522,10 @@ file_path: "/path/to/tests.ss"
 
    --- Full output ---
    ... check (+ 1 2) is equal? to 3
+   ...
+
+file_path: "/path/to/slow-tests.ss", timeout: 120000
+=> Result: PASSED
    ...
 ```
 
@@ -838,9 +866,11 @@ Review Gerbil Scheme code for issues with a checklist of common Gerbil pitfalls 
 
 Most tools invoke `gxi -e` as a short-lived subprocess — no persistent state between calls. Expressions are wrapped in error-handling code using `with-catch` and output structured markers (`GERBIL-MCP-RESULT:` / `GERBIL-MCP-ERROR:`) that the TypeScript layer parses.
 
-The `gerbil_compile_check` tool uses `gxc -S` (the Gerbil compiler in expand-only mode) to catch errors beyond what the expander alone detects.
+The `gerbil_compile_check` tool uses `gxc -S` (the Gerbil compiler in expand-only mode) to catch errors beyond what the expander alone detects. When gxc hits internal compiler crashes, the tool post-processes the error output to detect known patterns (e.g., `stx-car-e`, code generation failures) and appends diagnostic hints.
 
-The `gerbil_repl_session` tool spawns a persistent `gxi` subprocess with piped stdin/stdout, using a sentinel-based protocol to delimit expression output across multiple evaluations.
+The `gerbil_repl_session` tool spawns a persistent `gxi` subprocess with piped stdin/stdout, using a sentinel-based protocol to delimit expression output across multiple evaluations. Sessions can be created with a `project_path` or explicit `loadpath` to set `GERBIL_LOADPATH` for the subprocess, enabling project-local module imports.
+
+Several tools (`gerbil_eval`, `gerbil_compile_check`, `gerbil_repl_session`) accept a `loadpath` parameter that sets `GERBIL_LOADPATH` on the subprocess environment. This allows operating within a project's build context — for example, importing modules from a project's `.gerbil/lib` directory.
 
 The `gerbil_build_project`, `gerbil_package_info`, `gerbil_scaffold`, and `gerbil_package_manage` tools invoke `gxpkg` as a subprocess for package management, project scaffolding, and building.
 
@@ -881,6 +911,17 @@ src/
     package-manage.ts     gerbil_package_manage
     find-callers.ts       gerbil_find_callers
     suggest-imports.ts    gerbil_suggest_imports
+    diagnostics.ts        gerbil_diagnostics
+    document-symbols.ts   gerbil_document_symbols
+    workspace-symbols.ts  gerbil_workspace_symbols
+    rename-symbol.ts      gerbil_rename_symbol
+    lint.ts               gerbil_lint
+    project-info.ts       gerbil_project_info
+    check-balance.ts      gerbil_check_balance
+    read-forms.ts         gerbil_read_forms
+    parse-utils.ts        Shared parsing utilities
+test/
+  tools.test.ts           Functional tests for all MCP tools
 ```
 
 ## License

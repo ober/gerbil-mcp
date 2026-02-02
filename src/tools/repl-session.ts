@@ -1,10 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   createReplSession,
   evalInSession,
   destroyReplSession,
   listReplSessions,
+  buildLoadpathEnv,
 } from '../gxi.js';
 
 export function registerReplSessionTool(server: McpServer): void {
@@ -32,12 +35,24 @@ export function registerReplSessionTool(server: McpServer): void {
           .string()
           .optional()
           .describe('Gerbil expression to evaluate (required for eval action)'),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH (used with "create" action)',
+          ),
+        project_path: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib (used with "create" action)',
+          ),
       },
     },
-    async ({ action, session_id, expression }) => {
+    async ({ action, session_id, expression, loadpath, project_path }) => {
       switch (action) {
         case 'create':
-          return await handleCreate();
+          return await handleCreate(loadpath, project_path);
         case 'eval':
           return await handleEval(session_id, expression);
         case 'destroy':
@@ -59,8 +74,24 @@ export function registerReplSessionTool(server: McpServer): void {
   );
 }
 
-async function handleCreate() {
-  const result = await createReplSession();
+async function handleCreate(
+  loadpath?: string[],
+  projectPath?: string,
+) {
+  // Build loadpath from explicit array and/or project_path
+  const effectiveLoadpath: string[] = [...(loadpath ?? [])];
+
+  if (projectPath) {
+    const gerbilLib = join(projectPath, '.gerbil', 'lib');
+    effectiveLoadpath.push(gerbilLib);
+  }
+
+  const env =
+    effectiveLoadpath.length > 0
+      ? buildLoadpathEnv(effectiveLoadpath)
+      : undefined;
+
+  const result = await createReplSession(env ? { env } : undefined);
 
   if (result.error) {
     return {
@@ -69,13 +100,39 @@ async function handleCreate() {
     };
   }
 
+  // Build informative response
+  const parts: string[] = [
+    `Session created: ${result.id}`,
+    '',
+    `Use action "eval" with session_id "${result.id}" to evaluate expressions.`,
+  ];
+
+  if (effectiveLoadpath.length > 0) {
+    parts.push('');
+    parts.push(`GERBIL_LOADPATH configured with:`);
+    for (const p of effectiveLoadpath) {
+      parts.push(`  ${p}`);
+    }
+  }
+
+  if (projectPath) {
+    // Try to read package name for informational purposes
+    try {
+      const pkgContent = await readFile(
+        join(projectPath, 'gerbil.pkg'),
+        'utf-8',
+      );
+      const pkgMatch = pkgContent.match(/\(package:\s+([^\s)]+)\)/);
+      if (pkgMatch) {
+        parts.push(`Project package: ${pkgMatch[1]}`);
+      }
+    } catch {
+      // gerbil.pkg not found — fine, just skip
+    }
+  }
+
   return {
-    content: [
-      {
-        type: 'text' as const,
-        text: `Session created: ${result.id}\n\nUse action "eval" with session_id "${result.id}" to evaluate expressions.`,
-      },
-    ],
+    content: [{ type: 'text' as const, text: parts.join('\n') }],
   };
 }
 
