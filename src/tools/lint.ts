@@ -68,7 +68,7 @@ export function registerLintTool(server: McpServer): void {
       description:
         'Static analysis for common Gerbil issues: unused imports, duplicate definitions, ' +
         'style warnings (define vs def, missing transparent:), shadowed standard bindings, ' +
-        'and compilation errors via gxc.',
+        'hash literal symbol key warnings, and compilation errors via gxc.',
       inputSchema: {
         file_path: z
           .string()
@@ -98,6 +98,7 @@ export function registerLintTool(server: McpServer): void {
       checkDuplicateDefinitions(analysis, diagnostics);
       checkStyleIssues(lines, diagnostics);
       checkShadowedBindings(analysis, diagnostics);
+      checkHashLiteralKeys(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -265,6 +266,56 @@ function checkShadowedBindings(
         severity: 'warning',
         code: 'shadowed-binding',
         message: `"${def.name}" shadows a common standard binding`,
+      });
+    }
+  }
+}
+
+function extractFormFromLines(lines: string[], startIdx: number): string {
+  let depth = 0;
+  let result = '';
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i];
+    result += (i > startIdx ? '\n' : '') + line;
+    for (const ch of line) {
+      if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+    }
+    if (depth <= 0 && result.includes('(')) break;
+  }
+  return result;
+}
+
+function checkHashLiteralKeys(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Match (hash ...) but not (hash-eq ...), (hash-eqv ...), (hash-ref ...), etc.
+    if (!trimmed.match(/^\(hash[\s\n)]/)) continue;
+
+    // Extract the full form spanning multiple lines
+    const form = extractFormFromLines(lines, i);
+
+    // Find entries within the hash form: (KEY value)
+    // Look for bare uppercase identifiers as hash keys
+    const entryPattern = /\(\s*([A-Z][A-Z0-9_-]+)\s+/g;
+    let match;
+    while ((match = entryPattern.exec(form)) !== null) {
+      const key = match[1];
+      diagnostics.push({
+        line: lineNum,
+        severity: 'warning',
+        code: 'hash-symbol-key',
+        message:
+          `Hash literal uses bare symbol key '${key}' — this creates a symbol key, not a string. ` +
+          `Use ("${key}" ...) for string keys.`,
       });
     }
   }

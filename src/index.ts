@@ -35,6 +35,7 @@ import { registerWorkspaceSymbolsTool } from './tools/workspace-symbols.js';
 import { registerRenameSymbolTool } from './tools/rename-symbol.js';
 import { registerLintTool } from './tools/lint.js';
 import { registerProjectInfoTool } from './tools/project-info.js';
+import { registerProjectMapTool } from './tools/project-map.js';
 import { registerCheckBalanceTool } from './tools/check-balance.js';
 import { registerReadFormsTool } from './tools/read-forms.js';
 import { registerPrompts } from './prompts.js';
@@ -54,7 +55,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Enhanced error messages help diagnose internal compiler crashes.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
 - For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context.
-- To run test suites: use gerbil_run_tests to execute :std/test files and see pass/fail results. Use timeout for long-running test suites.
+- To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output.
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
 - To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol.
@@ -74,6 +75,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
 - To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
+- To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
 - To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.
 
@@ -117,6 +119,7 @@ registerWorkspaceSymbolsTool(server);
 registerRenameSymbolTool(server);
 registerLintTool(server);
 registerProjectInfoTool(server);
+registerProjectMapTool(server);
 registerCheckBalanceTool(server);
 registerReadFormsTool(server);
 

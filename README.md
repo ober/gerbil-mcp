@@ -193,6 +193,7 @@ node /path/to/gerbil-mcp/dist/index.js
 | `GERBIL_MCP_GXI_PATH` | `gxi` in PATH, then `/opt/gerbil/bin/gxi` | Path to the `gxi` binary |
 | `GERBIL_MCP_GXC_PATH` | `gxc` in PATH, then `/opt/gerbil/bin/gxc` | Path to the `gxc` compiler binary |
 | `GERBIL_MCP_GXPKG_PATH` | `gxpkg` in PATH, then `/opt/gerbil/bin/gxpkg` | Path to the `gxpkg` package manager binary |
+| `GERBIL_MCP_GERBIL_PATH` | `gerbil` in PATH, then `/opt/gerbil/bin/gerbil` | Path to the `gerbil` CLI binary (used for project-wide testing) |
 | `GERBIL_HOME` | `/opt/gerbil` | Gerbil installation directory (used for module listing) |
 
 ## Tools
@@ -467,6 +468,7 @@ Manage persistent Gerbil REPL sessions. State (definitions, imports, variables) 
 | `expression` | string | no | Expression to evaluate (required for `eval`) |
 | `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` (used with `create`) |
 | `project_path` | string | no | Project directory for auto-configuring `GERBIL_LOADPATH` from `.gerbil/lib` (used with `create`) |
+| `preload_file` | string | no | Path to a `.ss` file whose imports will be loaded into the session (used with `create`) |
 
 ```
 action: "create"
@@ -478,11 +480,14 @@ action: "create", project_path: "/path/to/myproject"
      /path/to/myproject/.gerbil/lib
    Project package: myproject
 
-action: "create", loadpath: ["/path/to/myproject/.gerbil/lib", "/other/lib"]
-=> Session created: c3d4e5f6
-   GERBIL_LOADPATH configured with:
-     /path/to/myproject/.gerbil/lib
-     /other/lib
+action: "create", preload_file: "/path/to/myproject/server.ss"
+=> Session created: d4e5f6g7
+
+   Preloaded imports from /path/to/myproject/server.ss:
+   Loaded (3):
+     (import :std/net/httpd)
+     (import :std/text/json)
+     (import :std/logger)
 
 action: "eval", session_id: "a1b2c3d4", expression: "(define x 42)"
 => (void)
@@ -502,14 +507,21 @@ Sessions auto-expire after 10 minutes of inactivity. Maximum 5 concurrent sessio
 
 When `project_path` is provided, the session automatically adds `{project_path}/.gerbil/lib` to the load path and reads `gerbil.pkg` for informational display. This lets you interactively import and test project-local modules without fighting import paths.
 
+When `preload_file` is provided, the session reads the file's import forms and evaluates them after creation. This lets you immediately use functions from the file's imported modules without manually importing each one — useful for debugging test files or exploring a module's context.
+
 ### gerbil_run_tests
 
-Run a Gerbil test file that uses `:std/test` and return structured results. The file should define test suites with `test-suite`/`test-case`/`check-equal?` etc., call `(run-tests!)` and `(test-report-summary!)`.
+Run Gerbil tests and return structured results. Supports two modes: **single-file mode** (`file_path`) runs a single test file via `gxi`, and **directory mode** (`directory`) runs project-wide tests via `gerbil test` with recursive discovery.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file_path` | string | yes | Path to a `.ss` test file that uses `:std/test` |
-| `timeout` | number | no | Timeout in milliseconds for test execution (default: 30000) |
+| `file_path` | string | no | Path to a `.ss` test file (single-file mode). Cannot be used with `directory`. |
+| `directory` | string | no | Project directory to run tests in (project-wide mode). Uses `gerbil test <dir>/...`. Cannot be used with `file_path`. |
+| `filter` | string | no | Regex pattern to filter test names (directory mode only, maps to `-r` flag) |
+| `quiet` | boolean | no | Quiet mode: only show errors (directory mode only, maps to `-q` flag) |
+| `timeout` | number | no | Timeout in milliseconds (default: 30000 for file, 120000 for directory) |
+
+One of `file_path` or `directory` is required.
 
 ```
 file_path: "/path/to/tests.ss"
@@ -524,8 +536,27 @@ file_path: "/path/to/tests.ss"
    ... check (+ 1 2) is equal? to 3
    ...
 
-file_path: "/path/to/slow-tests.ss", timeout: 120000
+directory: "/path/to/project"
 => Result: PASSED
+
+   Test Summary:
+     billing: OK
+     detection: OK
+
+   Checks: 24 total
+
+   --- Full output ---
+   ...
+
+directory: "/path/to/project", filter: "billing"
+=> Result: PASSED
+
+   Filter: billing
+
+   Test Summary:
+     billing: OK
+
+   Checks: 12 total
    ...
 ```
 
@@ -825,6 +856,207 @@ symbol: "for/collect"
 
 For less common modules, use `gerbil_apropos` + `gerbil_module_exports` as a fallback.
 
+### gerbil_diagnostics
+
+Run `gxc -S` on a file or all `.ss` files in a project and return structured diagnostics with file, line, column, severity, and message.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | no | Path to a single `.ss` file to check |
+| `project_path` | string | no | Path to a project directory (checks files from `build.ss` or scans directory) |
+
+```
+file_path: "/path/to/module.ss"
+=> Compiled cleanly: /path/to/module.ss
+
+project_path: "/path/to/project"
+=> Diagnostics for /path/to/project:
+
+   /path/to/project/server.ss:12:5: error: Reference to unbound identifier: foo
+   /path/to/project/utils.ss: compiled cleanly
+```
+
+### gerbil_document_symbols
+
+List all definitions in a Gerbil source file with name, kind, and line number.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Absolute path to a Gerbil source file (`.ss` or `.scm`) |
+
+```
+file_path: "/path/to/server.ss"
+=> Symbols in /path/to/server.ss (5):
+
+     L1   import     (import :std/net/httpd ...)
+     L4   procedure  start-server
+     L8   struct     config
+     L12  procedure  handle-request
+     L20  procedure  setup-routes
+```
+
+### gerbil_workspace_symbols
+
+Search for symbol definitions across all `.ss` files in a project directory. Returns matching definitions with name, kind, line number, and file path.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | Search query (substring match, case-insensitive) |
+| `directory` | string | no | Directory to search in (defaults to current working directory) |
+
+```
+query: "handle", directory: "/path/to/project"
+=> Workspace symbols matching "handle" (3 results):
+
+     handle-request  procedure  L12  server.ss
+     handle-error    procedure  L5   errors.ss
+     handle-auth     procedure  L18  auth.ss
+```
+
+### gerbil_rename_symbol
+
+Rename a symbol across all `.ss` files in a project directory. Default is dry-run mode (showing proposed changes). Set `dry_run` to `false` to apply changes. Uses word-boundary detection to avoid renaming partial matches.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `old_name` | string | yes | Current symbol name to rename |
+| `new_name` | string | yes | New symbol name |
+| `directory` | string | yes | Project directory to search (absolute path) |
+| `dry_run` | boolean | no | If true (default), only show changes without applying them |
+
+```
+old_name: "handle-request", new_name: "process-request", directory: "/path/to/project"
+=> Dry run: rename "handle-request" → "process-request"
+
+   server.ss:
+     L12: (def (handle-request ...) → (def (process-request ...)
+     L45: (handle-request ctx) → (process-request ctx)
+   api.ss:
+     L7: (export handle-request) → (export process-request)
+
+   3 occurrences in 2 files.
+```
+
+### gerbil_lint
+
+Static analysis for common Gerbil issues: unused imports, duplicate definitions, style warnings (`define` vs `def`, missing `transparent:`), shadowed standard bindings, hash literal symbol key warnings, and compilation errors via `gxc`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Absolute path to a Gerbil source file to lint |
+
+```
+file_path: "/path/to/module.ss"
+=> Lint: /path/to/module.ss
+     1 error(s), 2 warning(s), 1 info
+
+     [WARNING] L3 (possibly-unused-import): Import :std/format may be unused
+     [WARNING] L10 (hash-symbol-key): Hash literal uses bare symbol key 'CRITICAL' — this creates a symbol key, not a string. Use ("CRITICAL" ...) for string keys.
+     [INFO] L5 (style-prefer-def): Prefer "def" over "define" (supports optional/keyword args)
+```
+
+### gerbil_project_info
+
+Single-call summary of a Gerbil project: package name, build targets, source files, and external dependencies. Reads `gerbil.pkg`, `build.ss`, and scans source files.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory containing the Gerbil project (with `gerbil.pkg`) |
+
+```
+project_path: "/path/to/myproject"
+=> Package: myproject
+   Location: /path/to/myproject
+
+   Build Targets:
+     [lib] config
+     [lib] server
+     [exe] main -> myapp
+
+   Source Files (5):
+     ./
+       config.ss
+       server.ss
+       main.ss
+     utils/
+       helpers.ss
+       db.ss
+
+   External Dependencies (3):
+     :std/net/httpd
+     :std/text/json
+     :std/db/postgresql
+```
+
+### gerbil_project_map
+
+Single call that returns all modules in a project with their exports, key definitions grouped by kind, and import dependencies. More detailed than `gerbil_project_info` — shows the full symbol map.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory containing the Gerbil project (with `gerbil.pkg`) |
+
+```
+project_path: "/path/to/myproject"
+=> Project: myproject
+   Location: /path/to/myproject
+   Modules: 3
+
+   Module: config.ss
+     Exports: load-config, config-port, config-host
+     Structs: config
+     Procedures: load-config, config-port, config-host
+     External imports: :std/text/json
+
+   Module: server.ss
+     Exports: start-server, stop-server
+     Procedures: start-server, stop-server, handle-request
+     External imports: :std/net/httpd, :std/text/json
+     Internal imports: ./config
+
+   Module: main.ss
+     Procedures: main
+     External imports: :std/getopt
+     Internal imports: ./server, ./config
+```
+
+### gerbil_check_balance
+
+Check parenthesis/bracket/brace balance in Gerbil Scheme code. Pure delimiter scanner — no subprocess, runs in milliseconds. Reports unclosed delimiters, unexpected closers, and mismatches with positions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | no | Path to a Gerbil source file to check |
+| `code` | string | no | Inline Gerbil code to check (alternative to `file_path`) |
+
+```
+file_path: "/path/to/module.ss"
+=> Balance OK — 12 top-level forms, 156 delimiters
+
+code: "(def (f x) (+ x 1)"
+=> Balance error:
+
+     Unclosed '(' opened at line 1, column 1
+```
+
+### gerbil_read_forms
+
+Read a Gerbil source file using the actual Gerbil reader and list all top-level forms with their index, start/end line numbers, and a summary (`car` of list or type). On reader error, reports the error position plus any forms read before the error.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Path to a Gerbil source file to read |
+
+```
+file_path: "/path/to/module.ss"
+=> Forms in /path/to/module.ss (4 forms):
+
+     [0]  L1-L3   (import ...)
+     [1]  L5-L5   (export ...)
+     [2]  L7-L12  (def ...)
+     [3]  L14-L20 (defstruct ...)
+```
+
 ## Prompts
 
 The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
@@ -917,6 +1149,7 @@ src/
     rename-symbol.ts      gerbil_rename_symbol
     lint.ts               gerbil_lint
     project-info.ts       gerbil_project_info
+    project-map.ts        gerbil_project_map
     check-balance.ts      gerbil_check_balance
     read-forms.ts         gerbil_read_forms
     parse-utils.ts        Shared parsing utilities

@@ -9,6 +9,7 @@ import {
   listReplSessions,
   buildLoadpathEnv,
 } from '../gxi.js';
+import { parseDefinitions } from './parse-utils.js';
 
 export function registerReplSessionTool(server: McpServer): void {
   server.registerTool(
@@ -47,12 +48,19 @@ export function registerReplSessionTool(server: McpServer): void {
           .describe(
             'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib (used with "create" action)',
           ),
+        preload_file: z
+          .string()
+          .optional()
+          .describe(
+            'Path to a .ss file whose imports will be loaded into the session (used with "create" action). ' +
+            'This lets you immediately use functions from the file\'s imported modules.',
+          ),
       },
     },
-    async ({ action, session_id, expression, loadpath, project_path }) => {
+    async ({ action, session_id, expression, loadpath, project_path, preload_file }) => {
       switch (action) {
         case 'create':
-          return await handleCreate(loadpath, project_path);
+          return await handleCreate(loadpath, project_path, preload_file);
         case 'eval':
           return await handleEval(session_id, expression);
         case 'destroy':
@@ -77,6 +85,7 @@ export function registerReplSessionTool(server: McpServer): void {
 async function handleCreate(
   loadpath?: string[],
   projectPath?: string,
+  preloadFile?: string,
 ) {
   // Build loadpath from explicit array and/or project_path
   const effectiveLoadpath: string[] = [...(loadpath ?? [])];
@@ -128,6 +137,46 @@ async function handleCreate(
       }
     } catch {
       // gerbil.pkg not found — fine, just skip
+    }
+  }
+
+  // Preload imports from file
+  if (preloadFile) {
+    try {
+      const fileContent = await readFile(preloadFile, 'utf-8');
+      const analysis = parseDefinitions(fileContent);
+
+      if (analysis.imports.length === 0) {
+        parts.push('');
+        parts.push(`Preload: ${preloadFile} has no import forms.`);
+      } else {
+        const loaded: string[] = [];
+        const failed: string[] = [];
+
+        for (const imp of analysis.imports) {
+          const evalResult = await evalInSession(result.id, imp.raw);
+          if (evalResult.error && !evalResult.output) {
+            failed.push(`  ${imp.raw.trim()} -- ${evalResult.error}`);
+          } else {
+            loaded.push(`  ${imp.raw.trim()}`);
+          }
+        }
+
+        parts.push('');
+        parts.push(`Preloaded imports from ${preloadFile}:`);
+        if (loaded.length > 0) {
+          parts.push(`Loaded (${loaded.length}):`);
+          for (const l of loaded) parts.push(l);
+        }
+        if (failed.length > 0) {
+          parts.push(`Failed (${failed.length}):`);
+          for (const f of failed) parts.push(f);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      parts.push('');
+      parts.push(`Preload warning: could not read ${preloadFile}: ${msg}`);
     }
   }
 

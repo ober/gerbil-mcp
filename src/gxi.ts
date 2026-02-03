@@ -243,6 +243,79 @@ export async function runGxpkg(
   });
 }
 
+// ── gerbil binary resolution & runner ────────────────────────────
+
+let resolvedGerbilPath: string | null = null;
+
+async function findGerbil(): Promise<string> {
+  if (resolvedGerbilPath) return resolvedGerbilPath;
+
+  const candidates = [
+    process.env.GERBIL_MCP_GERBIL_PATH,
+    '/opt/gerbil/bin/gerbil',
+    'gerbil',
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      resolvedGerbilPath = candidate;
+      return candidate;
+    } catch {
+      // not found or not executable, try next
+    }
+  }
+
+  resolvedGerbilPath = 'gerbil';
+  return 'gerbil';
+}
+
+export async function runGerbilCmd(
+  args: string[],
+  options?: { timeout?: number; cwd?: string; env?: Record<string, string> },
+): Promise<GxiResult> {
+  const gerbilPath = await findGerbil();
+  const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
+
+  return new Promise((resolve) => {
+    execFile(
+      gerbilPath,
+      args,
+      {
+        timeout,
+        maxBuffer: MAX_BUFFER,
+        env: { ...process.env, ...options?.env },
+        cwd: options?.cwd,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const timedOut = error.killed === true;
+          const code = (error as NodeJS.ErrnoException).code;
+          const exitCode =
+            typeof error.code === 'number'
+              ? error.code
+              : code === 'ENOENT'
+                ? 127
+                : 1;
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode,
+            timedOut,
+          });
+        } else {
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+      },
+    );
+  });
+}
+
 // ── String escaping ────────────────────────────────────────────────
 
 /**

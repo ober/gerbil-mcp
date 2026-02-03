@@ -234,6 +234,15 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Hash literal lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'hash-lint.ss'),
+      `(import :std/text/json)
+(def config
+  (hash (FOO 1) ("bar" 2) (CRITICAL "yes") (name "val")))
+`,
+    );
+
     // Package file for project tools and REPL project_path tests
     writeFileSync(join(TEST_DIR, 'gerbil.pkg'), '(package: test-pkg)');
 
@@ -494,6 +503,15 @@ describe('Gerbil MCP Tools', () => {
       expect(result.isError).toBe(false);
       expect(result.text).toContain('warning');
     });
+
+    it('gerbil_lint warns on bare uppercase hash keys', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'hash-lint.ss'),
+      });
+      expect(result.text).toContain('hash-symbol-key');
+      expect(result.text).toContain('FOO');
+      expect(result.text).toContain('CRITICAL');
+    });
   });
 
   describe('Project tools', () => {
@@ -533,6 +551,21 @@ describe('Gerbil MCP Tools', () => {
       });
       expect(result.isError).toBe(false);
       expect(result.text).toContain('Source Files');
+    });
+
+    it('gerbil_project_map returns module exports and definitions', async () => {
+      const result = await client.callTool('gerbil_project_map', {
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module:');
+      expect(result.text).toContain('sample.ss');
+      expect(result.text).toContain('main');
+      expect(result.text).toContain('helper');
+      expect(result.text).toContain('point');
+      expect(result.text).toContain('Structs:');
+      expect(result.text).toContain('Procedures:');
+      expect(result.text).toContain(':std/text/json');
     });
 
     it('gerbil_package_info lists installed packages', async () => {
@@ -633,6 +666,43 @@ describe('Gerbil MCP Tools', () => {
       expect(result.isError).toBe(false);
       expect(result.text).toContain('PASSED');
     });
+
+    it('gerbil_run_tests rejects both file_path and directory', async () => {
+      const result = await client.callTool('gerbil_run_tests', {
+        file_path: join(TEST_DIR, 'timeout-test.ss'),
+        directory: TEST_DIR,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Cannot specify both');
+    });
+
+    it('gerbil_run_tests requires file_path or directory', async () => {
+      const result = await client.callTool('gerbil_run_tests', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('required');
+    });
+
+    it('gerbil_run_tests directory mode runs project tests', async () => {
+      const result = await client.callTool('gerbil_run_tests', {
+        directory: TEST_DIR,
+        timeout: 120000,
+      });
+      // Either passes (if gerbil test finds tests) or returns structured output
+      expect(result.text).toBeDefined();
+      // Should contain structured output sections
+      expect(result.text).toContain('Result:');
+    });
+
+    it('gerbil_run_tests directory mode accepts filter', async () => {
+      const result = await client.callTool('gerbil_run_tests', {
+        directory: TEST_DIR,
+        filter: 'timeout',
+        timeout: 120000,
+      });
+      expect(result.text).toBeDefined();
+      expect(result.text).toContain('Result:');
+      expect(result.text).toContain('Filter: timeout');
+    });
   });
 
   describe('REPL session tools', () => {
@@ -699,6 +769,36 @@ describe('Gerbil MCP Tools', () => {
           session_id: match[1],
         });
       }
+    });
+
+    it('gerbil_repl_session create with preload_file loads imports', async () => {
+      const createResult = await client.callTool('gerbil_repl_session', {
+        action: 'create',
+        preload_file: join(TEST_DIR, 'uses-json.ss'),
+      });
+      expect(createResult.isError).toBe(false);
+      expect(createResult.text).toContain('Session created');
+      expect(createResult.text).toContain('Preloaded');
+      expect(createResult.text).toContain(':std/text/json');
+
+      // Verify imports are actually loaded — read-json should be available
+      const match = createResult.text.match(/Session created: (\w+)/);
+      expect(match).toBeTruthy();
+      const sessionId = match![1];
+
+      const evalResult = await client.callTool('gerbil_repl_session', {
+        action: 'eval',
+        session_id: sessionId,
+        expression: '(json-object->string (hash ("test" 1)))',
+      });
+      expect(evalResult.isError).toBe(false);
+      expect(evalResult.text).toContain('test');
+
+      // Clean up
+      await client.callTool('gerbil_repl_session', {
+        action: 'destroy',
+        session_id: sessionId,
+      });
     });
 
     it('gerbil_repl_session create accepts project_path', async () => {

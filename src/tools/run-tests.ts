@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { runGxiFile } from '../gxi.js';
+import { runGxiFile, runGerbilCmd } from '../gxi.js';
 
 export function registerRunTestsTool(server: McpServer): void {
   server.registerTool(
@@ -11,104 +11,260 @@ export function registerRunTestsTool(server: McpServer): void {
         'Run a Gerbil test file that uses :std/test and return structured results. ' +
         'The file should define test suites with test-suite/test-case/check-equal? etc., ' +
         'call (run-tests!) and (test-report-summary!). ' +
-        'Returns pass/fail counts and failure details.',
+        'Returns pass/fail counts and failure details. ' +
+        'Use file_path for a single test file, or directory for project-wide tests via "gerbil test". ' +
+        'Use filter to match test names by pattern, quiet for errors-only output.',
       inputSchema: {
         file_path: z
           .string()
+          .optional()
           .describe(
-            'Path to a .ss test file that uses :std/test',
+            'Path to a .ss test file that uses :std/test (single-file mode)',
+          ),
+        directory: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory to run tests in using "gerbil test" (project-wide mode). ' +
+            'Runs "gerbil test <dir>/..." recursively. Cannot be used with file_path.',
+          ),
+        filter: z
+          .string()
+          .optional()
+          .describe(
+            'Regular expression pattern to filter test names (directory mode only, maps to -r flag)',
+          ),
+        quiet: z
+          .boolean()
+          .optional()
+          .describe(
+            'Quiet mode: only show errors (directory mode only, maps to -q flag)',
           ),
         timeout: z
           .number()
           .optional()
           .describe(
-            'Timeout in milliseconds for test execution (default: 30000)',
+            'Timeout in milliseconds for test execution (default: 30000 for file, 120000 for directory)',
           ),
       },
     },
-    async ({ file_path, timeout }) => {
-      const effectiveTimeout = timeout ?? 30_000;
-      const testResult = await runGxiFile(file_path, { timeout: effectiveTimeout });
-
-      if (testResult.timedOut) {
+    async ({ file_path, directory, filter, quiet, timeout }) => {
+      // Validate: exactly one of file_path or directory
+      if (file_path && directory) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `Test execution timed out after ${Math.round(effectiveTimeout / 1000)} seconds.`,
+              text: 'Cannot specify both file_path and directory. Use file_path for a single test file, or directory for project-wide tests.',
             },
           ],
           isError: true,
         };
       }
 
-      // Combine stdout and stderr — test framework writes to both
-      const fullOutput = [testResult.stdout, testResult.stderr]
-        .filter(Boolean)
-        .join('\n');
-
-      if (testResult.exitCode === 127) {
+      if (!file_path && !directory) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'gxi not found. Ensure Gerbil is installed.',
+              text: 'Either file_path or directory is required.',
             },
           ],
           isError: true,
         };
       }
 
-      // Parse the test output
-      const parsed = parseTestOutput(fullOutput);
-
-      // Build formatted output
-      const sections: string[] = [];
-
-      if (parsed.passed) {
-        sections.push(`Result: PASSED`);
-      } else {
-        sections.push(`Result: FAILED`);
+      if (directory) {
+        return await runDirectoryTests(directory, { filter, quiet, timeout });
       }
 
-      sections.push('');
-
-      if (parsed.summary.length > 0) {
-        sections.push('Test Summary:');
-        for (const line of parsed.summary) {
-          sections.push(`  ${line}`);
-        }
-        sections.push('');
-      }
-
-      if (parsed.failures.length > 0) {
-        sections.push(`Failures (${parsed.failures.length}):`);
-        for (const failure of parsed.failures) {
-          sections.push(`  ${failure}`);
-        }
-        sections.push('');
-      }
-
-      if (parsed.checkCount > 0) {
-        sections.push(`Checks: ${parsed.checkCount} total`);
-      }
-
-      // Include raw output for context
-      sections.push('');
-      sections.push('--- Full output ---');
-      sections.push(fullOutput.trim());
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: sections.join('\n'),
-          },
-        ],
-        isError: !parsed.passed,
-      };
+      return await runSingleFileTest(file_path!, timeout);
     },
   );
+}
+
+async function runSingleFileTest(filePath: string, timeout?: number) {
+  const effectiveTimeout = timeout ?? 30_000;
+  const testResult = await runGxiFile(filePath, { timeout: effectiveTimeout });
+
+  if (testResult.timedOut) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Test execution timed out after ${Math.round(effectiveTimeout / 1000)} seconds.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Combine stdout and stderr — test framework writes to both
+  const fullOutput = [testResult.stdout, testResult.stderr]
+    .filter(Boolean)
+    .join('\n');
+
+  if (testResult.exitCode === 127) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'gxi not found. Ensure Gerbil is installed.',
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Parse the test output
+  const parsed = parseTestOutput(fullOutput);
+
+  // Build formatted output
+  const sections: string[] = [];
+
+  if (parsed.passed) {
+    sections.push(`Result: PASSED`);
+  } else {
+    sections.push(`Result: FAILED`);
+  }
+
+  sections.push('');
+
+  if (parsed.summary.length > 0) {
+    sections.push('Test Summary:');
+    for (const line of parsed.summary) {
+      sections.push(`  ${line}`);
+    }
+    sections.push('');
+  }
+
+  if (parsed.failures.length > 0) {
+    sections.push(`Failures (${parsed.failures.length}):`);
+    for (const failure of parsed.failures) {
+      sections.push(`  ${failure}`);
+    }
+    sections.push('');
+  }
+
+  if (parsed.checkCount > 0) {
+    sections.push(`Checks: ${parsed.checkCount} total`);
+  }
+
+  // Include raw output for context
+  sections.push('');
+  sections.push('--- Full output ---');
+  sections.push(fullOutput.trim());
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: sections.join('\n'),
+      },
+    ],
+    isError: !parsed.passed,
+  };
+}
+
+async function runDirectoryTests(
+  directory: string,
+  opts: { filter?: string; quiet?: boolean; timeout?: number },
+) {
+  const effectiveTimeout = opts.timeout ?? 120_000;
+
+  // Build gerbil test arguments
+  const args: string[] = ['test'];
+  if (opts.quiet) args.push('-q');
+  if (opts.filter) args.push('-r', opts.filter);
+  args.push(directory + '/...');
+
+  const testResult = await runGerbilCmd(args, {
+    cwd: directory,
+    timeout: effectiveTimeout,
+  });
+
+  if (testResult.timedOut) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Test execution timed out after ${Math.round(effectiveTimeout / 1000)} seconds.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (testResult.exitCode === 127) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'gerbil command not found. Ensure Gerbil is installed and in PATH.',
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Combine stdout and stderr
+  const fullOutput = [testResult.stdout, testResult.stderr]
+    .filter(Boolean)
+    .join('\n');
+
+  // Parse the test output
+  const parsed = parseTestOutput(fullOutput);
+
+  // Build formatted output
+  const sections: string[] = [];
+
+  if (parsed.passed) {
+    sections.push(`Result: PASSED`);
+  } else {
+    sections.push(`Result: FAILED`);
+  }
+
+  sections.push('');
+
+  if (opts.filter) {
+    sections.push(`Filter: ${opts.filter}`);
+    sections.push('');
+  }
+
+  if (parsed.summary.length > 0) {
+    sections.push('Test Summary:');
+    for (const line of parsed.summary) {
+      sections.push(`  ${line}`);
+    }
+    sections.push('');
+  }
+
+  if (parsed.failures.length > 0) {
+    sections.push(`Failures (${parsed.failures.length}):`);
+    for (const failure of parsed.failures) {
+      sections.push(`  ${failure}`);
+    }
+    sections.push('');
+  }
+
+  if (parsed.checkCount > 0) {
+    sections.push(`Checks: ${parsed.checkCount} total`);
+  }
+
+  // Include raw output for context
+  sections.push('');
+  sections.push('--- Full output ---');
+  sections.push(fullOutput.trim());
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: sections.join('\n'),
+      },
+    ],
+    isError: !parsed.passed,
+  };
 }
 
 interface TestParseResult {
