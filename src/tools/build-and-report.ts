@@ -27,9 +27,15 @@ export function registerBuildAndReportTool(server: McpServer): void {
           .describe(
             'Extra build flags: "--release", "--optimized", "--debug"',
           ),
+        context_lines: z
+          .number()
+          .optional()
+          .describe(
+            'Lines of source context to show around each error (default: 3). Set to 0 to disable.',
+          ),
       },
     },
-    async ({ project_path, flags }) => {
+    async ({ project_path, flags, context_lines }) => {
       // Detect Makefile and extract targets
       const makefileNote = await detectMakefile(project_path);
 
@@ -117,6 +123,23 @@ export function registerBuildAndReportTool(server: McpServer): void {
       const errors = diagnostics.filter((d) => d.severity === 'error');
       const warnings = diagnostics.filter((d) => d.severity === 'warning');
 
+      const ctxLines = context_lines ?? 3;
+
+      // Cache source files to avoid re-reads
+      const fileCache = new Map<string, string[] | null>();
+      async function getFileLines(filePath: string): Promise<string[] | null> {
+        if (fileCache.has(filePath)) return fileCache.get(filePath)!;
+        try {
+          const content = await readFile(filePath, 'utf-8');
+          const lines = content.split('\n');
+          fileCache.set(filePath, lines);
+          return lines;
+        } catch {
+          fileCache.set(filePath, null);
+          return null;
+        }
+      }
+
       const sections: string[] = [
         `Build failed: ${errors.length} error(s), ${warnings.length} warning(s)`,
         '',
@@ -127,6 +150,24 @@ export function registerBuildAndReportTool(server: McpServer): void {
           ? `${d.file}:${d.line}${d.column ? ':' + d.column : ''}`
           : d.file;
         sections.push(`  [${d.severity.toUpperCase()}] ${loc} \u2014 ${d.message}`);
+
+        // Add source context if available
+        if (ctxLines > 0 && d.line !== null && d.file) {
+          const resolvedPath = d.file.startsWith('/')
+            ? d.file
+            : join(project_path, d.file);
+          const sourceLines = await getFileLines(resolvedPath);
+          if (sourceLines) {
+            const startLine = Math.max(0, d.line - 1 - ctxLines);
+            const endLine = Math.min(sourceLines.length, d.line + ctxLines);
+            for (let li = startLine; li < endLine; li++) {
+              const lineNum = li + 1;
+              const marker = lineNum === d.line ? '>' : ' ';
+              const numStr = String(lineNum).padStart(5);
+              sections.push(`  ${marker}${numStr} | ${sourceLines[li]}`);
+            }
+          }
+        }
       }
 
       if (makefileNote) {

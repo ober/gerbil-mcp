@@ -51,6 +51,9 @@ import { registerHowtoTool } from './tools/howto.js';
 import { registerHowtoAddTool } from './tools/howto-add.js';
 import { registerFileSummaryTool } from './tools/file-summary.js';
 import { registerMakeTool } from './tools/make.js';
+import { registerCheckArityTool } from './tools/check-arity.js';
+import { registerHowtoVerifyTool } from './tools/howto-verify.js';
+import { registerResolveImportsTool } from './tools/resolve-imports.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -104,6 +107,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session to a cookbook JSON file (convention: \`.claude/cookbooks.json\` in the project root).
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
+- To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.
+- To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe.
+- To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -161,6 +167,9 @@ registerHowtoTool(server);
 registerHowtoAddTool(server);
 registerFileSummaryTool(server);
 registerMakeTool(server);
+registerCheckArityTool(server);
+registerHowtoVerifyTool(server);
+registerResolveImportsTool(server);
 
 registerPrompts(server);
 

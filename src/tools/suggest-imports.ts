@@ -6,7 +6,7 @@ const RESULT_MARKER = 'GERBIL-MCP-IMPORT:';
 
 // Curated list of commonly-used standard library modules to scan.
 // Kept as a Scheme list literal to avoid per-module subprocess overhead.
-const STD_MODULES = [
+export const STD_MODULES = [
   ':std/iter',
   ':std/sugar',
   ':std/test',

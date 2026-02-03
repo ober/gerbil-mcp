@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 /** Path to the repo-local cookbook that accumulates recipes across sessions. */
 export const REPO_COOKBOOK_PATH = resolve(__dirname, '..', '..', 'cookbooks.json');
 
-function loadCookbook(path: string): Recipe[] {
+export function loadCookbook(path: string): Recipe[] {
   try {
     const raw = readFileSync(path, 'utf-8');
     const parsed = JSON.parse(raw);
@@ -31,7 +31,7 @@ export interface Recipe {
   related?: string[];
 }
 
-const RECIPES: Recipe[] = [
+export const RECIPES: Recipe[] = [
   // ── File I/O ──────────────────────────────────────────────────────
   {
     id: 'read-file-string',

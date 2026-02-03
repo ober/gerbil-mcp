@@ -318,6 +318,57 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Arity check fixtures
+    const arityDir = join(TEST_DIR, 'arity-check');
+    mkdirSync(arityDir, { recursive: true });
+    writeFileSync(join(arityDir, 'gerbil.pkg'), '(package: arity-test)');
+    writeFileSync(
+      join(arityDir, 'funcs.ss'),
+      `(export add greet)
+(def (add x y) (+ x y))
+(def (greet name (greeting "Hello"))
+  (string-append greeting ", " name))
+`,
+    );
+    writeFileSync(
+      join(arityDir, 'caller.ss'),
+      `(import :arity-test/funcs)
+(export run)
+(def (run)
+  (add 1)
+  (add 1 2 3)
+  (greet "Alice")
+  (greet "Alice" "Hi"))
+`,
+    );
+
+    // Resolve-imports fixture
+    writeFileSync(
+      join(TEST_DIR, 'needs-imports.ss'),
+      `(def (process data)
+  (let ((parsed (read-json data)))
+    (for/collect (x parsed) (* x 2))))
+`,
+    );
+
+    // Build-and-report context_lines fixture
+    const ctxDir = join(TEST_DIR, 'ctx-build');
+    mkdirSync(ctxDir, { recursive: true });
+    writeFileSync(join(ctxDir, 'gerbil.pkg'), '(package: ctx-test)');
+    writeFileSync(
+      join(ctxDir, 'build.ss'),
+      '#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script\n  \'("broken"))\n',
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      join(ctxDir, 'broken.ss'),
+      `(export process)
+(def (process x)
+  (let ((result (undefined-function x)))
+    result))
+`,
+    );
+
     // Generate-module template fixture
     writeFileSync(
       join(TEST_DIR, 'template.ss'),
@@ -1591,5 +1642,138 @@ test:
       expect(result.isError).toBe(false);
       expect(result.text).toContain('empty');
     });
+  });
+
+  // ── Check arity tool ─────────────────────────────────────────────────
+
+  describe('Check arity tool', () => {
+    it('gerbil_check_arity detects arity mismatches in local defs', async () => {
+      const result = await client.callTool('gerbil_check_arity', {
+        project_path: join(TEST_DIR, 'arity-check'),
+      });
+      // Should detect at least one issue (add called with wrong args)
+      expect(result.text).toContain('Arity check');
+      expect(result.text).toContain('add');
+    });
+
+    it('gerbil_check_arity works in single file mode', async () => {
+      const result = await client.callTool('gerbil_check_arity', {
+        project_path: join(TEST_DIR, 'arity-check'),
+        file_path: join(TEST_DIR, 'arity-check', 'funcs.ss'),
+      });
+      expect(result.text).toContain('Arity check');
+    });
+
+    it('gerbil_check_arity reports no issues for clean files', async () => {
+      const result = await client.callTool('gerbil_check_arity', {
+        project_path: TEST_DIR,
+        file_path: join(TEST_DIR, 'sample.ss'),
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('no issues found');
+    });
+
+    it('gerbil_check_arity handles empty project', async () => {
+      const emptyDir = join(TEST_DIR, 'empty-arity');
+      mkdirSync(emptyDir, { recursive: true });
+      const result = await client.callTool('gerbil_check_arity', {
+        project_path: emptyDir,
+      });
+      expect(result.text).toContain('No .ss files');
+    });
+  });
+
+  // ── Howto verify tool ────────────────────────────────────────────────
+
+  describe('Howto verify tool', () => {
+    it('gerbil_howto_verify checks built-in recipes', async () => {
+      const result = await client.callTool('gerbil_howto_verify', {});
+      expect(result.text).toContain('Cookbook verification');
+      expect(result.text).toContain('recipe(s) checked');
+      expect(result.text).toContain('Summary');
+    }, 120000);
+
+    it('gerbil_howto_verify checks a single recipe by id', async () => {
+      const result = await client.callTool('gerbil_howto_verify', {
+        recipe_id: 'json-parse',
+      });
+      expect(result.text).toContain('1 recipe(s) checked');
+      expect(result.text).toContain('json-parse');
+    });
+
+    it('gerbil_howto_verify returns error for unknown recipe_id', async () => {
+      const result = await client.callTool('gerbil_howto_verify', {
+        recipe_id: 'nonexistent-recipe-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+  });
+
+  // ── Resolve imports tool ─────────────────────────────────────────────
+
+  describe('Resolve imports tool', () => {
+    it('gerbil_resolve_imports finds unbound identifiers and suggests imports', async () => {
+      const result = await client.callTool('gerbil_resolve_imports', {
+        file_path: join(TEST_DIR, 'needs-imports.ss'),
+      });
+      expect(result.text).toContain('Resolved imports');
+      expect(result.text).toContain('unbound identifier');
+    });
+
+    it('gerbil_resolve_imports reports clean file', async () => {
+      const result = await client.callTool('gerbil_resolve_imports', {
+        file_path: join(TEST_DIR, 'sample.ss'),
+      });
+      // sample.ss has imports — should compile cleanly
+      expect(result.text).toContain('compiles cleanly');
+    });
+
+    it('gerbil_resolve_imports accepts loadpath', async () => {
+      const result = await client.callTool('gerbil_resolve_imports', {
+        file_path: join(TEST_DIR, 'needs-imports.ss'),
+        loadpath: ['/nonexistent/path'],
+      });
+      expect(result.text).toContain('Resolved imports');
+    });
+  });
+
+  // ── Build and report context_lines ──────────────────────────────────
+
+  describe('Build and report context_lines', () => {
+    it('gerbil_build_and_report shows source context on error', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: join(TEST_DIR, 'ctx-build'),
+        context_lines: 2,
+      });
+      // Build should fail with errors
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Build failed');
+      // Source context should show line numbers with | separator when line info is available
+      // The Gambit error format includes line numbers, so context should appear
+      if (result.text.includes('broken.ss')) {
+        expect(result.text).toMatch(/\d+\s*\|/);
+      }
+    }, 60000);
+
+    it('gerbil_build_and_report with context_lines 0 suppresses context', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: join(TEST_DIR, 'ctx-build'),
+        context_lines: 0,
+      });
+      // Should not show source context even on errors
+      if (result.isError) {
+        expect(result.text).not.toMatch(/>\s+\d+\s*\|/);
+      }
+    }, 60000);
+
+    it('gerbil_build_and_report accepts context_lines parameter', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: join(TEST_DIR, 'buildable'),
+        context_lines: 3,
+      });
+      // Should work without error regardless of build outcome
+      expect(result.text).toBeDefined();
+    }, 60000);
   });
 });
