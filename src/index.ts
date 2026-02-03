@@ -38,6 +38,10 @@ import { registerProjectInfoTool } from './tools/project-info.js';
 import { registerProjectMapTool } from './tools/project-map.js';
 import { registerCheckBalanceTool } from './tools/check-balance.js';
 import { registerReadFormsTool } from './tools/read-forms.js';
+import { registerProfileTool } from './tools/profile.js';
+import { registerHeapProfileTool } from './tools/heap-profile.js';
+import { registerTraceCallsTool } from './tools/trace-calls.js';
+import { registerCallGraphTool } from './tools/call-graph.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -58,7 +62,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output.
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
-- To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol.
+- To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol. Set source_preview: true to include the actual source code.
 - To build a Gerbil project: use gerbil_build_project to compile or clean a project directory using gxpkg.
 - To explore packages: use gerbil_package_info to list installed packages, search the package directory, or view package metadata.
 - To format Gerbil code: use gerbil_format to pretty-print expressions using Gambit's pretty-print.
@@ -78,6 +82,10 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
 - To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.
+- To profile function performance: use gerbil_profile to instrument specific functions with call counting and timing while running an expression. Shows per-function call count, time, and percentage.
+- To analyze memory usage: use gerbil_heap_profile to capture GC heap metrics (heap size, allocation, live objects) before and after running an expression.
+- To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
+- To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -122,6 +130,10 @@ registerProjectInfoTool(server);
 registerProjectMapTool(server);
 registerCheckBalanceTool(server);
 registerReadFormsTool(server);
+registerProfileTool(server);
+registerHeapProfileTool(server);
+registerTraceCallsTool(server);
+registerCallGraphTool(server);
 
 registerPrompts(server);
 

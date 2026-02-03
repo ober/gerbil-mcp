@@ -821,4 +821,206 @@ describe('Gerbil MCP Tools', () => {
       }
     });
   });
+
+  // ── Profiling tools ──────────────────────────────────────────────────
+
+  describe('Profiling tools', () => {
+    it('gerbil_profile reports timing stats', async () => {
+      const result = await client.callTool('gerbil_profile', {
+        expression: '(let loop ((i 0)) (if (< i 1000) (loop (+ i 1)) i))',
+        functions: [],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Profile');
+      expect(result.text).toContain('Wall time');
+      expect(result.text).toContain('Result: 1000');
+    });
+
+    it('gerbil_profile warns for unbound functions', async () => {
+      const result = await client.callTool('gerbil_profile', {
+        expression: '(+ 1 2)',
+        functions: ['nonexistent-fn'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('not bound');
+    });
+
+    it('gerbil_profile handles empty function list', async () => {
+      const result = await client.callTool('gerbil_profile', {
+        expression: '(+ 1 2)',
+        functions: [],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Profile');
+      expect(result.text).toContain('Wall time');
+    });
+
+    it('gerbil_profile accepts loadpath', async () => {
+      const result = await client.callTool('gerbil_profile', {
+        expression: '(+ 1 1)',
+        functions: [],
+        loadpath: ['/nonexistent/path'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Profile');
+    });
+  });
+
+  // ── Heap profiling tools ─────────────────────────────────────────────
+
+  describe('Heap profiling tools', () => {
+    it('gerbil_heap_profile captures memory metrics', async () => {
+      const result = await client.callTool('gerbil_heap_profile', {
+        expression: '(let ((v (make-vector 10000 0))) (vector-length v))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Heap Profile');
+      expect(result.text).toContain('gc-heap-size');
+      expect(result.text).toContain('gc-alloc');
+    });
+
+    it('gerbil_heap_profile shows result', async () => {
+      const result = await client.callTool('gerbil_heap_profile', {
+        expression: '(+ 40 2)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Result: 42');
+    });
+
+    it('gerbil_heap_profile accepts imports', async () => {
+      const result = await client.callTool('gerbil_heap_profile', {
+        expression: '(hash ("a" 1))',
+        imports: [':std/text/json'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Heap Profile');
+    });
+  });
+
+  // ── Trace calls tool ─────────────────────────────────────────────────
+
+  describe('Trace calls tool', () => {
+    it('gerbil_trace_calls counts function calls', async () => {
+      const result = await client.callTool('gerbil_trace_calls', {
+        expression:
+          '(begin (def (inc x) (+ x 1)) (let loop ((i 0)) (if (< i 50) (loop (inc i)) i)))',
+        functions: ['inc'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Call Trace');
+      expect(result.text).toContain('inc');
+      expect(result.text).toContain('50');
+    });
+
+    it('gerbil_trace_calls handles empty function list', async () => {
+      const result = await client.callTool('gerbil_trace_calls', {
+        expression: '(+ 1 2)',
+        functions: [],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Call Trace');
+    });
+
+    it('gerbil_trace_calls warns for unbound functions', async () => {
+      const result = await client.callTool('gerbil_trace_calls', {
+        expression: '(+ 1 2)',
+        functions: ['no-such-fn'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('not bound');
+    });
+
+    it('gerbil_trace_calls shows result', async () => {
+      const result = await client.callTool('gerbil_trace_calls', {
+        expression:
+          '(begin (def (id x) x) (id 42))',
+        functions: ['id'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Result: 42');
+    });
+  });
+
+  // ── Call graph tool ──────────────────────────────────────────────────
+
+  describe('Call graph tool', () => {
+    it('gerbil_call_graph analyzes function calls in a file', async () => {
+      writeFileSync(
+        join(TEST_DIR, 'call-graph-target.ss'),
+        `(def (parse-input s) (string-split s #\\space))
+(def (validate x) (> (length x) 0))
+(def (process data)
+  (let ((parsed (parse-input data)))
+    (when (validate parsed) parsed)))
+(def (main args) (process (car args)))
+`,
+      );
+      const result = await client.callTool('gerbil_call_graph', {
+        file_path: join(TEST_DIR, 'call-graph-target.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Call graph');
+      expect(result.text).toContain('main');
+      expect(result.text).toContain('process');
+      expect(result.text).toContain('parse-input');
+    });
+
+    it('gerbil_call_graph filters by function name', async () => {
+      const result = await client.callTool('gerbil_call_graph', {
+        file_path: join(TEST_DIR, 'call-graph-target.ss'),
+        function: 'process',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('process');
+      expect(result.text).toContain('parse-input');
+      expect(result.text).toContain('validate');
+    });
+
+    it('gerbil_call_graph handles file with no functions', async () => {
+      writeFileSync(
+        join(TEST_DIR, 'no-fns.ss'),
+        '(import :std/text/json)\n',
+      );
+      const result = await client.callTool('gerbil_call_graph', {
+        file_path: join(TEST_DIR, 'no-fns.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No function definitions');
+    });
+
+    it('gerbil_call_graph reports error for missing function filter', async () => {
+      const result = await client.callTool('gerbil_call_graph', {
+        file_path: join(TEST_DIR, 'call-graph-target.ss'),
+        function: 'nonexistent',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+  });
+
+  // ── Enhanced find-definition ─────────────────────────────────────────
+
+  describe('Enhanced find-definition with source preview', () => {
+    it('gerbil_find_definition with source_preview does not crash', async () => {
+      const result = await client.callTool('gerbil_find_definition', {
+        symbol: 'read-json',
+        module_path: ':std/text/json',
+        source_preview: true,
+        preview_lines: 10,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Kind: procedure');
+      // Preview may or may not be available depending on source file
+    });
+
+    it('gerbil_find_definition without source_preview is unchanged', async () => {
+      const result = await client.callTool('gerbil_find_definition', {
+        symbol: 'read-json',
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Kind: procedure');
+      expect(result.text).not.toContain('Source preview');
+    });
+  });
 });

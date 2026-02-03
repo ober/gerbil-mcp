@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
 import { runGxi, escapeSchemeString, ERROR_MARKER } from '../gxi.js';
 
 const RESULT_MARKER = 'GERBIL-MCP-FIND:';
@@ -25,9 +26,21 @@ export function registerFindDefinitionTool(server: McpServer): void {
           .describe(
             'Module to import for context (e.g. ":std/text/json"). If omitted, searches current environment.',
           ),
+        source_preview: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, include a source code preview of the definition (requires source file to be available)',
+          ),
+        preview_lines: z
+          .number()
+          .optional()
+          .describe(
+            'Maximum number of source lines to show in preview (default: 30)',
+          ),
       },
     },
-    async ({ symbol, module_path }) => {
+    async ({ symbol, module_path, source_preview, preview_lines }) => {
       const escapedSym = escapeSchemeString(symbol);
 
       const exprs: string[] = ['(import :gerbil/expander)'];
@@ -143,6 +156,36 @@ export function registerFindDefinitionTool(server: McpServer): void {
         sections.push('Source file: (not available — compiled module)');
       }
 
+      // Source preview
+      if (source_preview && info['source-path']) {
+        const maxLines = preview_lines ?? 30;
+        try {
+          const sourceContent = await readFile(
+            info['source-path'],
+            'utf-8',
+          );
+          const sourceLines = sourceContent.split('\n');
+          const defLineIdx = findDefinitionLine(sourceLines, symbol);
+
+          if (defLineIdx >= 0) {
+            const preview = extractFormPreview(
+              sourceLines,
+              defLineIdx,
+              maxLines,
+            );
+            sections.push('');
+            sections.push(
+              `Source preview (${info['source-path']}:${defLineIdx + 1}):`,
+            );
+            sections.push('```scheme');
+            sections.push(preview);
+            sections.push('```');
+          }
+        } catch {
+          // Silently skip if file is not readable
+        }
+      }
+
       return {
         content: [{ type: 'text' as const, text: sections.join('\n') }],
       };
@@ -206,6 +249,116 @@ function buildFindExpr(escapedSym: string, modulePath?: string): string {
     '               (newline)',
     `               ${modResolution}))))))))`,
   ].join(' ');
+}
+
+const DEF_KEYWORDS = [
+  'def ', 'def* ', 'def/c ', 'define ', 'defstruct ', 'defclass ',
+  'definterface ', 'defrules ', 'defrule ', 'defsyntax ', 'defmacro ',
+  'defmethod ', 'defconst ', 'definline ', 'defvalues ', 'defalias ',
+  'deftype ',
+];
+
+/**
+ * Find the line index (0-based) where a symbol is defined.
+ * Searches for `(def<keyword> symbol` or `(def<keyword> (symbol ...`.
+ */
+function findDefinitionLine(
+  lines: string[],
+  symbol: string,
+): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimStart();
+    if (!line.startsWith('(')) continue;
+    const rest = line.slice(1);
+    for (const kw of DEF_KEYWORDS) {
+      if (rest.startsWith(kw)) {
+        const after = rest.slice(kw.length);
+        // Match "symbol" or "(symbol ..."
+        if (
+          after.startsWith(symbol) ||
+          after.startsWith(`(${symbol}`) ||
+          after.startsWith(`{${symbol}`)
+        ) {
+          // Verify word boundary
+          const nextChar = after[symbol.length] ?? '';
+          const parenNextChar =
+            after[symbol.length + 1] ?? '';
+          if (
+            after.startsWith(symbol) &&
+            (nextChar === ' ' ||
+              nextChar === ')' ||
+              nextChar === '\n' ||
+              nextChar === '')
+          ) {
+            return i;
+          }
+          if (
+            after.startsWith(`(${symbol}`) &&
+            (parenNextChar === ' ' ||
+              parenNextChar === ')' ||
+              parenNextChar === '')
+          ) {
+            return i;
+          }
+          if (
+            after.startsWith(`{${symbol}`) &&
+            (parenNextChar === ' ' ||
+              parenNextChar === '}' ||
+              parenNextChar === '')
+          ) {
+            return i;
+          }
+        }
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Extract a form preview starting at startIdx, tracking paren depth.
+ * Returns up to maxLines lines or until the form closes.
+ */
+function extractFormPreview(
+  lines: string[],
+  startIdx: number,
+  maxLines: number,
+): string {
+  let depth = 0;
+  let started = false;
+  const result: string[] = [];
+
+  for (let i = startIdx; i < lines.length && result.length < maxLines; i++) {
+    const line = lines[i];
+    result.push(line);
+
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (ch === ';') break;
+      if (ch === '"') {
+        j++;
+        while (j < line.length && line[j] !== '"') {
+          if (line[j] === '\\') j++;
+          j++;
+        }
+        continue;
+      }
+      if (ch === '(' || ch === '[') {
+        depth++;
+        started = true;
+      } else if (ch === ')' || ch === ']') {
+        depth--;
+        if (started && depth <= 0) {
+          return result.join('\n');
+        }
+      }
+    }
+  }
+
+  if (result.length >= maxLines) {
+    result.push('...');
+  }
+  return result.join('\n');
 }
 
 function buildModuleResolution(modulePath: string): string {

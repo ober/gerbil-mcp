@@ -1,6 +1,6 @@
 # gerbil-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, manage packages, scaffold projects, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
+An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, profile function performance, analyze heap memory usage, trace call counts, visualize call graphs, manage packages, scaffold projects, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
 
 ## Prerequisites
 
@@ -620,12 +620,14 @@ type_name: "JSON", module_path: ":std/text/json"
 
 ### gerbil_find_definition
 
-Find where a Gerbil symbol is defined. Returns the qualified name, module file path, source file path (if available), kind, and arity.
+Find where a Gerbil symbol is defined. Returns the qualified name, module file path, source file path (if available), kind, and arity. Optionally includes a source code preview of the definition.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `symbol` | string | yes | Symbol name to look up (e.g. `"read-json"`, `"map"`) |
 | `module_path` | string | no | Module to import for context (e.g. `:std/text/json`) |
+| `source_preview` | boolean | no | If true, include a source code preview of the definition |
+| `preview_lines` | number | no | Maximum number of source lines to show in preview (default: 30) |
 
 ```
 symbol: "read-json", module_path: ":std/text/json"
@@ -637,6 +639,15 @@ symbol: "read-json", module_path: ":std/text/json"
    Module: :std/text/json
    Module file: /opt/gerbil/.../std/text/json/util.ssi
    Source file: (not available — compiled module)
+
+symbol: "read-json", module_path: ":std/text/json", source_preview: true
+=> Symbol: read-json
+   ...
+   Source preview:
+   ```scheme
+   (def (read-json port)
+     ...)
+   ```
 ```
 
 ### gerbil_build_project
@@ -1057,6 +1068,115 @@ file_path: "/path/to/module.ss"
      [3]  L14-L20 (defstruct ...)
 ```
 
+### gerbil_profile
+
+Instrument specific functions with call counting and timing while running an expression. Reports per-function call count, cumulative time, average time, and percentage of wall time. Also reports overall wall time, CPU time, GC time, and bytes allocated. Instruments top-level bindings via `set!`; does not work on lexical bindings.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | The Gerbil Scheme expression to profile |
+| `functions` | string[] | yes | Function names to instrument (e.g. `["read-json", "hash-put!"]`) |
+| `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
+
+```
+expression: "(begin (for-each read-json inputs) 'done)"
+functions: ["read-json", "hash-put!"]
+imports: [":std/text/json"]
+=> Profile: (begin ...)
+
+   Wall time: 4.5s | User: 4.3s | GC: 0.2s | Alloc: 150 MB
+
+   Function              Calls        Time      Avg       %
+   read-json              1000     3.200s   3.200ms   71.1%
+   hash-put!             50000     1.100s   0.022ms   24.4%
+
+   Result: done
+```
+
+### gerbil_heap_profile
+
+Capture GC heap metrics before and after running an expression. Reports heap size, allocation, live objects, movable objects, and still objects. Forces garbage collection before each snapshot for accurate measurements. Uses `:std/debug/heap` `memory-usage` function.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | The Gerbil Scheme expression to profile |
+| `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
+
+```
+expression: "(make-vector 1000000 0)"
+=> Heap Profile: (make-vector 1000000 0)
+
+   Metric             Before        After        Delta
+   gc-heap-size      68.0 MB      136.0 MB    +68.0 MB
+   gc-alloc          56.2 MB      147.3 MB    +91.1 MB
+   gc-live           28.5 MB       41.6 MB    +13.1 MB
+   gc-movable        26.6 MB       39.7 MB    +13.1 MB
+   gc-still           1.9 MB        1.9 MB     +0.0 MB
+
+   Result: #(0 0 0 ...)
+```
+
+### gerbil_trace_calls
+
+Count how many times specified functions are called while running an expression. Lightweight instrumentation with minimal overhead (no timing). Instruments top-level bindings via `set!`; does not work on lexical bindings.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | The Gerbil Scheme expression to run |
+| `functions` | string[] | yes | Function names to count calls for (e.g. `["read-json", "hash-put!"]`) |
+| `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
+
+```
+expression: "(let loop ((i 0)) (if (< i 100) (begin (hash-put! ht i i) (loop (+ i 1))) 'done))"
+functions: ["hash-put!"]
+=> Call Trace: (let loop ...)
+
+   Function              Calls
+   hash-put!               100
+
+   Result: done
+```
+
+### gerbil_call_graph
+
+Analyze which functions call which other functions in a Gerbil source file. Uses static analysis (no execution). Shows a tree visualization and flat listing of call relationships between locally defined functions. Optionally filter to show only the tree rooted at a specific function.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Absolute path to a Gerbil source file (`.ss` or `.scm`) |
+| `function` | string | no | If provided, only show the call tree rooted at this function |
+
+```
+file_path: "/path/to/server.ss"
+=> Call graph: /path/to/server.ss
+
+   main
+     +-- helper
+     +-- process-data
+     |   +-- parse-input
+     |   +-- validate
+     +-- output-results
+
+   Defined functions: 5
+     main (L10) -> helper, process-data, output-results
+     process-data (L20) -> parse-input, validate
+     parse-input (L30) -> (no local calls)
+     validate (L40) -> (no local calls)
+     helper (L50) -> (no local calls)
+
+file_path: "/path/to/server.ss", function: "process-data"
+=> Call graph: /path/to/server.ss (rooted at process-data)
+
+   process-data
+     +-- parse-input
+     +-- validate
+
+   ...
+```
+
 ## Prompts
 
 The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
@@ -1102,7 +1222,11 @@ The `gerbil_compile_check` tool uses `gxc -S` (the Gerbil compiler in expand-onl
 
 The `gerbil_repl_session` tool spawns a persistent `gxi` subprocess with piped stdin/stdout, using a sentinel-based protocol to delimit expression output across multiple evaluations. Sessions can be created with a `project_path` or explicit `loadpath` to set `GERBIL_LOADPATH` for the subprocess, enabling project-local module imports.
 
-Several tools (`gerbil_eval`, `gerbil_compile_check`, `gerbil_repl_session`) accept a `loadpath` parameter that sets `GERBIL_LOADPATH` on the subprocess environment. This allows operating within a project's build context — for example, importing modules from a project's `.gerbil/lib` directory.
+Several tools (`gerbil_eval`, `gerbil_compile_check`, `gerbil_repl_session`, `gerbil_profile`, `gerbil_heap_profile`, `gerbil_trace_calls`) accept a `loadpath` parameter that sets `GERBIL_LOADPATH` on the subprocess environment. This allows operating within a project's build context — for example, importing modules from a project's `.gerbil/lib` directory.
+
+The `gerbil_profile` and `gerbil_trace_calls` tools use Scheme-side instrumentation via `eval`/`set!` to replace top-level function bindings with wrappers that count calls (and measure timing for profile). The `gerbil_heap_profile` tool uses `:std/debug/heap` `memory-usage` to capture GC metrics before and after expression evaluation, forcing garbage collection for accurate snapshots.
+
+The `gerbil_call_graph` tool is pure TypeScript — it reads a source file, parses function definitions using paren-depth tracking, and builds an adjacency list by scanning function bodies for references to other defined functions.
 
 The `gerbil_build_project`, `gerbil_package_info`, `gerbil_scaffold`, and `gerbil_package_manage` tools invoke `gxpkg` as a subprocess for package management, project scaffolding, and building.
 
@@ -1152,6 +1276,10 @@ src/
     project-map.ts        gerbil_project_map
     check-balance.ts      gerbil_check_balance
     read-forms.ts         gerbil_read_forms
+    profile.ts            gerbil_profile
+    heap-profile.ts       gerbil_heap_profile
+    trace-calls.ts        gerbil_trace_calls
+    call-graph.ts         gerbil_call_graph
     parse-utils.ts        Shared parsing utilities
 test/
   tools.test.ts           Functional tests for all MCP tools
