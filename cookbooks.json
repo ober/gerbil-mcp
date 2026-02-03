@@ -1,1 +1,240 @@
-[]
+[
+  {
+    "id": "crypto-digest-sha256-md5",
+    "title": "Compute SHA256 or MD5 hash of data",
+    "tags": [
+      "sha256",
+      "md5",
+      "hash",
+      "digest",
+      "crypto",
+      "checksum",
+      "bytes"
+    ],
+    "imports": [
+      ":std/crypto/digest"
+    ],
+    "code": "(import :std/crypto/digest)\\n\\n;; SHA256 of a u8vector — returns u8vector\\n(def hash256 (sha256 #u8(104 101 108 108 111)))\\n\\n;; SHA256 of a string (convert to bytes first)\\n(def hash256-str (sha256 (string->bytes \\\"hello\\\")))\\n\\n;; MD5 of bytes — returns u8vector\\n(def hash-md5 (md5 (string->bytes \\\"hello\\\")))\\n\\n;; To get hex string, combine with :std/text/hex\\n(import :std/text/hex)\\n(hex-encode (sha256 (string->bytes \\\"hello\\\")))\\n;; => \\\"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\\\"",
+    "notes": "sha256 and md5 each take a single u8vector argument and return a u8vector. Other available digests: sha1, sha384, sha512, ripemd160, blake2s256, blake2b512. All from :std/crypto/digest.",
+    "related": [
+      "base64-encode-decode"
+    ]
+  },
+  {
+    "id": "base64-encode-decode",
+    "title": "Base64 encode and decode data",
+    "tags": [
+      "base64",
+      "encode",
+      "decode",
+      "bytes",
+      "string",
+      "u8vector",
+      "binary"
+    ],
+    "imports": [
+      ":std/text/base64"
+    ],
+    "code": "(import :std/text/base64)\\n\\n;; Encode u8vector to base64 string\\n(u8vector->base64-string (string->bytes \\\"hello\\\"))\\n;; => \\\"aGVsbG8=\\\"\\n\\n;; Decode base64 string to u8vector\\n(base64-string->u8vector \\\"aGVsbG8=\\\")\\n;; => #u8(104 101 108 108 111)\\n\\n;; Encode/decode raw strings\\n(base64-encode \\\"hello\\\")\\n;; => \\\"aGVsbG8=\\\"\\n(base64-decode \\\"aGVsbG8=\\\")\\n;; => \\\"hello\\\"",
+    "notes": "u8vector->base64-string and base64-string->u8vector work with binary data. base64-encode and base64-decode work with strings. Useful for HTTP headers like Content-MD5 which require base64-encoded digests.",
+    "related": [
+      "crypto-digest-sha256-md5"
+    ]
+  },
+  {
+    "id": "deferror-class-defraise",
+    "title": "Define error class with deferror-class and defraise/context",
+    "tags": [
+      "error",
+      "exception",
+      "deferror",
+      "defraise",
+      "custom",
+      "raise",
+      "class",
+      "context"
+    ],
+    "imports": [
+      ":std/error"
+    ],
+    "code": "(import :std/error)\\n\\n;; Define an error class (creates predicate automatically)\\n(deferror-class (MyServiceError Error) () my-service-error?)\\n\\n;; Define a raise helper with automatic 'where' context\\n(defraise/context (raise-my-error where message irritants ...)\\n  (MyServiceError message irritants: [irritants ...]))\\n\\n;; Usage — 'where' is automatically set to the calling function name\\n(def (connect host port)\\n  (unless host\\n    (raise-my-error connect \\\"host is required\\\" \\\"host\\\"))\\n  ...)\\n\\n;; Catch it\\n(try (connect #f 80)\\n  (catch (my-service-error? e)\\n    (displayln \\\"Service error: \\\" (error-message e))))",
+    "notes": "deferror-class is more concise than defstruct for error types — it automatically inherits Error fields (message, irritants, where). defraise/context auto-fills the 'where' field. The first arg to defraise/context after 'where' becomes the error message, rest become irritants.",
+    "related": [
+      "error-handling"
+    ]
+  },
+  {
+    "id": "cli-getopt-subcommands",
+    "title": "Build CLI with getopt subcommands",
+    "tags": [
+      "cli",
+      "getopt",
+      "command",
+      "option",
+      "flag",
+      "subcommand",
+      "argument",
+      "parse",
+      "main"
+    ],
+    "imports": [
+      ":std/cli/getopt",
+      ":std/sugar"
+    ],
+    "code": "(import :std/cli/getopt :std/sugar)\\n\\n;; Define shared options\\n(def profile-opt\\n  (option 'profile \\\"--profile\\\" \\\"-p\\\"\\n    default: #f help: \\\"Config profile\\\"))\\n(def verbose-flag\\n  (flag 'verbose \\\"--verbose\\\" \\\"-v\\\"\\n    help: \\\"Verbose output\\\"))\\n\\n;; Define commands\\n(def list-cmd\\n  (command 'list\\n    help: \\\"List items\\\"\\n    profile-opt verbose-flag\\n    (option 'filter \\\"--filter\\\" \\\"-f\\\" default: #f help: \\\"Filter pattern\\\")))\\n\\n(def create-cmd\\n  (command 'create\\n    help: \\\"Create an item\\\"\\n    profile-opt\\n    (argument 'name help: \\\"Item name\\\")))\\n\\n;; Main dispatch\\n(def (main . args)\\n  (call-with-getopt \\\"my-tool\\\" args\\n    (lambda (opt)\\n      (let-hash opt\\n        (case .command\\n          ((list)\\n           (when .?verbose (displayln \\\"verbose mode\\\"))\\n           (displayln \\\"listing with filter: \\\" .?filter))\\n          ((create)\\n           (displayln \\\"creating: \\\" .name)))))\\n    help: \\\"My CLI tool\\\"\\n    list-cmd create-cmd))",
+    "notes": "call-with-getopt parses args and calls the lambda with a hash table. Use let-hash to destructure: .command is the command symbol, .name is a required arg, .?field is optional (returns #f if missing). Options defined outside commands are shared across all commands. Arguments are positional and required by default."
+  },
+  {
+    "id": "srfi19-date-time-format",
+    "title": "Date/time formatting with SRFI-19",
+    "tags": [
+      "date",
+      "time",
+      "srfi",
+      "srfi-19",
+      "format",
+      "timestamp",
+      "iso8601",
+      "utc",
+      "current"
+    ],
+    "imports": [
+      ":std/srfi/19"
+    ],
+    "code": "(import :std/srfi/19)\\n\\n;; Current date/time (UTC)\\n(def now (current-date))\\n\\n;; Format as ISO 8601 timestamp\\n(date->string now \\\"~Y~m~dT~H~M~SZ\\\")\\n;; => \\\"20250115T143052Z\\\"\\n\\n;; Format date portion only\\n(date->string now \\\"~Y~m~d\\\")\\n;; => \\\"20250115\\\"\\n\\n;; Format human-readable\\n(date->string now \\\"~Y-~m-~d ~H:~M:~S\\\")\\n;; => \\\"2025-01-15 14:30:52\\\"\\n\\n;; Common format directives:\\n;;   ~Y  4-digit year    ~m  2-digit month   ~d  2-digit day\\n;;   ~H  24-hour hour    ~M  minute          ~S  second\\n;;   ~Z  timezone offset  ~A  weekday name    ~B  month name",
+    "notes": "current-date returns UTC. date->string uses SRFI-19 format directives (tilde-based, not strftime). Commonly needed for AWS signature timestamps (yyyyMMddTHHmmssZ format) and date-scoped signing keys (yyyyMMdd)."
+  },
+  {
+    "id": "xml-parse-sxml",
+    "title": "Parse XML string to SXML",
+    "tags": [
+      "xml",
+      "parse",
+      "sxml",
+      "markup",
+      "html",
+      "response",
+      "api"
+    ],
+    "imports": [
+      ":std/markup/xml"
+    ],
+    "code": "(import :std/markup/xml)\\n\\n;; Parse XML string to SXML tree\\n(def sxml\\n  (call-with-input-string\\n    \\\"<root><item>hello</item><item>world</item></root>\\\"\\n    (cut xml->sxml <> namespaces: '())))\\n;; => (*TOP* (root (item \\\"hello\\\") (item \\\"world\\\")))\\n\\n;; With namespace stripping\\n(def sxml-ns\\n  (call-with-input-string\\n    \\\"<ns:root xmlns:ns='http://example.com'><ns:item>hi</ns:item></ns:root>\\\"\\n    (cut xml->sxml <> namespaces: '((\\\"ns\\\" . \\\"http://example.com\\\")))))\\n\\n;; Navigate SXML — it's just nested lists\\n;; (tag child1 child2 ...) where children are strings or nested tags\\n(def root (cadr sxml))    ;; skip *TOP*, get (root ...)\\n(def items (cdr root))    ;; get children: ((item \\\"hello\\\") (item \\\"world\\\"))\\n(def first-text (cadar items))  ;; => \\\"hello\\\"",
+    "notes": "xml->sxml from :std/markup/xml returns SXML (S-expression XML). The result is always wrapped in (*TOP* ...). Namespace prefixes in tag names appear as ns:tag symbols. Pass namespaces: to map prefixes. Use cadr to skip *TOP*, then navigate with car/cdr/assoc."
+  },
+  {
+    "id": "using-typed-struct-access",
+    "title": "Typed struct field access with using macro",
+    "tags": [
+      "using",
+      "struct",
+      "typed",
+      "access",
+      "field",
+      "slot",
+      "dot",
+      "optimize",
+      "defstruct"
+    ],
+    "imports": [],
+    "code": "(defstruct point (x y) final: #t)\\n(defstruct (point3d point) (z) final: #t)\\n\\n;; using gives typed access — dot notation without dynamic dispatch\\n(def (distance p1 p2)\\n  (using ((p1 :- point) (p2 :- point))\\n    (sqrt (+ (expt (- p1.x p2.x) 2)\\n             (expt (- p1.y p2.y) 2)))))\\n\\n(distance (make-point 0 0) (make-point 3 4))  ;; => 5.0\\n\\n;; Single binding form\\n(def (describe-point p)\\n  (using (p :- point)\\n    (format \\\"(~a, ~a)\\\" p.x p.y)))\\n\\n;; Works with mutation too\\n(def (move-point! p dx dy)\\n  (using (p :- point)\\n    (set! p.x (+ p.x dx))\\n    (set! p.y (+ p.y dy))))",
+    "notes": "using provides typed struct access that compiles to direct field access (no hash-table lookup). Use with defstruct types. The :- annotation is a type declaration. Pair with final: #t on defstruct for best optimization. Unlike (@ obj slot), using is compile-time checked."
+  },
+  {
+    "id": "let-hash-destructure",
+    "title": "Destructure hash tables with let-hash",
+    "tags": [
+      "let-hash",
+      "hash",
+      "destructure",
+      "sugar",
+      "optional",
+      "field",
+      "config",
+      "options"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\\n\\n(def config (hash (name \\\"app\\\") (port 8080) (debug #f)))\\n\\n(let-hash config\\n  ;; .field — required (hash-ref with symbol key, error if missing)\\n  (displayln \\\"name: \\\" .name)\\n\\n  ;; .?field — optional (hash-get, returns #f if missing)\\n  (when .?debug\\n    (displayln \\\"debug mode\\\"))\\n\\n  ;; Use .?field with defaults via 'or'\\n  (def timeout (or .?timeout 30))\\n  (displayln \\\"port: \\\" .port \\\" timeout: \\\" timeout))\\n\\n;; With string keys, use .$field\\n(def headers (hash (\\\"Content-Type\\\" \\\"text/html\\\") (\\\"X-Custom\\\" \\\"val\\\")))\\n(let-hash headers\\n  (displayln .$Content-Type))  ;; uses string key \\\"Content-Type\\\"",
+    "notes": "let-hash is from :std/sugar. Three accessor forms: .field (symbol key, required — errors if missing), .?field (symbol key, optional — returns #f), .$field (string key, optional). Very useful for CLI option hashes from getopt and API response hashes. Nests well — (let-hash outer (let-hash .inner-hash ...)).",
+    "related": [
+      "cli-getopt-subcommands"
+    ]
+  },
+  {
+    "id": "parse-ini-file",
+    "title": "Parse INI/config file into nested hash tables",
+    "tags": [
+      "ini",
+      "config",
+      "parse",
+      "file",
+      "section",
+      "profile",
+      "aws",
+      "credentials",
+      "settings"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":std/srfi/13"
+    ],
+    "code": "(import :std/sugar (only-in :std/srfi/13 string-trim-both string-prefix? string-index))\\n\\n;; Parse INI file into hash of sections, each section is a hash of key=value\\n(def (parse-ini-file path)\\n  (let ((result (make-hash-table))\\n        (current-section #f))\\n    (when (file-exists? path)\\n      (call-with-input-file path\\n        (lambda (port)\\n          (let loop ()\\n            (let (line (read-line port))\\n              (unless (eof-object? line)\\n                (let (trimmed (string-trim-both line))\\n                  (cond\\n                    ((or (equal? trimmed \\\"\\\") (string-prefix? \\\"#\\\" trimmed)\\n                         (string-prefix? \\\";\\\" trimmed))\\n                     (void))  ;; skip blank/comment lines\\n                    ((and (string-prefix? \\\"[\\\" trimmed))\\n                     (let (end (string-index trimmed #\\\\]))\\n                       (when end\\n                         (set! current-section (substring trimmed 1 end))\\n                         (unless (hash-key? result current-section)\\n                           (hash-put! result current-section (make-hash-table))))))\\n                    (else\\n                     (when current-section\\n                       (let (eq-pos (string-index trimmed #\\\\=))\\n                         (when eq-pos\\n                           (let ((key (string-trim-both (substring trimmed 0 eq-pos)))\\n                                 (val (string-trim-both (substring trimmed (+ eq-pos 1)\\n                                                          (string-length trimmed)))))\\n                             (hash-put! (hash-ref result current-section) key val))))))))\\n                (loop)))))))\\n    result))\\n\\n;; Usage:\\n;; (def config (parse-ini-file \\\"~/.aws/credentials\\\"))\\n;; (hash-ref (hash-ref config \\\"default\\\") \\\"aws_access_key_id\\\")",
+    "notes": "Handles [section] headers, key=value pairs, blank lines, and # or ; comments. Returns a hash of hashes: outer keys are section names, inner keys are setting names. Useful for parsing AWS credentials/config files, .gitconfig, and similar INI-style configs. Uses string-trim-both and string-index from :std/srfi/13."
+  },
+  {
+    "id": "http-post-form-encoded",
+    "title": "HTTP POST with form-url-encoded body",
+    "tags": [
+      "http",
+      "post",
+      "form",
+      "urlencoded",
+      "uri",
+      "encode",
+      "request",
+      "api",
+      "query"
+    ],
+    "imports": [
+      ":std/net/request",
+      ":std/net/uri"
+    ],
+    "code": "(import :std/net/request :std/net/uri)\\n\\n;; Build form-encoded body from alist of (key . value) pairs\\n(def params '((\\\"Action\\\" . \\\"DescribeInstances\\\")\\n              (\\\"Version\\\" . \\\"2016-11-15\\\")\\n              (\\\"MaxResults\\\" . \\\"10\\\")))\\n\\n(def body (form-url-encode params))\\n;; => \\\"Action=DescribeInstances&Version=2016-11-15&MaxResults=10\\\"\\n\\n;; POST with form-encoded body\\n(def resp (http-post \\\"https://api.example.com/\\\"\\n            data: body\\n            headers: '((\\\"Content-Type\\\" . \\\"application/x-www-form-urlencoded\\\"))))\\n\\n(request-status resp)   ;; HTTP status code\\n(request-text resp)     ;; response body as string\\n(request-close resp)    ;; release connection",
+    "notes": "form-url-encode from :std/net/uri takes an alist of (key . value) string pairs and produces a URL-encoded query string. This is the standard format for AWS Query API services (EC2, STS, IAM, SNS, CloudFormation). Always call request-close after reading the response to release the connection.",
+    "related": [
+      "http-get",
+      "http-post-json"
+    ]
+  },
+  {
+    "id": "sigv4-aws-request-signing",
+    "title": "AWS SigV4 request signing",
+    "tags": [
+      "aws",
+      "sigv4",
+      "signing",
+      "signature",
+      "authentication",
+      "s3",
+      "ec2",
+      "request",
+      "api"
+    ],
+    "imports": [
+      ":std/net/s3/sigv4",
+      ":std/crypto/digest",
+      ":std/text/hex",
+      ":std/srfi/19",
+      ":std/net/request"
+    ],
+    "code": "(import :std/net/s3/sigv4 :std/crypto/digest :std/text/hex\\n        :std/srfi/19 :std/net/request)\\n\\n;; Prepare timestamp and scope\\n(def now (current-date))\\n(def ts (date->string now \\\"~Y~m~dT~H~M~SZ\\\"))     ;; e.g. \\\"20250115T143052Z\\\"\\n(def scopets (date->string now \\\"~Y~m~d\\\"))           ;; e.g. \\\"20250115\\\"\\n(def scope (string-append scopets \\\"/us-east-1/sts\\\")) ;; date/region/service\\n\\n;; Build headers list as alist with :: syntax\\n(def body-bytes (string->bytes \\\"Action=GetCallerIdentity&Version=2011-06-15\\\"))\\n(def body-hash (sha256 body-bytes))\\n(def host \\\"sts.amazonaws.com\\\")\\n(def headers [[\\\"Host\\\" :: host]\\n              [\\\"x-amz-date\\\" :: ts]\\n              [\\\"Content-Type\\\" :: \\\"application/x-www-form-urlencoded\\\"]])\\n\\n;; Create canonical request\\n(def creq (aws4-canonical-request\\n             verb: 'POST uri: \\\"/\\\" query: #f\\n             headers: headers hash: body-hash))\\n\\n;; Generate Authorization header\\n(def auth (aws4-auth scope creq ts headers\\n                     \\\"SECRET_KEY\\\" \\\"ACCESS_KEY\\\"))\\n\\n;; Make the signed request\\n(def signed-headers (cons [\\\"Authorization\\\" :: auth] headers))\\n(def resp (http-post (string-append \\\"https://\\\" host \\\"/\\\")\\n            headers: signed-headers\\n            data: (bytes->string body-bytes)))",
+    "notes": "aws4-canonical-request and aws4-auth are from :std/net/s3/sigv4 (works for ALL AWS services, not just S3). The scope format is \\\"YYYYMMDD/region/service\\\". Headers must be an alist with [key :: value] pairs. body-hash is the SHA256 of the request body as a u8vector. For GET requests with no body, use (sha256 #u8()) for the hash.",
+    "related": [
+      "http-post-form-encoded",
+      "crypto-digest-sha256-md5",
+      "srfi19-date-time-format"
+    ]
+  }
+]
