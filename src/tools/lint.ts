@@ -68,7 +68,8 @@ export function registerLintTool(server: McpServer): void {
       description:
         'Static analysis for common Gerbil issues: unused imports, duplicate definitions, ' +
         'style warnings (define vs def, missing transparent:), shadowed standard bindings, ' +
-        'hash literal symbol key warnings, and compilation errors via gxc.',
+        'hash literal symbol key warnings, channel anti-patterns (spinning try-get, ' +
+        'wg-wait visibility gaps), and compilation errors via gxc.',
       inputSchema: {
         file_path: z
           .string()
@@ -99,6 +100,7 @@ export function registerLintTool(server: McpServer): void {
       checkStyleIssues(lines, diagnostics);
       checkShadowedBindings(analysis, diagnostics);
       checkHashLiteralKeys(lines, diagnostics);
+      checkChannelPatterns(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -286,6 +288,78 @@ function extractFormFromLines(lines: string[], startIdx: number): string {
   return result;
 }
 
+/**
+ * Extract top-level entries from a (hash ...) form.
+ * Returns the key token of each (key value) pair at depth 1.
+ */
+function extractHashEntries(form: string): string[] {
+  const keys: string[] = [];
+  // Skip past the opening "(hash" prefix
+  const start = form.indexOf('(hash');
+  if (start === -1) return keys;
+  let pos = start + 5; // skip "(hash"
+  const len = form.length;
+
+  while (pos < len) {
+    const ch = form[pos];
+    // Skip whitespace
+    if (/\s/.test(ch)) { pos++; continue; }
+    // End of hash form
+    if (ch === ')') break;
+    // Start of an entry: (key value)
+    if (ch === '(') {
+      pos++; // skip '('
+      // Skip whitespace before key
+      while (pos < len && /\s/.test(form[pos])) pos++;
+      // Read the key token
+      const keyStart = pos;
+      while (pos < len && !/[\s()]/.test(form[pos])) pos++;
+      const key = form.slice(keyStart, pos);
+      if (key.length > 0) keys.push(key);
+      // Skip the rest of this entry by tracking depth
+      let depth = 1;
+      while (pos < len && depth > 0) {
+        if (form[pos] === '(' || form[pos] === '[') depth++;
+        else if (form[pos] === ')' || form[pos] === ']') depth--;
+        // Skip string literals to avoid counting parens inside them
+        if (form[pos] === '"') {
+          pos++;
+          while (pos < len && form[pos] !== '"') {
+            if (form[pos] === '\\') pos++; // skip escaped char
+            pos++;
+          }
+        }
+        pos++;
+      }
+    } else {
+      // Skip any other token (shouldn't happen in well-formed hash)
+      pos++;
+    }
+  }
+  return keys;
+}
+
+/**
+ * Check if a token looks like a bare identifier (symbol key) in a hash literal.
+ * Returns false for strings, numbers, booleans, keywords, and characters.
+ */
+function isBareIdentifier(token: string): boolean {
+  if (token.length === 0) return false;
+  // String literal
+  if (token.startsWith('"')) return false;
+  // Number (including negative)
+  if (/^-?[0-9]/.test(token)) return false;
+  // Boolean
+  if (token === '#t' || token === '#f') return false;
+  // Keyword (ends with colon)
+  if (token.endsWith(':')) return false;
+  // Character literal
+  if (token.startsWith('#\\')) return false;
+  // Quoted symbol
+  if (token.startsWith("'")) return false;
+  return true;
+}
+
 function checkHashLiteralKeys(
   lines: string[],
   diagnostics: LintDiagnostic[],
@@ -303,20 +377,89 @@ function checkHashLiteralKeys(
     // Extract the full form spanning multiple lines
     const form = extractFormFromLines(lines, i);
 
-    // Find entries within the hash form: (KEY value)
-    // Look for bare uppercase identifiers as hash keys
-    const entryPattern = /\(\s*([A-Z][A-Z0-9_-]+)\s+/g;
-    let match;
-    while ((match = entryPattern.exec(form)) !== null) {
-      const key = match[1];
-      diagnostics.push({
-        line: lineNum,
-        severity: 'warning',
-        code: 'hash-symbol-key',
-        message:
-          `Hash literal uses bare symbol key '${key}' — this creates a symbol key, not a string. ` +
-          `Use ("${key}" ...) for string keys.`,
-      });
+    // Extract entry keys and check for bare identifiers
+    const keys = extractHashEntries(form);
+    for (const key of keys) {
+      if (isBareIdentifier(key)) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'warning',
+          code: 'hash-symbol-key',
+          message:
+            `Hash literal uses bare symbol key '${key}' — this creates a symbol key, not a string. ` +
+            `Use ("${key}" ...) for string keys, or hash-eq for intentional symbol keys.`,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Check if a line index is inside a loop construct by scanning backward.
+ * Stops at top-level definition boundaries (def, def*, defmethod, etc.).
+ */
+function isInsideLoop(lines: string[], targetIdx: number): boolean {
+  const loopPattern =
+    /\(\s*(while|until|do|for|for\/collect|for\/fold)\s/;
+  const namedLetPattern = /\(\s*let\s+\S+\s+\(/;
+  const defBoundary = /^\s*\(\s*(def\b|def\*|defmethod|defclass|defstruct)/;
+
+  for (let i = targetIdx; i >= 0; i--) {
+    const line = lines[i];
+    // Stop scanning at top-level definition boundaries
+    if (defBoundary.test(line) && i < targetIdx) return false;
+    if (loopPattern.test(line)) return true;
+    if (namedLetPattern.test(line)) return true;
+  }
+  return false;
+}
+
+function checkChannelPatterns(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  const defBoundary = /^\s*\(\s*(def\b|def\*|defmethod|defclass|defstruct)/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Rule 1: channel-try-get inside a loop
+    if (trimmed.includes('channel-try-get')) {
+      if (isInsideLoop(lines, i)) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'warning',
+          code: 'channel-try-get-in-loop',
+          message:
+            'channel-try-get inside a loop spins the CPU. ' +
+            'Use channel-get (blocking) or add a sleep/timeout.',
+        });
+      }
+    }
+
+    // Rule 2: wg-wait! followed by channel-try-get
+    if (trimmed.includes('wg-wait!')) {
+      const lookAheadEnd = Math.min(i + 15, lines.length);
+      for (let j = i + 1; j < lookAheadEnd; j++) {
+        // Stop at definition boundaries
+        if (defBoundary.test(lines[j])) break;
+        if (lines[j].includes('channel-try-get')) {
+          diagnostics.push({
+            line: lineNum,
+            severity: 'warning',
+            code: 'wg-wait-then-try-get',
+            message:
+              'wg-wait! followed by channel-try-get may miss values. ' +
+              'Workers may not have put to the channel yet when wg signals. ' +
+              'Use channel-get (blocking) or collect results before wg-wait!.',
+          });
+          break;
+        }
+      }
     }
   }
 }

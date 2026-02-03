@@ -243,6 +243,21 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Channel lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'channel-lint.ss'),
+      `(import :std/misc/channel :std/misc/wg)
+
+(def (spin-worker ch)
+  (while #t
+    (channel-try-get ch #f)))
+
+(def (collector wg result-ch)
+  (wg-wait! wg)
+  (channel-try-get result-ch #f))
+`,
+    );
+
     // Package file for project tools and REPL project_path tests
     writeFileSync(join(TEST_DIR, 'gerbil.pkg'), '(package: test-pkg)');
 
@@ -504,13 +519,28 @@ describe('Gerbil MCP Tools', () => {
       expect(result.text).toContain('warning');
     });
 
-    it('gerbil_lint warns on bare uppercase hash keys', async () => {
+    it('gerbil_lint warns on bare hash keys including lowercase', async () => {
       const result = await client.callTool('gerbil_lint', {
         file_path: join(TEST_DIR, 'hash-lint.ss'),
       });
       expect(result.text).toContain('hash-symbol-key');
       expect(result.text).toContain('FOO');
       expect(result.text).toContain('CRITICAL');
+      expect(result.text).toContain('name');
+    });
+
+    it('gerbil_lint warns on channel-try-get in loop', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'channel-lint.ss'),
+      });
+      expect(result.text).toContain('channel-try-get-in-loop');
+    });
+
+    it('gerbil_lint warns on wg-wait then channel-try-get', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'channel-lint.ss'),
+      });
+      expect(result.text).toContain('wg-wait-then-try-get');
     });
   });
 

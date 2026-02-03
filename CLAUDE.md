@@ -33,13 +33,13 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 79 tests must pass before considering any change complete. The test suite covers:
+All 81 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
 - Macro tools (expand, trace)
 - Type inspection tools (class info, error hierarchy)
-- File analysis tools (load file, document symbols, lint, diagnostics, hash literal lint)
+- File analysis tools (load file, document symbols, lint, diagnostics, hash literal lint, channel pattern lint)
 - Balance checking tools (delimiter balance, inline code)
 - Read forms tool (top-level form listing, reader errors)
 - Project tools (workspace symbols, find callers, rename, project map)

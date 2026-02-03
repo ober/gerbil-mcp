@@ -80,7 +80,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
 - To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
-- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, compilation errors).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
