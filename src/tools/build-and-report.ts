@@ -1,5 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { runGerbilCmd } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
 
@@ -28,6 +30,9 @@ export function registerBuildAndReportTool(server: McpServer): void {
       },
     },
     async ({ project_path, flags }) => {
+      // Detect Makefile and extract targets
+      const makefileNote = await detectMakefile(project_path);
+
       const args = ['build', ...(flags ?? [])];
 
       const result = await runGerbilCmd(args, {
@@ -75,6 +80,10 @@ export function registerBuildAndReportTool(server: McpServer): void {
           sections.push('');
           sections.push(output);
         }
+        if (makefileNote) {
+          sections.push('');
+          sections.push(makefileNote);
+        }
 
         return {
           content: [{ type: 'text' as const, text: sections.join('\n') }],
@@ -120,10 +129,50 @@ export function registerBuildAndReportTool(server: McpServer): void {
         sections.push(`  [${d.severity.toUpperCase()}] ${loc} \u2014 ${d.message}`);
       }
 
+      if (makefileNote) {
+        sections.push('');
+        sections.push(makefileNote);
+      }
+
       return {
         content: [{ type: 'text' as const, text: sections.join('\n') }],
         isError: true,
       };
     },
   );
+}
+
+/**
+ * Detect a Makefile in the project directory and extract build-related targets.
+ * Returns an advisory note string, or null if no Makefile found.
+ */
+async function detectMakefile(projectPath: string): Promise<string | null> {
+  try {
+    const content = await readFile(join(projectPath, 'Makefile'), 'utf-8');
+    const targets = parseMakeTargets(content);
+    if (targets.length === 0) return null;
+    return `Note: This project has a Makefile with targets: ${targets.join(', ')}. Use gerbil_make to run them.`;
+  } catch {
+    return null;
+  }
+}
+
+const BUILD_TARGETS = new Set([
+  'all', 'build', 'clean', 'install', 'uninstall',
+  'release', 'test', 'check', 'dist', 'deploy',
+]);
+
+function parseMakeTargets(content: string): string[] {
+  const targets: string[] = [];
+  const seen = new Set<string>();
+  for (const line of content.split('\n')) {
+    const match = line.match(/^([a-zA-Z_][\w.-]*)\s*:/);
+    if (match && !seen.has(match[1])) {
+      seen.add(match[1]);
+      targets.push(match[1]);
+    }
+  }
+  // Only return if at least one is a "build-related" target
+  const hasBuildTarget = targets.some((t) => BUILD_TARGETS.has(t));
+  return hasBuildTarget ? targets : [];
 }

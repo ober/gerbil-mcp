@@ -75,10 +75,17 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures. Useful for creating wrapper modules or implementation stubs.
 - **`gerbil_generate_module`**: Create new modules by applying word-boundary-aware substitutions to a template file. Useful for mechanical variations of an existing module pattern.
 
+### For Recipes and Cookbook
+
+- **`gerbil_howto`**: Search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use `cookbook_path` to merge in additional recipes from a JSON file.
+- **`gerbil_howto_add`**: Save a newly discovered Gerbil idiom to a JSON cookbook file. Convention: `.claude/cookbooks.json` in the project root. Supports update semantics — if a recipe with the same `id` exists, it is replaced.
+
 ### For Project Context
 
 - **`gerbil_project_info`**: Single-call project summary: package name, build targets, source files, and external dependencies.
 - **`gerbil_project_map`**: Complete view of all modules with their exports, definitions by kind, and import dependencies.
+- **`gerbil_file_summary`**: Quick structural overview of a Gerbil source file (imports, exports, definitions by kind) without reading the whole file.
+- **`gerbil_make`**: Run Makefile targets in a Gerbil project directory.
 
 ### Key Principle
 

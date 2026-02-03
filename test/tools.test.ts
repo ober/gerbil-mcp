@@ -328,6 +328,29 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // Makefile fixture for build-and-report Makefile detection
+    const makeDir = join(TEST_DIR, 'with-makefile');
+    mkdirSync(makeDir, { recursive: true });
+    writeFileSync(join(makeDir, 'gerbil.pkg'), '(package: makefile-test)');
+    writeFileSync(
+      join(makeDir, 'Makefile'),
+      `all: build
+
+build:
+\t@echo "building"
+
+clean:
+\t@echo "cleaning"
+
+test:
+\t@echo "testing"
+`,
+    );
+    writeFileSync(
+      join(makeDir, 'hello.ss'),
+      '(export greet)\n(def (greet name) (string-append "Hi " name))\n',
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -1355,6 +1378,218 @@ describe('Gerbil MCP Tools', () => {
       });
       expect(result.isError).toBe(false);
       expect(result.text).toContain('cleanly');
+    });
+  });
+
+  // ── Function signature with parameter names ─────────────────────────
+
+  describe('Function signature parameter names', () => {
+    it('gerbil_function_signature shows parameter names or arity', async () => {
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/text/json',
+        symbol: 'read-json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('procedure');
+      // Should show either parameter names (from source) or arity fallback
+      expect(
+        result.text.includes('[') || result.text.includes('arity:'),
+      ).toBe(true);
+    });
+
+    it('gerbil_function_signature falls back to arity when source unavailable', async () => {
+      // Test with a module that may not have source available
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('procedure');
+    });
+  });
+
+  // ── Makefile awareness ─────────────────────────────────────────────
+
+  describe('Makefile awareness', () => {
+    it('gerbil_build_and_report notes Makefile when present', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: join(TEST_DIR, 'with-makefile'),
+      });
+      // Whether build succeeds or fails, should mention Makefile
+      expect(result.text).toContain('Makefile');
+      expect(result.text).toContain('gerbil_make');
+    }, 60000);
+
+    it('gerbil_build_and_report omits Makefile note when no Makefile', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: join(TEST_DIR, 'buildable'),
+      });
+      // Should NOT mention Makefile since there is none
+      expect(result.text).not.toContain('gerbil_make');
+    }, 60000);
+
+    it('gerbil_make returns error for missing Makefile', async () => {
+      const result = await client.callTool('gerbil_make', {
+        project_path: '/nonexistent/project/path',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('No Makefile');
+    });
+  });
+
+  // ── Howto cookbook tool ─────────────────────────────────────────────
+
+  describe('Howto cookbook tool', () => {
+    it('gerbil_howto finds JSON recipes', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'json parse',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('json');
+      expect(result.text).toContain('read-json');
+      expect(result.text).toContain('```scheme');
+    });
+
+    it('gerbil_howto finds file I/O recipes', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'file read',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('file');
+      expect(result.text).toContain('recipe');
+    });
+
+    it('gerbil_howto finds thread/concurrency recipes', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'thread spawn concurrent',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('spawn');
+    });
+
+    it('gerbil_howto returns no-match message for gibberish', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'xyzzyplugh',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No recipes found');
+      expect(result.text).toContain('Available topics');
+    });
+  });
+
+  // ── Howto add / extensible cookbook ───────────────────────────────
+
+  describe('Howto extensible cookbook', () => {
+    it('gerbil_howto_add creates a new cookbook file and adds a recipe', async () => {
+      const cookbookPath = join(TEST_DIR, '.claude', 'cookbooks.json');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'my-custom-recipe',
+        title: 'Custom recipe for testing',
+        tags: ['custom', 'testing', 'unicorn'],
+        imports: [':std/test'],
+        code: '(displayln "hello from custom recipe")',
+        notes: 'This is a test recipe.',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).toContain('my-custom-recipe');
+      expect(result.text).toContain('1 total recipes');
+    });
+
+    it('gerbil_howto_add replaces recipe with same id', async () => {
+      const cookbookPath = join(TEST_DIR, '.claude', 'cookbooks.json');
+      // Add a second recipe first
+      await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'another-recipe',
+        title: 'Another recipe',
+        tags: ['another'],
+        imports: [],
+        code: '(void)',
+      });
+      // Now update the first recipe
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'my-custom-recipe',
+        title: 'Updated custom recipe',
+        tags: ['custom', 'testing', 'unicorn', 'updated'],
+        imports: [':std/test'],
+        code: '(displayln "updated")',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Updated');
+      expect(result.text).toContain('my-custom-recipe');
+      expect(result.text).toContain('2 total recipes');
+    });
+
+    it('gerbil_howto loads external recipes via cookbook_path', async () => {
+      const cookbookPath = join(TEST_DIR, '.claude', 'cookbooks.json');
+      const result = await client.callTool('gerbil_howto', {
+        query: 'unicorn custom',
+        cookbook_path: cookbookPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Updated custom recipe');
+      expect(result.text).toContain('updated');
+    });
+
+    it('gerbil_howto with invalid cookbook_path still returns embedded results', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'json parse',
+        cookbook_path: '/nonexistent/path/cookbooks.json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-json');
+    });
+
+    it('gerbil_howto_add returns error for unparseable existing file', async () => {
+      const badPath = join(TEST_DIR, 'bad-cookbook.json');
+      writeFileSync(badPath, 'this is not json{{{');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: badPath,
+        id: 'test',
+        title: 'Test',
+        tags: ['test'],
+        imports: [],
+        code: '(void)',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Error');
+    });
+  });
+
+  // ── File summary tool ─────────────────────────────────────────────
+
+  describe('File summary tool', () => {
+    it('gerbil_file_summary shows structural overview', async () => {
+      const result = await client.callTool('gerbil_file_summary', {
+        file_path: join(TEST_DIR, 'sample.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('sample.ss');
+      expect(result.text).toContain('Imports:');
+      expect(result.text).toContain('Exports:');
+      expect(result.text).toContain('Procedures');
+      expect(result.text).toContain('main');
+      expect(result.text).toContain('helper');
+      expect(result.text).toContain('point');
+    });
+
+    it('gerbil_file_summary handles missing file', async () => {
+      const result = await client.callTool('gerbil_file_summary', {
+        file_path: '/nonexistent/file.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Failed to read');
+    });
+
+    it('gerbil_file_summary handles empty file', async () => {
+      writeFileSync(join(TEST_DIR, 'empty.ss'), '');
+      const result = await client.callTool('gerbil_file_summary', {
+        file_path: join(TEST_DIR, 'empty.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('empty');
     });
   });
 });

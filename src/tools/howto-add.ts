@@ -1,0 +1,115 @@
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { z } from 'zod';
+import type { Recipe } from './howto.js';
+
+export function registerHowtoAddTool(server: McpServer): void {
+  server.registerTool(
+    'gerbil_howto_add',
+    {
+      title: 'Add Gerbil Cookbook Recipe',
+      description:
+        'Append a new Gerbil Scheme recipe to a JSON cookbook file. ' +
+        'If a recipe with the same id already exists, it is replaced (update semantics). ' +
+        'Convention: use .claude/cookbooks.json in the project root.',
+      inputSchema: {
+        cookbook_path: z
+          .string()
+          .describe(
+            'Absolute path to the JSON cookbook file (e.g. "/home/user/project/.claude/cookbooks.json")',
+          ),
+        id: z
+          .string()
+          .describe('Unique recipe identifier in kebab-case (e.g. "read-csv-file")'),
+        title: z.string().describe('Human-readable title (e.g. "Read a CSV file")'),
+        tags: z
+          .array(z.string())
+          .describe('Search keywords (e.g. ["csv", "file", "read", "parse"])'),
+        imports: z
+          .array(z.string())
+          .describe('Gerbil module imports (e.g. [":std/text/csv"]). Use [] if none needed.'),
+        code: z.string().describe('Code example'),
+        notes: z.string().optional().describe('Usage notes'),
+        related: z
+          .array(z.string())
+          .optional()
+          .describe('Related recipe IDs'),
+      },
+    },
+    async ({ cookbook_path, id, title, tags, imports, code, notes, related }) => {
+      // Read existing file or start fresh
+      let recipes: Recipe[] = [];
+      try {
+        const raw = readFileSync(cookbook_path, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error: ${cookbook_path} does not contain a JSON array.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        recipes = parsed;
+      } catch (e: unknown) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+          // File doesn't exist yet — start with empty array
+          recipes = [];
+        } else {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error reading ${cookbook_path}: ${e instanceof Error ? e.message : String(e)}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+
+      // Build the new recipe
+      const recipe: Recipe = { id, title, tags, imports, code };
+      if (notes) recipe.notes = notes;
+      if (related && related.length > 0) recipe.related = related;
+
+      // Replace existing recipe with same id, or append
+      const existingIdx = recipes.findIndex((r) => r.id === id);
+      if (existingIdx >= 0) {
+        recipes[existingIdx] = recipe;
+      } else {
+        recipes.push(recipe);
+      }
+
+      // Write back
+      try {
+        mkdirSync(dirname(cookbook_path), { recursive: true });
+        writeFileSync(cookbook_path, JSON.stringify(recipes, null, 2) + '\n');
+      } catch (e: unknown) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error writing ${cookbook_path}: ${e instanceof Error ? e.message : String(e)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const action = existingIdx >= 0 ? 'Updated' : 'Added';
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${action} recipe "${id}" in ${cookbook_path} (${recipes.length} total recipes).`,
+          },
+        ],
+      };
+    },
+  );
+}

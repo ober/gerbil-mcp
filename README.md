@@ -1269,6 +1269,147 @@ module_path: ":std/text/json", package_prefix: "myapp", imports: [":std/iter"]
    ...
 ```
 
+### gerbil_check_exports
+
+Static analysis tool that checks export/import consistency across a Gerbil project. Detects symbols exported but not defined in the file, and cross-module import mismatches where file A imports from project module B but uses symbols that B does not export. Pure static analysis — no subprocess, fast.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Path to the Gerbil project directory |
+
+```
+project_path: "/path/to/myproject"
+=> Export consistency check: /path/to/myproject
+
+   Found 2 issue(s):
+
+   [ERROR] server.ss:3 — Exported symbol "handle-auth" is not defined in this file
+   [WARNING] api.ss:5 — Imports "process-data" from ./server, but ./server does not export it
+```
+
+### gerbil_generate_module
+
+Generate a Gerbil module by reading a template file and applying word-boundary-aware string substitutions. Returns the generated text (does NOT write to disk). Useful for creating mechanical variations of an existing module pattern.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `template_path` | string | yes | Path to the template `.ss` file to use as a base |
+| `substitutions` | array | yes | Array of `{from, to}` substitution pairs |
+
+```
+template_path: "/path/to/handler.ss"
+substitutions: [{"from": "user", "to": "admin"}, {"from": "User", "to": "Admin"}]
+=> (import :myapp/admin-db)
+   (export admin-handler admin-list)
+
+   (def (admin-handler req)
+     ...)
+   ...
+```
+
+### gerbil_howto
+
+Search curated Gerbil Scheme idioms and recipes by keyword. Returns code examples with imports and usage notes. Supports merging in additional recipes from an external JSON cookbook file.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | yes | Search keywords (e.g. `"json parse"`, `"file read"`, `"channel thread"`) |
+| `cookbook_path` | string | no | Absolute path to a JSON cookbook file with additional recipes to merge |
+
+```
+query: "json parse"
+=> Found 3 recipe(s) for "json parse":
+
+   ## Parse JSON string
+   Imports: :std/text/json
+   ```scheme
+   (import :std/text/json)
+   (def data (call-with-input-string "{\"name\":\"alice\"}" read-json))
+   ```
+   ...
+
+query: "custom recipe", cookbook_path: "/path/to/project/.claude/cookbooks.json"
+=> Found 1 recipe(s) for "custom recipe":
+
+   ## My Custom Recipe
+   ...
+```
+
+When `cookbook_path` is provided, recipes from the external file are merged with the built-in set. External recipes override built-in ones if they share the same `id`.
+
+### gerbil_howto_add
+
+Append a new Gerbil Scheme recipe to a JSON cookbook file. If a recipe with the same `id` already exists, it is replaced (update semantics). Convention: use `.claude/cookbooks.json` in the project root.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cookbook_path` | string | yes | Absolute path to the JSON cookbook file |
+| `id` | string | yes | Unique recipe identifier in kebab-case |
+| `title` | string | yes | Human-readable title |
+| `tags` | string[] | yes | Search keywords |
+| `imports` | string[] | yes | Gerbil module imports (use `[]` if none needed) |
+| `code` | string | yes | Code example |
+| `notes` | string | no | Usage notes |
+| `related` | string[] | no | Related recipe IDs |
+
+```
+cookbook_path: "/path/to/project/.claude/cookbooks.json"
+id: "csv-read"
+title: "Read a CSV file"
+tags: ["csv", "file", "read", "parse"]
+imports: [":std/text/csv"]
+code: "(import :std/text/csv)\n(call-with-input-file \"data.csv\" read-csv)"
+=> Added recipe "csv-read" in /path/to/project/.claude/cookbooks.json (1 total recipes).
+```
+
+### gerbil_file_summary
+
+Structural overview of a Gerbil source file without reading the whole file. Shows imports, exports, and definitions grouped by kind. Pure TypeScript — no subprocess, fast.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | string | yes | Absolute path to a Gerbil source file (`.ss` or `.scm`) |
+
+```
+file_path: "/path/to/server.ss"
+=> File: server.ss (1.2 KB)
+
+   Imports:
+     :std/net/httpd
+     :std/text/json
+
+   Exports:
+     start-server, stop-server
+
+   Procedures:
+     L4  start-server
+     L12 stop-server
+     L20 handle-request
+
+   Structs:
+     L8  config
+```
+
+### gerbil_make
+
+Run a Makefile target in a Gerbil project directory. Returns structured output with exit code, stdout, and stderr.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory containing the Makefile |
+| `target` | string | no | Make target to run (e.g. `"build"`, `"clean"`). Defaults to the default target. |
+| `timeout` | number | no | Timeout in milliseconds (default: 120000) |
+
+```
+project_path: "/path/to/project", target: "build"
+=> Make target "build" completed successfully.
+
+   ... build output ...
+
+project_path: "/path/to/project"
+=> No Makefile found in /path/to/project.
+```
+
 ## Prompts
 
 The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
@@ -1377,6 +1518,12 @@ src/
     scaffold-test.ts      gerbil_scaffold_test
     build-and-report.ts   gerbil_build_and_report
     generate-module-stub.ts gerbil_generate_module_stub
+    check-exports.ts      gerbil_check_exports
+    generate-module.ts    gerbil_generate_module
+    howto.ts              gerbil_howto
+    howto-add.ts          gerbil_howto_add
+    file-summary.ts       gerbil_file_summary
+    make.ts               gerbil_make
     parse-utils.ts        Shared parsing utilities
 test/
   tools.test.ts           Functional tests for all MCP tools
