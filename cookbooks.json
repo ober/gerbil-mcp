@@ -65,24 +65,26 @@
   },
   {
     "id": "cli-getopt-subcommands",
-    "title": "Build CLI with getopt subcommands",
+    "title": "Build CLI with getopt (v0.19+ API)",
     "tags": [
       "cli",
       "getopt",
       "command",
-      "option",
       "flag",
-      "subcommand",
+      "option",
       "argument",
-      "parse",
-      "main"
+      "command-line",
+      "program"
     ],
     "imports": [
       ":std/cli/getopt",
       ":std/sugar"
     ],
-    "code": "(import :std/cli/getopt :std/sugar)\\n\\n;; Define shared options\\n(def profile-opt\\n  (option 'profile \\\"--profile\\\" \\\"-p\\\"\\n    default: #f help: \\\"Config profile\\\"))\\n(def verbose-flag\\n  (flag 'verbose \\\"--verbose\\\" \\\"-v\\\"\\n    help: \\\"Verbose output\\\"))\\n\\n;; Define commands\\n(def list-cmd\\n  (command 'list\\n    help: \\\"List items\\\"\\n    profile-opt verbose-flag\\n    (option 'filter \\\"--filter\\\" \\\"-f\\\" default: #f help: \\\"Filter pattern\\\")))\\n\\n(def create-cmd\\n  (command 'create\\n    help: \\\"Create an item\\\"\\n    profile-opt\\n    (argument 'name help: \\\"Item name\\\")))\\n\\n;; Main dispatch\\n(def (main . args)\\n  (call-with-getopt \\\"my-tool\\\" args\\n    (lambda (opt)\\n      (let-hash opt\\n        (case .command\\n          ((list)\\n           (when .?verbose (displayln \\\"verbose mode\\\"))\\n           (displayln \\\"listing with filter: \\\" .?filter))\\n          ((create)\\n           (displayln \\\"creating: \\\" .name)))))\\n    help: \\\"My CLI tool\\\"\\n    list-cmd create-cmd))",
-    "notes": "call-with-getopt parses args and calls the lambda with a hash table. Use let-hash to destructure: .command is the command symbol, .name is a required arg, .?field is optional (returns #f if missing). Options defined outside commands are shared across all commands. Arguments are positional and required by default."
+    "code": "(import :std/cli/getopt :std/sugar)\n\n;; Simple CLI with options (no subcommands)\n(def (main . args)\n  (call-with-getopt\n    (lambda (opt)\n      (let-hash opt\n        (when .?verbose (displayln \"verbose mode\"))\n        (displayln \"output: \" (or .?output \"default.txt\"))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    (flag 'verbose \"--verbose\" \"-v\"\n      help: \"Verbose output\")\n    (option 'output \"--output\" \"-o\"\n      help: \"Output file\"\n      value: identity)))\n\n;; CLI with subcommands\n(def list-cmd\n  (command 'list\n    help: \"List items\"\n    (option 'filter \"--filter\" \"-f\" default: #f help: \"Filter\")))\n\n(def create-cmd\n  (command 'create\n    help: \"Create an item\"\n    (argument 'name help: \"Item name\")))\n\n(def (main . args)\n  (call-with-getopt\n    (lambda (opt)\n      (let-hash opt\n        (case .command\n          ((list) (displayln \"listing with filter: \" .?filter))\n          ((create) (displayln \"creating: \" .name)))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    list-cmd create-cmd))",
+    "notes": "IMPORTANT: In Gerbil v0.19+, call-with-getopt signature is: (call-with-getopt handler args program: \"name\" help: \"...\" options...). The handler lambda comes FIRST, args SECOND, then program: keyword. Older examples showing (call-with-getopt \"name\" args handler ...) are WRONG for v0.19+. For exe builds, the main module MUST have (export main). Use identity instead of string->string for option value converters.",
+    "related": [
+      "let-hash-destructure"
+    ]
   },
   {
     "id": "srfi19-date-time-format",
@@ -235,6 +237,50 @@
       "http-post-form-encoded",
       "crypto-digest-sha256-md5",
       "srfi19-date-time-format"
+    ]
+  },
+  {
+    "id": "hash-table-basics",
+    "title": "Hash table operations",
+    "tags": [
+      "hash",
+      "table",
+      "get",
+      "ref",
+      "put",
+      "key",
+      "remove",
+      "lookup",
+      "default"
+    ],
+    "imports": [],
+    "code": "(def ht (hash (\"name\" \"alice\") (\"age\" 30)))   ;; literal syntax\n(hash-ref ht \"name\")          ;; => \"alice\" (error if missing)\n(hash-ref ht \"missing\" 42)    ;; => 42 (hash-ref takes optional 3rd arg default)\n(hash-get ht \"name\")          ;; => \"alice\" (returns #f if missing)\n;; IMPORTANT: hash-get takes EXACTLY 2 args (table, key). Returns #f if missing.\n;; For a default value, use hash-ref with 3 args: (hash-ref ht key default)\n(hash-put! ht \"email\" \"a@b\")  ;; mutate\n(hash-key? ht \"name\")         ;; => #t\n(hash-remove! ht \"age\")\n(hash->list ht)               ;; => ((\"name\" . \"alice\") ...)\n\n;; Multi-arity wrapper if you want hash-get with defaults:\n(def* hget\n  ((ht key) (hash-get ht key))\n  ((ht key default) (hash-ref ht key default)))",
+    "notes": "CRITICAL: hash-get is STRICTLY 2-arity in Gerbil. (hash-get ht key default) is WRONG and will error. Use hash-ref for 3-arg lookups with a default. The hget wrapper pattern (using def*) provides a convenient multi-arity alternative. Use (hash ...) for string keys, (hash-eq ...) for symbol keys.",
+    "related": [
+      "iterate-hash",
+      "hash-table-merge"
+    ]
+  },
+  {
+    "id": "exe-build-static-modules",
+    "title": "Build statically-linked executable with dependencies",
+    "tags": [
+      "exe",
+      "build",
+      "static",
+      "link",
+      "binary",
+      "executable",
+      "release",
+      "defbuild-script"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": ";; build.ss — with exe target\n#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script\n  '(\"module-a\"\n    \"module-b\"\n    (exe: \"main\" bin: \"my-app\")))\n\n;; REQUIREMENTS for exe linking:\n;; 1. The main module MUST export its main function:\n;;    (export main)\n;;\n;; 2. All dependencies must have static modules (.scm files in static/ dir).\n;;    Build dependencies with --release:\n;;      cd /path/to/dependency && gerbil build --release\n;;\n;; 3. GERBIL_LOADPATH must include the dependency's .gerbil/lib/ directory\n;;    so the linker can find static modules:\n;;      GERBIL_LOADPATH=/path/to/dep/.gerbil/lib gerbil build --release\n;;\n;; 4. Build YOUR project with --release too:\n;;      gerbil build --release",
+    "notes": "Common errors: (1) \"cannot find static module foo__bar.scm\" — the dependency wasn't built with --release, or its .gerbil/lib/ isn't in GERBIL_LOADPATH. (2) \"module does not export symbol: main\" — add (export main) to the main module. (3) Linker warnings about dlopen/getaddrinfo are harmless for static Gambit binaries. The resulting binary is fully self-contained and doesn't need Gerbil installed to run.",
+    "related": [
+      "cli-getopt-subcommands"
     ]
   }
 ]

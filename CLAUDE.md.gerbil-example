@@ -132,6 +132,53 @@ This is a **hard requirement**, not a suggestion. Gerbil is a niche language wit
 
 ---
 
+## Auto-Save Discoveries Before Compaction
+
+To prevent losing Gerbil discoveries when context compacts, add a `PreCompact` hook to `.claude/settings.json`. This automatically triggers cookbook saves before context is summarized.
+
+### Recommended Hook Configuration
+
+Add this to your project's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Review the conversation for non-trivial Gerbil Scheme patterns, workarounds, API discoveries, or gotchas that were figured out through experimentation or debugging. For each one: (1) call gerbil_howto to check if it already exists, (2) if not, call gerbil_howto_add with a complete working code example, correct imports, and clear notes. Focus on: wrong assumptions that were corrected, arity/signature discoveries, compilation workarounds, and idiom patterns that required multiple attempts to get right. Skip trivial things any Scheme programmer would know.",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before compacting: save any unsaved Gerbil discoveries to the cookbook via gerbil_howto_add. Check gerbil_howto first to avoid duplicates."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### How It Works
+
+- **Auto compaction** (`matcher: "auto"`): When the context window fills up and Claude Code triggers automatic compaction, an agent subagent is spawned that reviews the conversation, checks existing recipes via `gerbil_howto`, and saves new discoveries via `gerbil_howto_add`. The agent has full MCP tool access.
+- **Manual compaction** (`matcher: "manual"`): When you run `/compact`, a prompt reminder is injected so Claude saves discoveries before summarizing.
+
+### Why This Matters
+
+Gerbil is a niche language with limited training data. Long sessions often discover critical patterns (e.g., `hash-get` is strictly 2-arity, `call-with-getopt` changed its API in v0.19+, `for/in-hash` fails during compilation). Without this hook, these discoveries are lost when context compacts, and future sessions waste tokens re-discovering the same things.
+
+---
+
 ## Workflow Conventions
 
 When implementing new features, always complete the documentation update in the same session. Document non-trivial solutions as howto recipes in the cookbook system.
