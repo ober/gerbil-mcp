@@ -42,6 +42,9 @@ import { registerProfileTool } from './tools/profile.js';
 import { registerHeapProfileTool } from './tools/heap-profile.js';
 import { registerTraceCallsTool } from './tools/trace-calls.js';
 import { registerCallGraphTool } from './tools/call-graph.js';
+import { registerScaffoldTestTool } from './tools/scaffold-test.js';
+import { registerBuildAndReportTool } from './tools/build-and-report.js';
+import { registerGenerateModuleStubTool } from './tools/generate-module-stub.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -86,6 +89,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To analyze memory usage: use gerbil_heap_profile to capture GC heap metrics (heap size, allocation, live objects) before and after running an expression.
 - To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
 - To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
+- To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports. Saves time writing boilerplate test files.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column.
+- To generate module stubs: use gerbil_generate_module_stub to create a module skeleton matching another module's exported signatures.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -134,6 +140,9 @@ registerProfileTool(server);
 registerHeapProfileTool(server);
 registerTraceCallsTool(server);
 registerCallGraphTool(server);
+registerScaffoldTestTool(server);
+registerBuildAndReportTool(server);
+registerGenerateModuleStubTool(server);
 
 registerPrompts(server);
 

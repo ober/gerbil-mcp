@@ -1,6 +1,6 @@
 # gerbil-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, profile function performance, analyze heap memory usage, trace call counts, visualize call graphs, manage packages, scaffold projects, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
+An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, profile function performance, analyze heap memory usage, trace call counts, visualize call graphs, manage packages, scaffold projects and test files, generate module stubs, build projects with structured diagnostics, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
 
 ## Prerequisites
 
@@ -1177,6 +1177,98 @@ file_path: "/path/to/server.ss", function: "process-data"
    ...
 ```
 
+### gerbil_scaffold_test
+
+Generate a `:std/test` skeleton from a module's exports. Introspects the module to discover exported procedures, macros, and values, then produces a ready-to-fill test file. Does not write to disk — returns the generated text.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `module_path` | string | yes | Module to generate tests for (e.g. `:std/text/json`, `:myproject/handler`) |
+| `suite_name` | string | no | Override the test suite name (default: derived from module path) |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
+
+```
+module_path: ":std/text/json"
+=> (import :std/test :std/text/json)
+   (export json-test)
+
+   (def json-test
+     (test-suite "std/text/json"
+       (test-case "read-json"
+         (check (read-json arg1) => ...))
+       (test-case "write-json"
+         (check (write-json arg1) => ...))
+       ...))
+
+module_path: ":std/text/json", suite_name: "my-json-test"
+=> (import :std/test :std/text/json)
+   (export my-json-test)
+
+   (def my-json-test
+     (test-suite "std/text/json"
+       ...))
+```
+
+### gerbil_build_and_report
+
+Run `gerbil build` on a project directory and return structured diagnostics. On success, reports a summary. On failure, parses compiler errors into structured file:line:column diagnostics. Uses the modern `gerbil` CLI (not gxpkg).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | yes | Directory containing the Gerbil project (with `gerbil.pkg`) |
+| `flags` | string[] | no | Extra build flags: `"--release"`, `"--optimized"`, `"--debug"` |
+
+```
+project_path: "/path/to/myproject"
+=> Build succeeded.
+
+   ... compilation output ...
+
+project_path: "/path/to/myproject", flags: ["--optimized"]
+=> Build succeeded (--optimized).
+
+project_path: "/path/to/broken-project"
+=> Build failed: 2 error(s), 0 warning(s)
+
+     [ERROR] server.ss:12:5 — Reference to unbound identifier: foo
+     [ERROR] utils.ss:30:10 — Syntax Error: cannot find library module
+```
+
+### gerbil_generate_module_stub
+
+Generate a module skeleton by introspecting an existing module's exports and signatures. Produces `(def ...)` stubs for procedures with arity-based argument placeholders, `(defrules ...)` for macros, and `(def ...)` for values. Does not write to disk — returns the generated text.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `module_path` | string | yes | Module to generate a stub from (e.g. `:std/text/json`) |
+| `package_prefix` | string | no | Package prefix for the generated module |
+| `imports` | string[] | no | Additional import paths to include |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
+
+```
+module_path: ":std/text/json"
+=> (import :std/text/json)
+   (export read-json write-json json-object->string ...)
+
+   (def (read-json arg1)
+     ...)
+
+   (def (write-json arg1)
+     ...)
+
+   ...
+
+module_path: ":std/text/json", package_prefix: "myapp", imports: [":std/iter"]
+=> (package: myapp)
+
+   (import :std/text/json :std/iter)
+   (export read-json write-json ...)
+
+   (def (read-json arg1)
+     ...)
+   ...
+```
+
 ## Prompts
 
 The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
@@ -1228,7 +1320,9 @@ The `gerbil_profile` and `gerbil_trace_calls` tools use Scheme-side instrumentat
 
 The `gerbil_call_graph` tool is pure TypeScript — it reads a source file, parses function definitions using paren-depth tracking, and builds an adjacency list by scanning function bodies for references to other defined functions.
 
-The `gerbil_build_project`, `gerbil_package_info`, `gerbil_scaffold`, and `gerbil_package_manage` tools invoke `gxpkg` as a subprocess for package management, project scaffolding, and building.
+The `gerbil_build_project`, `gerbil_package_info`, `gerbil_scaffold`, and `gerbil_package_manage` tools invoke `gxpkg` as a subprocess for package management, project scaffolding, and building. The `gerbil_build_and_report` tool invokes the modern `gerbil build` CLI and parses its output into structured diagnostics using the same `parseGxcErrors()` parser as `gerbil_diagnostics`.
+
+The `gerbil_scaffold_test` and `gerbil_generate_module_stub` tools use the same Gerbil introspection mechanism as `gerbil_function_signature` — importing a module and iterating its exports to classify each as procedure (with arity), macro, or value — then formatting the results as ready-to-use Scheme source code.
 
 User input is injected via `(read (open-input-string ...))` rather than string interpolation, letting Scheme's reader handle all quoting. Subprocess execution uses `execFile` (not `exec`) to avoid shell injection.
 
@@ -1280,6 +1374,9 @@ src/
     heap-profile.ts       gerbil_heap_profile
     trace-calls.ts        gerbil_trace_calls
     call-graph.ts         gerbil_call_graph
+    scaffold-test.ts      gerbil_scaffold_test
+    build-and-report.ts   gerbil_build_and_report
+    generate-module-stub.ts gerbil_generate_module_stub
     parse-utils.ts        Shared parsing utilities
 test/
   tools.test.ts           Functional tests for all MCP tools

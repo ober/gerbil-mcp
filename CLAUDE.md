@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 69 tests must pass before considering any change complete. The test suite covers:
+All 79 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -46,6 +46,8 @@ All 69 tests must pass before considering any change complete. The test suite co
 - Run tests tool (single-file, directory mode, filter, validation)
 - REPL session tools (create, eval, destroy lifecycle, loadpath, project_path, preload_file)
 - Performance and profiling tools (profile, heap profile, trace calls, call graph)
+- Code generation tools (scaffold test, generate module stub)
+- Build and report tool (structured build diagnostics)
 - Enhanced find definition (source preview)
 
 ### Adding a New Tool

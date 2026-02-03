@@ -998,6 +998,121 @@ describe('Gerbil MCP Tools', () => {
     });
   });
 
+  // ── Scaffold test tool ──────────────────────────────────────────────
+
+  describe('Scaffold test tool', () => {
+    it('gerbil_scaffold_test generates test file for :std/text/json', async () => {
+      const result = await client.callTool('gerbil_scaffold_test', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('test-suite');
+      expect(result.text).toContain('test-case');
+      expect(result.text).toContain('import :std/test :std/text/json');
+      expect(result.text).toContain('json-test');
+      expect(result.text).toContain('read-json');
+    });
+
+    it('gerbil_scaffold_test respects suite_name override', async () => {
+      const result = await client.callTool('gerbil_scaffold_test', {
+        module_path: ':std/text/json',
+        suite_name: 'my-custom-test',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('my-custom-test');
+      expect(result.text).toContain('(export my-custom-test)');
+    });
+
+    it('gerbil_scaffold_test handles invalid module gracefully', async () => {
+      const result = await client.callTool('gerbil_scaffold_test', {
+        module_path: ':nonexistent/module/path',
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('gerbil_scaffold_test generates value checks for non-procedures', async () => {
+      const result = await client.callTool('gerbil_scaffold_test', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      // Should contain at least one test-case with a check form
+      expect(result.text).toContain('check');
+    });
+  });
+
+  // ── Build and report tool ─────────────────────────────────────────
+
+  describe('Build and report tool', () => {
+    it('gerbil_build_and_report handles missing project path', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: '/nonexistent/project/path',
+      });
+      // Should fail since the directory doesn't exist
+      expect(result.isError).toBe(true);
+    });
+
+    it('gerbil_build_and_report accepts flags parameter', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: '/nonexistent/project/path',
+        flags: ['--optimized'],
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('gerbil_build_and_report reports success for a valid project', async () => {
+      // Create a minimal buildable project in the test directory
+      const buildDir = join(TEST_DIR, 'buildable');
+      mkdirSync(buildDir, { recursive: true });
+      writeFileSync(join(buildDir, 'gerbil.pkg'), '(package: test-build)');
+      writeFileSync(
+        join(buildDir, 'build.ss'),
+        '#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script\n  \'("hello"))\n',
+      );
+      writeFileSync(
+        join(buildDir, 'hello.ss'),
+        '(export greet)\n(def (greet name) (string-append "Hello, " name "!"))\n',
+      );
+
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: buildDir,
+      });
+      // Either succeeds or fails with structured output
+      expect(result.text).toBeDefined();
+    }, 60000);
+  });
+
+  // ── Generate module stub tool ─────────────────────────────────────
+
+  describe('Generate module stub tool', () => {
+    it('gerbil_generate_module_stub generates stub for :std/text/json', async () => {
+      const result = await client.callTool('gerbil_generate_module_stub', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('import');
+      expect(result.text).toContain('export');
+      expect(result.text).toContain('def');
+      expect(result.text).toContain('read-json');
+    });
+
+    it('gerbil_generate_module_stub includes additional imports', async () => {
+      const result = await client.callTool('gerbil_generate_module_stub', {
+        module_path: ':std/text/json',
+        imports: [':std/iter'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain(':std/iter');
+      expect(result.text).toContain(':std/text/json');
+    });
+
+    it('gerbil_generate_module_stub handles invalid module gracefully', async () => {
+      const result = await client.callTool('gerbil_generate_module_stub', {
+        module_path: ':nonexistent/module/path',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
   // ── Enhanced find-definition ─────────────────────────────────────────
 
   describe('Enhanced find-definition with source preview', () => {

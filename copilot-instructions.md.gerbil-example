@@ -37,10 +37,12 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### For Building and Testing
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
+- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Uses the modern `gerbil` CLI.
 - **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.
 - **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
+- **`gerbil_scaffold_test`**: Generate a `:std/test` skeleton from a module's exports. Saves time writing boilerplate test files.
 
 ### For Performance Analysis
 
@@ -66,9 +68,10 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_read_forms`**: Read a file with the actual Gerbil reader and see each form's line range and summary.
 - **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
 
-### For Refactoring
+### For Refactoring and Code Generation
 
 - **`gerbil_rename_symbol`**: Rename a symbol across all `.ss` files in a project with word-boundary safety. Dry-run by default.
+- **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures. Useful for creating wrapper modules or implementation stubs.
 
 ### For Project Context
 
