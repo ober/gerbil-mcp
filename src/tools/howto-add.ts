@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { Recipe } from './howto.js';
+import { REPO_COOKBOOK_PATH } from './howto.js';
 
 export function registerHowtoAddTool(server: McpServer): void {
   server.registerTool(
@@ -10,14 +11,16 @@ export function registerHowtoAddTool(server: McpServer): void {
     {
       title: 'Add Gerbil Cookbook Recipe',
       description:
-        'Append a new Gerbil Scheme recipe to a JSON cookbook file. ' +
+        'Append a new Gerbil Scheme recipe to the gerbil-mcp cookbook. ' +
         'If a recipe with the same id already exists, it is replaced (update semantics). ' +
-        'Convention: use .claude/cookbooks.json in the project root.',
+        'By default writes to the gerbil-mcp repo cookbook. ' +
+        'Optionally specify cookbook_path to write to a different file.',
       inputSchema: {
         cookbook_path: z
           .string()
+          .optional()
           .describe(
-            'Absolute path to the JSON cookbook file (e.g. "/home/user/project/.claude/cookbooks.json")',
+            'Absolute path to a JSON cookbook file. If omitted, writes to the gerbil-mcp repo cookbook.',
           ),
         id: z
           .string()
@@ -37,7 +40,8 @@ export function registerHowtoAddTool(server: McpServer): void {
           .describe('Related recipe IDs'),
       },
     },
-    async ({ cookbook_path, id, title, tags, imports, code, notes, related }) => {
+    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related }) => {
+      const cookbook_path = explicitPath || REPO_COOKBOOK_PATH;
       // Read existing file or start fresh
       let recipes: Recipe[] = [];
       try {

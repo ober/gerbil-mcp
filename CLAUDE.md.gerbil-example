@@ -80,6 +80,29 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_project_info`**: Single-call project summary: package name, build targets, source files, and external dependencies.
 - **`gerbil_project_map`**: Complete view of all modules with their exports, definitions by kind, and import dependencies.
 
+### For Recipes and Idioms
+
+- **`gerbil_howto`**: Search curated Gerbil idioms and code examples by keyword. Covers common tasks like file I/O, JSON, HTTP, hash tables, iteration, error handling, concurrency, testing, and more. Use this **before writing Gerbil code** for common patterns — it returns verified, working examples with correct imports. The server automatically loads both built-in recipes and any accumulated recipes from previous sessions.
+  - Example queries: `"json parse"`, `"file read"`, `"channel thread"`, `"hash iterate"`, `"error handling"`
+  - Optionally pass `cookbook_path` to merge in additional project-specific recipes from a JSON file.
+- **`gerbil_howto_add`**: Save new Gerbil recipes directly to the gerbil-mcp server's cookbook. No path needed — recipes are written to the server's own `cookbooks.json` and become available to all future sessions across all projects. Each recipe needs an `id` (kebab-case), `title`, `tags` (search keywords), `imports`, and `code`. Optional: `notes` and `related` recipe IDs.
+  - If a recipe with the same `id` already exists, it is replaced (update semantics)
+  - Optionally pass `cookbook_path` to write to a different file instead.
+- **`gerbil_file_summary`**: Quick structural overview of a `.ss` file — imports, exports, and definitions grouped by kind — without reading the entire file. Faster than `gerbil_load_file` when you only need the shape of a module.
+
+#### MANDATORY: Grow the Gerbil Cookbook
+
+When working with Gerbil code, you MUST proactively contribute recipes back to the MCP server:
+
+1. **Before writing Gerbil code**, search `gerbil_howto` to check if a recipe already exists.
+2. **After solving a non-trivial Gerbil task**, if the pattern is reusable and not already in the cookbook, save it with `gerbil_howto_add` (no `cookbook_path` needed — it writes to the server automatically). Good candidates:
+   - Gerbil idioms you verified with `gerbil_eval` or `gerbil_check_syntax` that weren't in the built-in recipes
+   - Workarounds for Gerbil quirks you discovered during the session
+   - Useful patterns for common modules or libraries
+   - Patterns that required reading documentation or trial-and-error to get right
+3. **Do not save** trivial one-liners, project-specific business logic, or recipes that duplicate existing ones. Focus on patterns that would help a future session avoid re-discovering the same solution.
+4. **Use good tags** — include enough keywords that a future search will find the recipe. Think about what someone would type when looking for this pattern.
+
 ### Key Principle
 
 **Never guess — always verify.** If you are unsure about any Gerbil API, symbol name, module export, function arity, or macro behavior, use the appropriate MCP tool to check before writing code. This is not optional — it is required practice for all Gerbil work in this repository.

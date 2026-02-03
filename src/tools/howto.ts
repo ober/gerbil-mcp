@@ -1,6 +1,25 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/** Path to the repo-local cookbook that accumulates recipes across sessions. */
+export const REPO_COOKBOOK_PATH = resolve(__dirname, '..', '..', 'cookbooks.json');
+
+function loadCookbook(path: string): Recipe[] {
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Missing or invalid file — skip silently
+  }
+  return [];
+}
 
 export interface Recipe {
   id: string;
@@ -460,19 +479,16 @@ export function registerHowtoTool(server: McpServer): void {
         };
       }
 
-      // Merge external recipes if cookbook_path is provided
+      // Always merge repo cookbook, then optionally an extra cookbook_path
       let recipes: Recipe[] = [...RECIPES];
-      if (cookbook_path) {
-        try {
-          const raw = readFileSync(cookbook_path, 'utf-8');
-          const external: Recipe[] = JSON.parse(raw);
-          if (Array.isArray(external)) {
-            const externalIds = new Set(external.map((r) => r.id));
-            recipes = recipes.filter((r) => !externalIds.has(r.id));
-            recipes.push(...external);
-          }
-        } catch {
-          // Silently skip invalid/missing cookbook files
+      const sources = [REPO_COOKBOOK_PATH];
+      if (cookbook_path) sources.push(cookbook_path);
+      for (const src of sources) {
+        const external = loadCookbook(src);
+        if (external.length > 0) {
+          const externalIds = new Set(external.map((r) => r.id));
+          recipes = recipes.filter((r) => !externalIds.has(r.id));
+          recipes.push(...external);
         }
       }
 
