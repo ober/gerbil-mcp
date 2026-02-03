@@ -40,12 +40,12 @@ This writes the config to `~/.claude.json` (user scope) or `.mcp.json` in the pr
 
 #### Auto-approve all Gerbil tools
 
-By default Claude Code asks for confirmation each time an MCP tool is called. Since the Gerbil tools are read-only introspection (no filesystem writes, no network access), you can safely auto-approve them all with a wildcard in your settings file (`~/.claude/settings.json` for user scope, or `.claude/settings.json` in a project):
+By default Claude Code asks for confirmation each time an MCP tool is called. Since the Gerbil tools are read-only introspection (no filesystem writes, no network access), you can safely auto-approve them all with a wildcard in your project's `.claude/settings.local.json` (local, not checked in) or `~/.claude/settings.json` (user scope):
 
 ```json
 {
   "permissions": {
-    "allowedTools": [
+    "allow": [
       "mcp__gerbil__*"
     ]
   }
