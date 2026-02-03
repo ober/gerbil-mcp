@@ -1,3 +1,7 @@
+## Build & Verification
+
+After modifying any `.ss` (Gerbil Scheme) source files, always run the build command and fix any errors before moving on. Common issues include: missing imports, wrong function names, and duplicate definitions.
+
 ## Gerbil MCP Tools — MANDATORY Usage
 
 When a Gerbil MCP server is available, you MUST use its tools extensively instead of guessing about Gerbil APIs, syntax, or behavior. Gerbil is a niche Scheme dialect with limited training data — always verify with live tools rather than relying on memory.
@@ -125,3 +129,13 @@ This is a **hard requirement**, not a suggestion. Gerbil is a niche language wit
 - **`notes`**: Explain any non-obvious details, gotchas, or alternatives.
 
 ### This is not optional. If you solved a non-trivial Gerbil problem during this session and the pattern is reusable, you MUST save it before the session ends.
+
+---
+
+## Workflow Conventions
+
+When implementing new features, always complete the documentation update in the same session. Document non-trivial solutions as howto recipes in the cookbook system.
+
+## Language-Specific Notes
+
+When editing Gerbil Scheme, be careful with function naming conventions (e.g., `md5` not `md5sum`) and avoid introducing duplicate definitions across modules.
