@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { runGxc } from '../gxi.js';
+import { runGxc, buildLoadpathEnv } from '../gxi.js';
 import {
   parseGxcErrors,
   scanSchemeFiles,
@@ -17,7 +17,8 @@ export function registerDiagnosticsTool(server: McpServer): void {
       description:
         'Run gxc -S on a file (or all .ss files in a project) and return structured ' +
         'diagnostics with file, line, column, severity, and message. ' +
-        'Provide either file_path for a single file or project_path for project-wide checking.',
+        'Provide either file_path for a single file or project_path for project-wide checking. ' +
+        'Use loadpath to add directories for resolving project-local module imports.',
       inputSchema: {
         file_path: z
           .string()
@@ -29,9 +30,15 @@ export function registerDiagnosticsTool(server: McpServer): void {
           .describe(
             'Path to a project directory (checks files from build.ss or scans directory)',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution',
+          ),
       },
     },
-    async ({ file_path, project_path }) => {
+    async ({ file_path, project_path, loadpath }) => {
       if (!file_path && !project_path) {
         return {
           content: [
@@ -44,10 +51,11 @@ export function registerDiagnosticsTool(server: McpServer): void {
         };
       }
 
+      const loadpathEnv = loadpath ? buildLoadpathEnv(loadpath) : undefined;
       const allDiagnostics: Diagnostic[] = [];
 
       if (file_path) {
-        const diags = await checkFile(file_path);
+        const diags = await checkFile(file_path, loadpathEnv);
         if (typeof diags === 'string') {
           return {
             content: [{ type: 'text' as const, text: diags }],
@@ -69,7 +77,7 @@ export function registerDiagnosticsTool(server: McpServer): void {
         }
 
         for (const f of files) {
-          const diags = await checkFile(f);
+          const diags = await checkFile(f, loadpathEnv);
           if (typeof diags !== 'string') {
             allDiagnostics.push(...diags);
           } else {
@@ -124,8 +132,12 @@ export function registerDiagnosticsTool(server: McpServer): void {
 
 async function checkFile(
   filePath: string,
+  loadpathEnv?: Record<string, string>,
 ): Promise<Diagnostic[] | string> {
-  const result = await runGxc(filePath, { timeout: 30_000 });
+  const result = await runGxc(filePath, {
+    timeout: 30_000,
+    env: loadpathEnv,
+  });
 
   if (result.timedOut) {
     return `Compilation of ${filePath} timed out after 30 seconds.`;

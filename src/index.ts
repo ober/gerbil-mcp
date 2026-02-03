@@ -45,6 +45,8 @@ import { registerCallGraphTool } from './tools/call-graph.js';
 import { registerScaffoldTestTool } from './tools/scaffold-test.js';
 import { registerBuildAndReportTool } from './tools/build-and-report.js';
 import { registerGenerateModuleStubTool } from './tools/generate-module-stub.js';
+import { registerCheckExportsTool } from './tools/check-exports.js';
+import { registerGenerateModuleTool } from './tools/generate-module.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -80,7 +82,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
 - To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
-- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, compilation errors).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
@@ -90,8 +92,10 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
 - To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
 - To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports. Saves time writing boilerplate test files.
-- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting.
 - To generate module stubs: use gerbil_generate_module_stub to create a module skeleton matching another module's exported signatures.
+- To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent across a project.
+- To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to an existing template file.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -143,6 +147,8 @@ registerCallGraphTool(server);
 registerScaffoldTestTool(server);
 registerBuildAndReportTool(server);
 registerGenerateModuleStubTool(server);
+registerCheckExportsTool(server);
+registerGenerateModuleTool(server);
 
 registerPrompts(server);
 

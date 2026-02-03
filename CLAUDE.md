@@ -33,22 +33,24 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 81 tests must pass before considering any change complete. The test suite covers:
+All 92 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
 - Macro tools (expand, trace)
 - Type inspection tools (class info, error hierarchy)
-- File analysis tools (load file, document symbols, lint, diagnostics, hash literal lint, channel pattern lint)
+- File analysis tools (load file, document symbols, lint, diagnostics, hash literal lint, channel pattern lint, unquote/dot-in-brackets/missing-export pitfall detection)
 - Balance checking tools (delimiter balance, inline code)
 - Read forms tool (top-level form listing, reader errors)
 - Project tools (workspace symbols, find callers, rename, project map)
 - Run tests tool (single-file, directory mode, filter, validation)
 - REPL session tools (create, eval, destroy lifecycle, loadpath, project_path, preload_file)
 - Performance and profiling tools (profile, heap profile, trace calls, call graph)
-- Code generation tools (scaffold test, generate module stub)
+- Code generation tools (scaffold test, generate module stub, generate module from template)
 - Build and report tool (structured build diagnostics)
 - Enhanced find definition (source preview)
+- Cross-module export checker (check-exports)
+- Diagnostics with loadpath support
 
 ### Adding a New Tool
 

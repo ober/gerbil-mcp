@@ -69,7 +69,8 @@ export function registerLintTool(server: McpServer): void {
         'Static analysis for common Gerbil issues: unused imports, duplicate definitions, ' +
         'style warnings (define vs def, missing transparent:), shadowed standard bindings, ' +
         'hash literal symbol key warnings, channel anti-patterns (spinning try-get, ' +
-        'wg-wait visibility gaps), and compilation errors via gxc.',
+        'wg-wait visibility gaps), pitfall detection (unquote outside quasiquote, ' +
+        'dot in brackets, missing exported definitions), and compilation errors via gxc.',
       inputSchema: {
         file_path: z
           .string()
@@ -101,6 +102,9 @@ export function registerLintTool(server: McpServer): void {
       checkShadowedBindings(analysis, diagnostics);
       checkHashLiteralKeys(lines, diagnostics);
       checkChannelPatterns(lines, diagnostics);
+      checkUnquoteOutsideQuasiquote(lines, diagnostics);
+      checkDotInBrackets(lines, diagnostics);
+      checkMissingExportedDefinitions(analysis, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -458,6 +462,254 @@ function checkChannelPatterns(
               'Use channel-get (blocking) or collect results before wg-wait!.',
           });
           break;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Detect `,expr` or `,@expr` that appear outside quasiquote context.
+ * Scans for unquote (comma) at Scheme word boundaries, not inside strings,
+ * and checks whether a quasiquote (backtick) is active in preceding lines.
+ */
+function checkUnquoteOutsideQuasiquote(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  // Track quasiquote depth across lines (heuristic: look for backtick starts)
+  let qqDepth = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1;
+    const trimmed = line.trimStart();
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Track quasiquote nesting (simple heuristic)
+    let inString = false;
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+
+      // Skip string contents
+      if (ch === '"' && (j === 0 || line[j - 1] !== '\\')) {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      // Skip after semicolon (comment)
+      if (ch === ';') break;
+
+      if (ch === '`') {
+        qqDepth++;
+      } else if (ch === ',' && qqDepth > 0) {
+        qqDepth--;
+      }
+    }
+
+    // Reset at top-level forms (heuristic: line starts with `(`)
+    if (trimmed.startsWith('(') && !trimmed.startsWith('(`') && qqDepth > 0) {
+      // Check if this looks like a top-level definition
+      if (
+        /^\((def\b|defstruct|defclass|defmethod|defrules?|defsyntax|export|import)/.test(
+          trimmed,
+        )
+      ) {
+        qqDepth = 0;
+      }
+    }
+
+    // Now check for commas that aren't inside quasiquote
+    inString = false;
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+
+      if (ch === '"' && (j === 0 || line[j - 1] !== '\\')) {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === ';') break;
+
+      if (ch === ',') {
+        // Check if preceded by a Scheme delimiter or start of line
+        const leftOk = j === 0 || /[\s([\]{}'`]/.test(line[j - 1]);
+        if (!leftOk) continue;
+
+        // Check that something follows (not just whitespace to EOL)
+        const rest = line.slice(j + 1).trimStart();
+        if (!rest || rest.startsWith(';')) continue;
+
+        // Skip if it looks like it's a comma in a hash literal key-value form
+        // e.g., (hash ("key" , value)) — this is unusual but not unquote
+        // Actually, in Scheme `,` is always unquote syntax
+
+        // Check if we're inside a quasiquote context by scanning backward
+        let inQQ = false;
+        // Scan backward on this line for backtick
+        for (let k = j - 1; k >= 0; k--) {
+          if (line[k] === '`') {
+            inQQ = true;
+            break;
+          }
+        }
+
+        // Also check if a previous line's quasiquote is still open
+        if (!inQQ && qqDepth <= 0) {
+          // Scan back a few lines for an open quasiquote
+          let foundQQ = false;
+          for (let back = i - 1; back >= Math.max(0, i - 20); back--) {
+            const prevLine = lines[back].trimStart();
+            if (prevLine.startsWith(';')) continue;
+            if (
+              /^\((def\b|defstruct|defclass|defmethod|defrules?|defsyntax|export|import)/.test(
+                prevLine,
+              )
+            ) {
+              break; // Hit a top-level form boundary
+            }
+            if (prevLine.includes('`')) {
+              foundQQ = true;
+              break;
+            }
+          }
+
+          if (!foundQQ) {
+            const snippet = line.slice(j, Math.min(j + 20, line.length));
+            diagnostics.push({
+              line: lineNum,
+              severity: 'warning',
+              code: 'unquote-outside-quasiquote',
+              message:
+                `Unquote "${snippet.trim()}" appears outside quasiquote context. ` +
+                'Did you mean to use a backtick ` template?',
+            });
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Detect `. ` (dot-space) inside `[...]` constructs.
+ * Gerbil's `[]` is list sugar, so `[a . b]` is almost always a mistake —
+ * the user likely meant `(cons a b)` or `(a . b)` with parentheses.
+ */
+function checkDotInBrackets(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1;
+    const trimmed = line.trimStart();
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Quick check: does this line contain both `[` and `. `?
+    if (!line.includes('[') || !line.includes('. ')) continue;
+
+    // Scan character by character tracking bracket depth and string state
+    let inString = false;
+    let bracketDepth = 0;
+
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+
+      if (ch === '"' && (j === 0 || line[j - 1] !== '\\')) {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === ';') break; // Rest is comment
+
+      if (ch === '[') {
+        bracketDepth++;
+      } else if (ch === ']') {
+        bracketDepth--;
+      } else if (
+        ch === '.' &&
+        bracketDepth > 0 &&
+        j + 1 < line.length &&
+        line[j + 1] === ' '
+      ) {
+        // Check it's at a word boundary (not part of a symbol like `foo.bar`)
+        const leftOk = j === 0 || /[\s([\]{}]/.test(line[j - 1]);
+        if (leftOk) {
+          diagnostics.push({
+            line: lineNum,
+            severity: 'warning',
+            code: 'dot-in-brackets',
+            message:
+              'Dotted pair inside [...] brackets. ' +
+              'Gerbil [] is list sugar, not cons syntax. ' +
+              'Use (a . b) with parentheses for dotted pairs, or [a b] for a list.',
+          });
+          break; // One warning per line is enough
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Check that all symbols listed in (export ...) forms are actually
+ * defined in the file. Catches typos and forgotten definitions.
+ */
+function checkMissingExportedDefinitions(
+  analysis: FileAnalysis,
+  diagnostics: LintDiagnostic[],
+): void {
+  const definedNames = new Set(analysis.definitions.map((d) => d.name));
+
+  for (const exp of analysis.exports) {
+    const raw = exp.raw;
+
+    // (export #t) — export everything, skip
+    if (raw.includes('#t')) continue;
+
+    // Strip outer (export ...)
+    const inner = raw
+      .replace(/^\s*\(export\s+/, '')
+      .replace(/\)\s*$/, '')
+      .trim();
+
+    if (!inner) continue;
+
+    // Extract plain symbol tokens (skip sub-forms like (struct-out ...) etc.)
+    let pos = 0;
+    while (pos < inner.length) {
+      while (pos < inner.length && /\s/.test(inner[pos])) pos++;
+      if (pos >= inner.length) break;
+
+      if (inner[pos] === '(') {
+        // Skip sub-form
+        let depth = 1;
+        pos++;
+        while (pos < inner.length && depth > 0) {
+          if (inner[pos] === '(') depth++;
+          else if (inner[pos] === ')') depth--;
+          pos++;
+        }
+      } else {
+        // Read plain symbol
+        const start = pos;
+        while (pos < inner.length && !/[\s()[\]{}]/.test(inner[pos])) pos++;
+        const sym = inner.slice(start, pos);
+        if (sym && sym !== '#t' && sym !== '#f' && !definedNames.has(sym)) {
+          diagnostics.push({
+            line: exp.line,
+            severity: 'warning',
+            code: 'missing-exported-definition',
+            message: `Exports "${sym}" but no definition found in this file`,
+          });
         }
       }
     }

@@ -261,6 +261,73 @@ describe('Gerbil MCP Tools', () => {
     // Package file for project tools and REPL project_path tests
     writeFileSync(join(TEST_DIR, 'gerbil.pkg'), '(package: test-pkg)');
 
+    // Lint pitfall fixtures
+    writeFileSync(
+      join(TEST_DIR, 'lint-unquote.ss'),
+      `(def (bad-fn x)
+  (list ,x ,@(list 1 2)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'lint-dot-bracket.ss'),
+      `(def pair-list
+  [a . b])
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'lint-missing-export.ss'),
+      `(export existing-fn missing-fn)
+(def (existing-fn x) (+ x 1))
+`,
+    );
+
+    // Check-exports fixtures: multi-file project
+    const exportCheckDir = join(TEST_DIR, 'export-check');
+    mkdirSync(exportCheckDir, { recursive: true });
+    writeFileSync(
+      join(exportCheckDir, 'gerbil.pkg'),
+      '(package: exportcheck)',
+    );
+    writeFileSync(
+      join(exportCheckDir, 'lib.ss'),
+      `(export add-numbers not-defined-fn)
+(def (add-numbers a b) (+ a b))
+`,
+    );
+    writeFileSync(
+      join(exportCheckDir, 'main.ss'),
+      `(import :exportcheck/lib)
+(export run)
+(def (run) (add-numbers 1 2))
+`,
+    );
+
+    // Clean project for check-exports
+    const cleanExportDir = join(TEST_DIR, 'clean-exports');
+    mkdirSync(cleanExportDir, { recursive: true });
+    writeFileSync(
+      join(cleanExportDir, 'gerbil.pkg'),
+      '(package: cleanpkg)',
+    );
+    writeFileSync(
+      join(cleanExportDir, 'util.ss'),
+      `(export greet)
+(def (greet name) (string-append "hi " name))
+`,
+    );
+
+    // Generate-module template fixture
+    writeFileSync(
+      join(TEST_DIR, 'template.ss'),
+      `(import :std/text/json)
+(export read-foo write-foo)
+(def (read-foo port) (read-json port))
+(def (write-foo obj port) (write-json obj port))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -1166,6 +1233,128 @@ describe('Gerbil MCP Tools', () => {
       expect(result.isError).toBe(false);
       expect(result.text).toContain('Kind: procedure');
       expect(result.text).not.toContain('Source preview');
+    });
+  });
+
+  // ── Check exports tool ──────────────────────────────────────────────
+
+  describe('Check exports tool', () => {
+    it('gerbil_check_exports detects missing exported definitions', async () => {
+      const result = await client.callTool('gerbil_check_exports', {
+        project_path: join(TEST_DIR, 'export-check'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not-defined-fn');
+      expect(result.text).toContain('no definition found');
+    });
+
+    it('gerbil_check_exports passes for clean project', async () => {
+      const result = await client.callTool('gerbil_check_exports', {
+        project_path: join(TEST_DIR, 'clean-exports'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('no issues found');
+    });
+
+    it('gerbil_check_exports requires gerbil.pkg', async () => {
+      const result = await client.callTool('gerbil_check_exports', {
+        project_path: '/nonexistent/path',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('gerbil.pkg');
+    });
+  });
+
+  // ── Generate module tool ────────────────────────────────────────────
+
+  describe('Generate module tool', () => {
+    it('gerbil_generate_module applies substitutions', async () => {
+      const result = await client.callTool('gerbil_generate_module', {
+        template_path: join(TEST_DIR, 'template.ss'),
+        substitutions: [
+          { from: 'read-foo', to: 'read-bar' },
+          { from: 'write-foo', to: 'write-bar' },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-bar');
+      expect(result.text).toContain('write-bar');
+      // The generated code (after header comments) should not contain old names
+      expect(result.text).toContain('(def (read-bar port)');
+      expect(result.text).toContain('(export read-bar write-bar)');
+    });
+
+    it('gerbil_generate_module reads template file', async () => {
+      const result = await client.callTool('gerbil_generate_module', {
+        template_path: join(TEST_DIR, 'template.ss'),
+        substitutions: [],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-foo');
+      expect(result.text).toContain(':std/text/json');
+    });
+
+    it('gerbil_generate_module handles missing template', async () => {
+      const result = await client.callTool('gerbil_generate_module', {
+        template_path: '/nonexistent/template.ss',
+        substitutions: [{ from: 'a', to: 'b' }],
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Failed to read template');
+    });
+
+    it('gerbil_generate_module shows substitution summary', async () => {
+      const result = await client.callTool('gerbil_generate_module', {
+        template_path: join(TEST_DIR, 'template.ss'),
+        substitutions: [
+          { from: 'read-foo', to: 'read-baz' },
+          { from: 'nonexistent-sym', to: 'other' },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Substitutions applied');
+      expect(result.text).toContain('"read-foo" -> "read-baz"');
+      expect(result.text).toContain('"nonexistent-sym" -> "other"');
+      expect(result.text).toContain('0 replacements');
+    });
+  });
+
+  // ── Lint pitfall detection rules ────────────────────────────────────
+
+  describe('Lint pitfall detection rules', () => {
+    it('gerbil_lint warns on unquote outside quasiquote', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'lint-unquote.ss'),
+      });
+      expect(result.text).toContain('unquote-outside-quasiquote');
+    });
+
+    it('gerbil_lint warns on dot in brackets', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'lint-dot-bracket.ss'),
+      });
+      expect(result.text).toContain('dot-in-brackets');
+    });
+
+    it('gerbil_lint warns on missing exported definitions', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'lint-missing-export.ss'),
+      });
+      expect(result.text).toContain('missing-exported-definition');
+      expect(result.text).toContain('missing-fn');
+    });
+  });
+
+  // ── Diagnostics with loadpath ───────────────────────────────────────
+
+  describe('Diagnostics with loadpath', () => {
+    it('gerbil_diagnostics accepts loadpath parameter', async () => {
+      const result = await client.callTool('gerbil_diagnostics', {
+        file_path: join(TEST_DIR, 'sample.ss'),
+        loadpath: ['/nonexistent/path'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('cleanly');
     });
   });
 });

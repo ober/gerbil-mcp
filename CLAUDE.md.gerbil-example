@@ -37,6 +37,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### For Building and Testing
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
+- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting.
 - **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.
@@ -50,8 +51,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Code Quality
 
-- **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, and compilation errors.
-- **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message.
+- **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions, and compilation errors.
+- **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
+- **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
 
@@ -66,9 +68,12 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_read_forms`**: Read a file with the actual Gerbil reader and see each form's line range and summary.
 - **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
 
-### For Refactoring
+### For Refactoring and Code Generation
 
 - **`gerbil_rename_symbol`**: Rename a symbol across all `.ss` files in a project with word-boundary safety. Dry-run by default.
+- **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures.
+- **`gerbil_generate_module`**: Create new modules by applying word-boundary-aware substitutions to a template file. Useful for mechanical variations of an existing module pattern.
+- **`gerbil_scaffold_test`**: Generate a `:std/test` skeleton from a module's exports.
 
 ### For Project Context
 
