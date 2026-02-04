@@ -123,7 +123,9 @@
     ],
     "code": "(import :std/markup/xml)\\n\\n;; Parse XML string to SXML tree\\n(def sxml\\n  (call-with-input-string\\n    \\\"<root><item>hello</item><item>world</item></root>\\\"\\n    read-xml))\\n;; => (*TOP* (root (item \\\"hello\\\") (item \\\"world\\\")))\\n\\n;; GOTCHA: XML with <?xml ...?> declaration produces a *PI* node\\n(def sxml-with-pi\\n  (call-with-input-string\\n    \\\"<?xml version=\\\\\\\"1.0\\\\\\\" encoding=\\\\\\\"UTF-8\\\\\\\"?><root><item>hello</item></root>\\\"\\n    read-xml))\\n;; => (*TOP* (*PI* xml \\\"version=...\\\") (root (item \\\"hello\\\")))\\n;; Note the *PI* node — you must skip it when searching for the root element!\\n\\n;; Navigate SXML — it's just nested lists\\n;; (tag child1 child2 ...) where children are strings or nested tags\\n(def root (cadr sxml))    ;; skip *TOP*, get (root ...)\\n(def items (cdr root))    ;; get children: ((item \\\"hello\\\") (item \\\"world\\\"))\\n(def first-text (cadar items))  ;; => \\\"hello\\\"",
     "notes": "read-xml from :std/markup/xml returns SXML (S-expression XML). It takes a single port argument. The result is always wrapped in (*TOP* ...). IMPORTANT: When the XML source has a <?xml ...?> processing instruction, a (*PI* xml ...) node appears in the SXML tree — you must skip it (along with @ and *NAMESPACES*) when traversing to find the root element, or it will be mistaken for the content root. See the sxml-skip-pi-nodes recipe for a correct traversal pattern. Use cadr to skip *TOP*, then navigate with car/cdr/assoc.",
-    "related": ["sxml-skip-pi-nodes"]
+    "related": [
+      "sxml-skip-pi-nodes"
+    ]
   },
   {
     "id": "using-typed-struct-access",
@@ -398,5 +400,145 @@
     ],
     "code": "\n(import :std/markup/xml)\n\n;; XML responses often start with <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n;; read-xml parses this into a *PI* (Processing Instruction) SXML node:\n;;\n;;   (*TOP*\n;;     (@ (*NAMESPACES* ...))\n;;     (*PI* xml \"version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"\")   ;; <-- gotcha!\n;;     (ns:RootElement ...))\n;;\n;; When traversing SXML to find the root element, you MUST skip *PI* nodes\n;; along with @, *NAMESPACES*, and *TOP*. Otherwise *PI* gets mistakenly\n;; treated as the root element.\n\n;; WRONG — misses *PI*, returns wrong node:\n(def (find-root-BAD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES*)) #f)        ;; missing *PI*!\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; CORRECT — skips *PI* nodes:\n(def (find-root-GOOD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES* *PI*)) #f)   ;; includes *PI*\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; Example: parsing an S3 response with XML declaration\n(def xml (read-xml\n           \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><Root><Item>hello</Item></Root>\"\n           namespaces: '()))\n\n(find-root-BAD xml)   ;; => (*PI* xml \"version=\\\"1.0\\\" ...\") — WRONG!\n(find-root-GOOD xml)  ;; => (Root (Item \"hello\")) — correct\n",
     "notes": "The *PI* node appears in SXML when the source XML contains processing instructions like <?xml ...?>. Most real-world XML APIs (AWS S3, etc.) include this declaration. The SXML metadata nodes to always skip when searching for content elements are: *TOP* (document root wrapper), @ (attributes), *NAMESPACES* (namespace declarations), and *PI* (processing instructions). Forgetting *PI* causes silent data loss — the PI node gets processed as if it were the root element, typically producing an empty string or #f instead of the expected parsed data."
+  },
+  {
+    "id": "stale-global-static-files-segfault",
+    "title": "Stale global static files cause segfaults in compiled binaries",
+    "tags": [
+      "segfault",
+      "static",
+      "linking",
+      "build",
+      "stale",
+      "global",
+      "GERBIL_LOADPATH",
+      "ABI",
+      "mismatch",
+      "crash",
+      "exe"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Compiled binary segfaults but code works fine in gxi REPL.\n;;\n;; ROOT CAUSE: Stale static files (.scm, .c, .o) in ~/.gerbil/lib/static/\n;; shadow locally compiled versions. When GERBIL_LOADPATH includes\n;; ~/.gerbil/lib BEFORE the local project path, the exe linker picks up\n;; the old global .o files instead of the current local ones.\n;;\n;; This causes ABI mismatches: e.g., cost-explorer calls\n;;   aws-billing/aws#first-of-month-string__%  (new split variant)\n;; but the stale global aws module only defines\n;;   aws-billing/aws#first-of-month-string     (old monolithic variant)\n;; Calling an undefined symbol → SIGSEGV.\n;;\n;; HOW STALE FILES GET THERE:\n;; - Running `gerbil build` or `gxpkg build` from within a project\n;;   that has its .gerbil/lib/ in GERBIL_LOADPATH\n;; - A previous `gerbil pkg install` of the package\n;; - Manually copying build artifacts\n;;\n;; DIAGNOSIS:\n;; 1. Check for duplicate static files:\n;;    find ~/.gerbil/lib -name 'YOURPKG__*.scm' -o -name 'YOURPKG__*.o'\n;;\n;; 2. Compare with local project files:\n;;    ls -la ~/.gerbil/lib/static/YOURPKG__module.scm   # stale (old timestamp)\n;;    ls -la ./project/.gerbil/lib/static/YOURPKG__module.scm  # current\n;;\n;; 3. Check build output: if BOTH paths appear during exe compilation,\n;;    the global one may win.\n;;\n;; FIX:\n;; Remove ALL stale global artifacts (.scm, .c, .o, .ssi):\n;;   rm -rf ~/.gerbil/lib/YOURPKG/\n;;   rm -f  ~/.gerbil/lib/static/YOURPKG__*.scm\n;;   rm -f  ~/.gerbil/lib/static/YOURPKG__*.c\n;;   rm -f  ~/.gerbil/lib/static/YOURPKG__*.o\n;;\n;; Then clean rebuild:\n;;   make clean && make build\n;;\n;; IMPORTANT: `gerbil clean` only removes LOCAL .gerbil/ artifacts.\n;; It does NOT clean ~/.gerbil/lib/. You must manually remove stale\n;; global files. Also note: removing just .scm files is NOT enough —\n;; the linker uses the .o files directly if they exist.",
+    "notes": "The Gerbil compiler may change how optional-arg functions are compiled across versions (monolithic closure vs split __%/__0 variants). If global static files are from an older compilation, the ABI won't match modules compiled with the current compiler. The segfault typically occurs at the call site in `(declare (not safe))` blocks where the undefined function symbol resolves to null/garbage. The `strings` command won't find Gerbil string literals in compiled binaries (they're stored as Gambit string objects, not C strings), so use `grep` on the `.scm` static files to verify which version the linker uses.",
+    "related": [
+      "static-exe-with-deps",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "debug-compiled-only-segfault",
+    "title": "Debug segfaults that only occur in compiled binaries (not REPL)",
+    "tags": [
+      "debug",
+      "segfault",
+      "compiled",
+      "binary",
+      "REPL",
+      "gdb",
+      "static",
+      "linking",
+      "crash"
+    ],
+    "imports": [],
+    "code": ";; When code works in gxi but segfaults as a compiled binary:\n;;\n;; STEP 1: Test in REPL to confirm the logic is correct\n;;   echo '(import :mymodule) (my-function args)' | \\\n;;     GERBIL_LOADPATH=... gxi\n;;\n;; STEP 2: Add debug displayln/force-output INSIDE the crashing function\n;;   (def (my-function arg)\n;;     (displayln \"[dbg] entering\") (force-output)\n;;     (let ((x (step-1)))\n;;       (displayln \"[dbg] step-1 ok\") (force-output)\n;;       ...))\n;;\n;; STEP 3: Rebuild and check if debug output appears in binary\n;;   ;; Gerbil string literals are NOT plain C strings in the binary.\n;;   ;; Check the static .scm file instead:\n;;   grep 'dbg' .gerbil/lib/static/YOURPKG__module.scm\n;;\n;; STEP 4: If debug strings are in .scm but NOT in behavior,\n;;   check for stale global copies shadowing local files:\n;;   find ~/.gerbil/lib -name 'YOURPKG__*' -type f\n;;\n;; STEP 5: Compare compiled function signatures between versions\n;;   ;; Old compilation style (monolithic optional-arg function):\n;;   ;;   (define pkg#my-fn (let ((opt-lambda ...)) (lambda _g_ ...)))\n;;   ;;\n;;   ;; New compilation style (split variants):\n;;   ;;   (define pkg#my-fn__% (lambda (arg) ...))    ; implementation\n;;   ;;   (define pkg#my-fn__0 (lambda () ...))        ; zero-arg wrapper\n;;   ;;   (define pkg#my-fn (lambda _g_ (cond ...)))   ; dispatch\n;;   ;;\n;;   ;; If caller uses my-fn__% but linked module only defines my-fn,\n;;   ;; the symbol is undefined → segfault in (declare (not safe)) context.\n;;\n;; STEP 6: GDB can identify the hosting function but not the exact line:\n;;   ;; ___H_pkg____module is Gambit's C hosting function for the module.\n;;   ;; All compiled Scheme code for that module lives inside this one\n;;   ;; C function, so the crash address isn't very informative.\n;;   ;; Use debug displayln to narrow down instead.",
+    "notes": "Key insight: in compiled Gerbil binaries with (declare (not safe)), calling an undefined/unresolved symbol doesn't raise a Scheme exception — it causes a raw SIGSEGV because the null function pointer is called without any safety checks. The REPL doesn't have this problem because it resolves symbols dynamically. Also: `gerbil clean` does NOT remove ~/.gerbil/lib/ artifacts — only local .gerbil/ files.",
+    "related": [
+      "stale-global-static-files-segfault",
+      "static-exe-with-deps"
+    ]
+  },
+  {
+    "id": "srfi-19-current-time-shadows-gambit",
+    "title": "SRFI-19 current-time shadows Gambit's current-time (causes time->seconds crash)",
+    "tags": [
+      "srfi-19",
+      "current-time",
+      "time",
+      "gambit",
+      "shadow",
+      "time->seconds",
+      "mutex",
+      "rate-limit",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/srfi/19"
+    ],
+    "code": ";; PROBLEM: Importing :std/srfi/19 shadows Gambit's built-in (current-time).\n;;\n;; Gambit's (current-time) returns a Gambit time object (##type #2 time).\n;; SRFI-19's (current-time) returns an SRFI-19 time object (different type).\n;; Gambit's (time->seconds) only accepts Gambit time objects.\n;;\n;; If you import :std/srfi/19 and then call:\n;;   (time->seconds (current-time))\n;; You get: \"Instance of #<type #2 time> expected\"\n;; because (current-time) now returns SRFI-19 time, but (time->seconds)\n;; expects Gambit time.\n;;\n;; This commonly bites in rate-limiting code, mutex timing, or anywhere\n;; you mix SRFI-19 date formatting with Gambit timing primitives.\n\n;; WRONG — crashes at runtime:\n;; (import :std/srfi/19)\n;; (def (rate-limit!)\n;;   (let ((now (time->seconds (current-time))))  ;; BOOM\n;;     ...))\n\n;; FIX: Use ##current-time to bypass the SRFI-19 shadow:\n(import :std/srfi/19)\n(def (rate-limit!)\n  (let ((now (exact->inexact (time->seconds (##current-time)))))\n    ;; ##current-time always returns Gambit's native time object\n    ;; time->seconds works correctly on it\n    now))\n\n;; ALTERNATIVE: Use SRFI-19's own time conversion instead:\n;; (import :std/srfi/19)\n;; (def (current-seconds)\n;;   (let ((t (current-time)))  ;; SRFI-19 time\n;;     (+ (time-second t)       ;; SRFI-19 accessor\n;;        (/ (time-nanosecond t) 1e9))))",
+    "notes": "The ## prefix accesses Gambit's raw (unshadowed) primitives. ##current-time is safe to use even when SRFI-19 is imported. This issue only manifests at runtime — compilation succeeds because both versions of current-time have the same arity. The error message \"Instance of #<type #2 time> expected\" is the key diagnostic clue. Also note: exact->inexact is needed because time->seconds may return an exact rational.",
+    "related": [
+      "date-time-formatting-srfi-19"
+    ]
+  },
+  {
+    "id": "mutex-unwind-protect-deadlock-prevention",
+    "title": "Always wrap mutex-lock!/unlock! with unwind-protect to prevent deadlocks",
+    "tags": [
+      "mutex",
+      "unwind-protect",
+      "deadlock",
+      "thread",
+      "lock",
+      "concurrency",
+      "exception",
+      "safety"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: If an exception occurs between mutex-lock! and mutex-unlock!,\n;; the mutex stays locked forever, deadlocking all subsequent callers.\n;;\n;; WRONG — deadlocks after first exception:\n;; (def my-lock (make-mutex 'my-lock))\n;; (def (unsafe-operation!)\n;;   (mutex-lock! my-lock)\n;;   (do-something-that-might-throw)  ;; if this throws...\n;;   (mutex-unlock! my-lock))         ;; ...this never runs → deadlock\n\n;; CORRECT — always unlocks, even on exception:\n(def my-lock (make-mutex 'my-lock))\n\n(def (safe-operation!)\n  (mutex-lock! my-lock)\n  (unwind-protect\n    (do-something-that-might-throw)\n    (mutex-unlock! my-lock)))\n\n;; PATTERN: Rate limiter with mutex + timing\n(def _api-lock (make-mutex 'api-lock))\n(def _last-call-time 0.0)\n(defconst API-DELAY 0.1)  ;; 100ms between calls\n\n(def (rate-limit!)\n  (mutex-lock! _api-lock)\n  (unwind-protect\n    (let* ((now (exact->inexact (time->seconds (##current-time))))\n           (elapsed (fl- now _last-call-time)))\n      (when (fl< elapsed API-DELAY)\n        (thread-sleep! (fl- API-DELAY elapsed)))\n      (set! _last-call-time\n        (exact->inexact (time->seconds (##current-time)))))\n    (mutex-unlock! _api-lock)))\n\n;; DIAGNOSTIC: Deadlock symptoms in Gerbil:\n;; - Program hangs after first API error\n;; - GDB backtrace shows ##mutex-lock-out-of-line!\n;; - Error log shows \"Deadlock detected\" with mutex name",
+    "notes": "unwind-protect guarantees the cleanup form (mutex-unlock!) runs regardless of whether the body completes normally or throws an exception. This is analogous to try/finally in other languages. Without it, any exception between lock and unlock permanently locks the mutex. This is especially critical in rate-limiting code where API calls may throw network exceptions, timeout errors, or AWS service errors. The deadlock typically manifests on the SECOND call after the first exception.",
+    "related": [
+      "srfi-19-current-time-shadows-gambit",
+      "error-handling"
+    ]
+  },
+  {
+    "id": "error-message-returns-false-for-non-error",
+    "title": "error-message returns #f for non-Gerbil-Error exceptions — use display-exception",
+    "tags": [
+      "error-message",
+      "exception",
+      "display-exception",
+      "error",
+      "catch",
+      "non-error",
+      "gambit",
+      "gotcha",
+      "exception->string"
+    ],
+    "imports": [
+      ":std/error"
+    ],
+    "code": ";; PROBLEM: (error-message e) only works for Gerbil Error objects.\n;; For Gambit exceptions, AWS errors, or other non-Error exceptions,\n;; it returns #f — making error messages invisible.\n;;\n;; WRONG — loses error information for non-Error exceptions:\n;; (try (some-operation)\n;;   (catch (e)\n;;     (displayln \"Error: \" (error-message e))))\n;; ;; Prints: \"Error: #f\" for Gambit/AWS exceptions\n\n;; CORRECT — use display-exception which handles ALL exception types:\n(def (exception->string e)\n  \"Convert any exception to a readable string.\"\n  (with-output-to-string (lambda () (display-exception e))))\n\n;; Usage in catch blocks:\n(try (some-operation)\n  (catch (e)\n    (displayln \"Error: \" (exception->string e))))\n\n;; WHY: Gerbil has multiple exception types:\n;; - (Error message irritants where) — Gerbil's own error type\n;;   → (error-message e) works, returns the message string\n;;\n;; - Gambit exceptions (error-exception, type-exception, etc.)\n;;   → (error-message e) returns #f\n;;   → (display-exception e port) works for all types\n;;\n;; - AWS service errors (from gerbil-aws)\n;;   → Usually Gambit error-exception objects\n;;   → (error-message e) returns #f\n;;\n;; display-exception is Gambit's universal exception printer.\n;; It knows how to format ALL exception types including stack traces.",
+    "notes": "This is a common gotcha when writing generic error handlers. error-message is defined on the Gerbil Error struct and returns the 'message' slot. But catch (e) catches ALL exceptions, not just Gerbil Errors. Gambit runtime exceptions (type errors, arity errors, I/O errors, network errors) are NOT Gerbil Error objects. The exception->string helper using display-exception is the universal solution. Also: (object->string e) sometimes works but may not include the full formatted error message that display-exception provides.",
+    "related": [
+      "error-handling",
+      "custom-error",
+      "deferror-class"
+    ]
+  },
+  {
+    "id": "gerbil-json-arrays-are-lists-not-vectors",
+    "title": "Gerbil JSON arrays are lists, not vectors — never use (vector? x) to check",
+    "tags": [
+      "json",
+      "vector",
+      "list",
+      "array",
+      "vector?",
+      "read-json",
+      "gerbil-aws",
+      "ensure-list",
+      "gotcha",
+      "silent-failure"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": ";; PROBLEM: Gerbil's read-json (and gerbil-aws JSON API responses) return\n;; JSON arrays as Scheme LISTS, not vectors. Code that checks (vector? x)\n;; silently drops all data because (vector? '(1 2 3)) => #f.\n;;\n;; This is a SILENT FAILURE — no error, no exception, just empty results.\n\n;; WRONG — silently discards all JSON array data:\n;; (let ((results (hget resp \"ResultsByTime\")))\n;;   (if (vector? results)          ;; ALWAYS #f for JSON arrays!\n;;     (vector->list results)       ;; never reached\n;;     []))                         ;; always returns empty list\n\n;; WRONG — silently skips processing:\n;; (let ((groups (hget resp \"Groups\")))\n;;   (when (vector? groups)         ;; ALWAYS #f!\n;;     (for-each process groups)))  ;; never runs\n\n;; CORRECT — use a defensive ensure-list helper:\n(def (ensure-list v)\n  \"Coerce a vector, list, or other value to a list.\"\n  (cond ((list? v) v)\n        ((vector? v) (vector->list v))  ;; handles the rare vector case\n        (else [])))\n\n;; Usage:\n(let ((results (ensure-list (hget resp \"ResultsByTime\"))))\n  (for-each process results))\n\n;; For extracting the first element of a \"Keys\" array:\n;; WRONG:\n;; (if (vector? keys) (vector-ref keys 0) \"Unknown\")\n;; CORRECT:\n(let ((ks (ensure-list keys)))\n  (if (pair? ks) (car ks) \"Unknown\"))\n\n;; WHY THIS HAPPENS:\n;; - Gerbil's :std/text/json read-json maps JSON arrays to Scheme lists\n;; - gerbil-aws JSON API (Cost Explorer, Lambda, etc.) uses read-json\n;; - Many AWS SDK examples in other languages use arrays/vectors,\n;;   so it's natural to write (vector? ...) but WRONG in Gerbil\n;; - The gerbil-aws Query API (EC2, RDS, etc.) also returns lists\n;;   (from XML member parsing), never vectors",
+    "notes": "This is one of the most insidious bugs because it causes SILENT data loss — no exceptions, no errors, just empty results everywhere. The code appears to run successfully but produces no output. Diagnosis: add (displayln (object-type results)) to see that results is a list, not a vector. Prevention: never use (vector? x) to guard JSON array processing — use (list? x) or the ensure-list helper instead. This applies to ALL gerbil-aws responses (both Query API and JSON API) and to any data parsed by Gerbil's read-json.",
+    "related": [
+      "gerbil-aws-query-vs-json-response-keys",
+      "json-parse"
+    ]
   }
 ]
