@@ -806,6 +806,7 @@ test:
       expect(result.isError).toBe(true);
       expect(result.text.toLowerCase()).toContain('unclosed');
     });
+
   });
 
   describe('Read forms tool', () => {
@@ -1250,6 +1251,15 @@ test:
       // Either succeeds or fails with structured output
       expect(result.text).toBeDefined();
     }, 60000);
+
+    it('gerbil_build_and_report accepts loadpath parameter', async () => {
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: '/nonexistent/project/path',
+        loadpath: ['/some/lib', '/other/lib'],
+      });
+      // Should fail (nonexistent path) but accept the loadpath parameter without error
+      expect(result.isError).toBe(true);
+    });
   });
 
   // ── Generate module stub tool ─────────────────────────────────────

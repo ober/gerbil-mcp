@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { runGerbilCmd } from '../gxi.js';
+import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
 
 export function registerBuildAndReportTool(server: McpServer): void {
@@ -33,17 +33,25 @@ export function registerBuildAndReportTool(server: McpServer): void {
           .describe(
             'Lines of source context to show around each error (default: 3). Set to 0 to disable.',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution',
+          ),
       },
     },
-    async ({ project_path, flags, context_lines }) => {
+    async ({ project_path, flags, context_lines, loadpath }) => {
       // Detect Makefile and extract targets
       const makefileNote = await detectMakefile(project_path);
 
       const args = ['build', ...(flags ?? [])];
+      const loadpathEnv = loadpath ? buildLoadpathEnv(loadpath) : undefined;
 
       const result = await runGerbilCmd(args, {
         cwd: project_path,
         timeout: 120_000,
+        env: loadpathEnv,
       });
 
       if (result.timedOut) {
