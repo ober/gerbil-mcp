@@ -586,5 +586,69 @@
       "gerbil-json-arrays-are-lists-not-vectors",
       "json-generate"
     ]
+  },
+  {
+    "id": "gerbil-aws-sts-nested-response",
+    "title": "STS GetCallerIdentity returns nested hash — Account is under GetCallerIdentityResult",
+    "tags": [
+      "sts",
+      "get-caller-identity",
+      "account-id",
+      "nested",
+      "gerbil-aws",
+      "query-api"
+    ],
+    "imports": [
+      ":gerbil-aws/sts/api",
+      ":gerbil-aws/sts/operations"
+    ],
+    "code": ";; gerbil-aws STS uses the Query API (XML). The GetCallerIdentity\n;; response XML is:\n;;   <GetCallerIdentityResponse>\n;;     <GetCallerIdentityResult>\n;;       <Account>123456789012</Account>\n;;       <Arn>arn:aws:iam::123456789012:user/me</Arn>\n;;       <UserId>AIDAXXXXXXX</UserId>\n;;     </GetCallerIdentityResult>\n;;     <ResponseMetadata>...</ResponseMetadata>\n;;   </GetCallerIdentityResponse>\n;;\n;; After aws-response->hash, the result is a NESTED hash:\n;;   {GetCallerIdentityResult: {Account: \"123456789012\", Arn: \"...\", UserId: \"...\"},\n;;    ResponseMetadata: {RequestId: \"...\"}}\n\n;; WRONG — 'Account is NOT at the top level:\n;; (def identity (get-caller-identity sts))\n;; (hash-ref identity 'Account \"\")  ;; => \"\" (always!)\n\n;; CORRECT — navigate to GetCallerIdentityResult first:\n(def sts (STSClient))\n(def identity (get-caller-identity sts))\n(def result (hash-ref identity 'GetCallerIdentityResult identity))\n(def account-id (hash-ref result 'Account \"\"))\n;; account-id => \"123456789012\"\n\n;; The same pattern applies to other STS operations:\n;; - AssumeRole → 'AssumeRoleResult → 'Credentials, 'AssumedRoleUser\n;; - GetSessionToken → 'GetSessionTokenResult → 'Credentials",
+    "notes": "This is because gerbil-aws's aws-response->hash (in aws/xml.ss) converts the entire XML response to a nested hash, including the *Result wrapper element. The Query API always wraps the actual data in an ActionNameResult element. Using (hash-ref identity 'GetCallerIdentityResult identity) as a fallback ensures forward compatibility if the library ever changes to unwrap automatically.",
+    "related": [
+      "gerbil-aws-query-vs-json-response-keys",
+      "ec2-lowercase-camelcase-keys"
+    ]
+  },
+  {
+    "id": "gerbil-aws-empty-xml-tagset-string",
+    "title": "Empty XML elements like tagSet become \"\" not [] — guard with list? before iterating",
+    "tags": [
+      "xml",
+      "sxml",
+      "tagSet",
+      "empty-element",
+      "type-exception",
+      "gerbil-aws",
+      "ec2"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: In gerbil-aws EC2 responses, empty XML elements like <tagSet/>\n;; are parsed by sxml->hash as \"\" (empty string), not [] (empty list).\n;;\n;; This happens because of this clause in sxml->hash:\n;;   ((null? (cdr element)) \"\")  ;; Empty element: (tag) → \"\"\n;;\n;; So when a resource has no tags:\n;;   <tagSet/>  →  \"\" in the hash table\n;;\n;; And (hash-ref resource 'tagSet []) returns \"\" (key exists with value \"\"),\n;; NOT the default [].\n\n;; WRONG — crashes with type-exception: PAIR expected from (car \"\")\n;; (def (get-name tags)\n;;   (let loop ((ts (or tags [])))  ;; (or \"\" []) => \"\" (truthy!)\n;;     (if (null? ts) \"\"            ;; (null? \"\") => #f\n;;       (let ((t (car ts)))        ;; (car \"\") => TYPE EXCEPTION!\n;;         ...))))\n\n;; CORRECT — check (list? tags) before iterating:\n(def (get-name tags)\n  (let ((ts (if (list? tags) tags [])))\n    (let loop ((ts ts))\n      (if (null? ts) \"\"\n        (let ((t (car ts)))\n          (if (and (hash-table? t)\n                   (string=? (hash-ref t 'key \"\") \"Name\"))\n            (hash-ref t 'value \"\")\n            (loop (cdr ts))))))))\n\n;; This affects ANY EC2 field that can be an empty XML element:\n;;   tagSet, blockDeviceMapping, networkInterfaceSet,\n;;   securityGroupSet, natGatewayAddressSet, etc.\n;;\n;; General rule: always use (list? x) not (or x []) when the\n;; value might be \"\" from empty XML elements.",
+    "notes": "This is a silent type-exception that only manifests when a resource happens to have no tags (or other empty set elements). Resources with at least one tag work fine because tagSet gets parsed as a list of items. The bug is intermittent — it depends on whether specific resources in specific regions have tags. Use (if (list? val) val []) instead of (or val []) for XML-parsed set fields.",
+    "related": [
+      "ec2-lowercase-camelcase-keys",
+      "gerbil-aws-query-vs-json-response-keys"
+    ]
+  },
+  {
+    "id": "aws-pricing-api-endpoint",
+    "title": "AWS Pricing API endpoint is api.pricing not pricing — CloudFront 403 on wrong endpoint",
+    "tags": [
+      "aws",
+      "pricing",
+      "endpoint",
+      "api.pricing",
+      "cloudfront",
+      "403",
+      "gerbil-aws",
+      "json-api"
+    ],
+    "imports": [
+      ":gerbil-aws/aws/json-api"
+    ],
+    "code": ";; PROBLEM: The AWS Pricing API uses a DIFFERENT endpoint pattern\n;; than most AWS services. The standard pattern is:\n;;   service.region.amazonaws.com\n;;\n;; But the Pricing API uses:\n;;   api.pricing.region.amazonaws.com\n;;\n;; Using the standard pattern (pricing.us-east-1.amazonaws.com) hits\n;; a CloudFront distribution that only serves GET requests for the\n;; pricing website. POST requests get:\n;;   403 ERROR: \"This distribution is not configured to allow the\n;;   HTTP request method that was used for this request.\"\n\n;; WRONG — hits CloudFront, gets 403:\n;; (AWSJsonClient service: \"pricing\"\n;;               target-prefix: \"AWSPriceListService\"\n;;               region: \"us-east-1\")\n;; ;; Constructs endpoint: pricing.us-east-1.amazonaws.com\n\n;; CORRECT — explicitly set the api.pricing endpoint:\n(def pricing-client\n  (AWSJsonClient service: \"pricing\"\n                 target-prefix: \"AWSPriceListService\"\n                 endpoint: \"api.pricing.us-east-1.amazonaws.com\"\n                 region: \"us-east-1\"))\n\n;; For a configurable region:\n(def (make-pricing-client (region \"us-east-1\"))\n  (AWSJsonClient service: \"pricing\"\n                 target-prefix: \"AWSPriceListService\"\n                 endpoint: (string-append \"api.pricing.\" region \".amazonaws.com\")\n                 region: region))\n\n;; Other AWS services with non-standard endpoints:\n;;   Cost Explorer: ce.us-east-1.amazonaws.com (standard pattern, works)\n;;   S3: s3.region.amazonaws.com or s3.amazonaws.com (path-style)\n;;   STS: sts.amazonaws.com (global) or sts.region.amazonaws.com (regional)",
+    "notes": "The AWS Pricing API is only available in us-east-1 and ap-south-1. Always pass the endpoint explicitly when creating the client. The AWSJsonClient default endpoint construction (service.region.amazonaws.com) does NOT work for the Pricing API. This manifests as a confusing CloudFront 403 error rather than an obvious endpoint error.",
+    "related": [
+      "gerbil-aws-query-vs-json-response-keys"
+    ]
   }
 ]

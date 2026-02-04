@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "id": "build-and-report-loadpath",
+    "title": "Add GERBIL_LOADPATH support to gerbil_build_and_report",
+    "description": "The gerbil_build_and_report tool runs `gerbil build` but provides no way to set GERBIL_LOADPATH or other environment variables. Projects that depend on third-party packages (e.g., gerbil-aws installed via symlink in ~/.gerbil/lib, or local dependency .gerbil/lib directories) fail with \"cannot find library module\" because the build subprocess doesn't inherit the required load paths. The workaround is falling back to gerbil_make (if a Makefile exists) or raw bash with explicit env vars, losing the structured diagnostic output that gerbil_build_and_report provides. Adding a `loadpath` parameter (consistent with gerbil_compile_check, gerbil_diagnostics, etc.) or an `env` parameter would solve this.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "loadpath",
+      "GERBIL_LOADPATH",
+      "dependencies",
+      "diagnostics"
+    ],
+    "use_case": "Any project that imports modules from installed packages or local dependency directories and uses gerbil_build_and_report for compilation. This is common for any non-trivial Gerbil project with external dependencies.",
+    "example_scenario": "Project aws-pricing-report imports :gerbil-aws/ec2/api. Running gerbil_build_and_report fails with 'cannot find library module' because GERBIL_LOADPATH is not set. The project's Makefile sets GERBIL_LOADPATH to include both ~/.gerbil/lib and ~/mine/gerbil-aws/.gerbil/lib. Had to fall back to gerbil_make to get a successful build, losing the structured error diagnostics.",
+    "estimated_token_reduction": "~200-500 tokens per build attempt. Eliminates the need to: (1) diagnose why gerbil_build_and_report fails on valid code, (2) read the Makefile to discover GERBIL_LOADPATH, (3) fall back to gerbil_make or bash with manual env setup."
+  }
+]
