@@ -650,5 +650,50 @@
     "related": [
       "gerbil-aws-query-vs-json-response-keys"
     ]
+  },
+  {
+    "id": "aws-pricing-api-content-type-1-1",
+    "title": "AWS Pricing API requires content-type application/x-amz-json-1.1, not 1.0",
+    "tags": [
+      "pricing",
+      "aws",
+      "content-type",
+      "json",
+      "1.1",
+      "AWSJsonClient",
+      "UnknownOperationException",
+      "404"
+    ],
+    "imports": [
+      ":gerbil-aws/aws/json-api"
+    ],
+    "code": ";; PROBLEM: The AWS Pricing API requires content-type \"application/x-amz-json-1.1\"\n;; but AWSJsonClient defaults to \"application/x-amz-json-1.0\".\n;;\n;; Without the correct content-type, ALL Pricing API calls fail with:\n;;   HTTP 404: <UnknownOperationException/>\n;;\n;; This is a SILENT CASCADING FAILURE — pricing lookups return #f,\n;; causing downstream code to skip hundreds of resources.\n\n;; WRONG — uses default content-type 1.0, gets 404 on every call:\n;; (def (make-pricing-client (region \"us-east-1\"))\n;;   (AWSJsonClient service: \"pricing\"\n;;                  target-prefix: \"AWSPriceListService\"\n;;                  endpoint: (string-append \"api.pricing.\" region \".amazonaws.com\")\n;;                  region: region))\n\n;; CORRECT — explicitly set content-type to 1.1:\n(def (make-pricing-client (region \"us-east-1\"))\n  (AWSJsonClient service: \"pricing\"\n                 target-prefix: \"AWSPriceListService\"\n                 endpoint: (string-append \"api.pricing.\" region \".amazonaws.com\")\n                 content-type: \"application/x-amz-json-1.1\"\n                 region: region))\n\n;; AWS services and their JSON protocol versions:\n;;   application/x-amz-json-1.1:\n;;     Pricing, Lambda, CloudWatch Logs, ECS, SSM, Secrets Manager\n;;   application/x-amz-json-1.0:\n;;     DynamoDB, Compute Optimizer, Cost Optimization Hub, SWF\n;;\n;; Check the AWS service's API reference for the correct version.\n;; The version is listed in the \"Common Headers\" section of each API doc.",
+    "notes": "The AWSJsonClient in gerbil-aws defaults content-type to \"application/x-amz-json-1.0\" (set in json-api.ss line 45). AWS services that require 1.1 will reject ALL requests with HTTP 404 UnknownOperationException. This is extremely hard to debug because: (1) the error is XML even though it's a JSON API, (2) 404 suggests a wrong URL, not a wrong content-type, (3) the endpoint IS correct (api.pricing.region.amazonaws.com). Combined with the endpoint issue (see aws-pricing-api-endpoint recipe), there are TWO things you must get right for the Pricing API: the api.pricing prefix AND the 1.1 content-type.",
+    "related": [
+      "aws-pricing-api-endpoint"
+    ]
+  },
+  {
+    "id": "gerbil-aws-strip-ns-uri-namespace-bug",
+    "title": "gerbil-aws strip-ns breaks on full URI namespace prefixes — finds first colon not last",
+    "tags": [
+      "strip-ns",
+      "namespace",
+      "XML",
+      "SXML",
+      "URI",
+      "gerbil-aws",
+      "STS",
+      "RDS",
+      "ELBv2"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: gerbil-aws's strip-ns function in aws/xml.ss finds the FIRST\n;; colon in a symbol name, but URI namespace prefixes contain multiple colons.\n;;\n;; The function is:\n;;   (def (strip-ns sym)\n;;     (let (s (symbol->string sym))\n;;       (let (pos (string-contains s \":\"))   ;; finds FIRST \":\"\n;;         (if pos\n;;           (string->symbol (substring s (+ pos 1) (string-length s)))\n;;           sym))))\n;;\n;; For EC2, namespaces are mapped to short prefixes like \"ec2:\",\n;; so strip-ns works: 'ec2:instanceId → 'instanceId\n;;\n;; But for services WITHOUT namespace mappings (STS, RDS, ELBv2, CloudWatch),\n;; the XML parser produces full URI prefixes:\n;;   '//sts.amazonaws.com/doc/2011-06-15/:Account\n;;   '//rds.amazonaws.com/doc/2014-10-31/:DBInstances\n;;\n;; strip-ns finds the first \":\" in \"//sts.amazonaws.com/doc/2011-06-15/:Account\"\n;; which is in \"http:\" — producing '//sts.amazonaws.com/doc/2011-06-15/:Account\n;; (unchanged!) instead of 'Account.\n;;\n;; WORKAROUND: Add namespace mappings to your client, like EC2 does:\n;; (AWSClient ...\n;;   namespaces: '((\"https://sts.amazonaws.com/doc/2011-06-15/\" . \"sts\")))\n;;\n;; Or fix strip-ns to find the LAST colon:\n(def (strip-ns sym)\n  (let* ((s (symbol->string sym))\n         (len (string-length s)))\n    (let loop ((i (- len 1)))\n      (cond\n        ((< i 0) sym)\n        ((char=? (string-ref s i) #\\:)\n         (string->symbol (substring s (+ i 1) len)))\n        (else (loop (- i 1)))))))\n\n;; Test:\n;; (strip-ns '//sts.amazonaws.com/doc/2011-06-15/:Account) => 'Account\n;; (strip-ns 'ec2:instanceId) => 'instanceId\n;; (strip-ns 'noNamespace) => 'noNamespace\n\n;; AFFECTED SERVICES (no namespace mappings by default):\n;;   STS  — get-caller-identity returns empty account-id\n;;   RDS  — describe-db-instances returns 0 items\n;;   ELBv2 — describe-load-balancers returns 0 items\n;;   CloudWatch — some responses may be affected\n;;\n;; EC2 WORKS because it has explicit namespace mappings in ec2/xml.ss:\n;;   '((\"http://ec2.amazonaws.com/doc/2016-11-15/\" . \"ec2\"))",
+    "notes": "This is a bug in gerbil-aws/aws/xml.ss. The proper fix is to change strip-ns to find the LAST colon instead of the first. The workaround is to add namespace mappings to each client (like EC2 does), but this requires knowing the exact namespace URI for each AWS service version. The bug causes SILENT DATA LOSS — API calls succeed (HTTP 200) but the response parsing can't match expected keys, so functions return empty lists or empty strings. Symptoms: get-account-id returns \"\", describe-db-instances returns 0 items, describe-load-balancers returns 0 items.",
+    "related": [
+      "aws-pricing-api-endpoint",
+      "gerbil-aws-query-vs-json-response-keys",
+      "ec2-lowercase-camelcase-keys"
+    ]
   }
 ]

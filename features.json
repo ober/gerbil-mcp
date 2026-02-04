@@ -14,5 +14,37 @@
     "use_case": "Any project that imports modules from installed packages or local dependency directories and uses gerbil_build_and_report for compilation. This is common for any non-trivial Gerbil project with external dependencies.",
     "example_scenario": "Project aws-pricing-report imports :gerbil-aws/ec2/api. Running gerbil_build_and_report fails with 'cannot find library module' because GERBIL_LOADPATH is not set. The project's Makefile sets GERBIL_LOADPATH to include both ~/.gerbil/lib and ~/mine/gerbil-aws/.gerbil/lib. Had to fall back to gerbil_make to get a successful build, losing the structured error diagnostics.",
     "estimated_token_reduction": "~200-500 tokens per build attempt. Eliminates the need to: (1) diagnose why gerbil_build_and_report fails on valid code, (2) read the Makefile to discover GERBIL_LOADPATH, (3) fall back to gerbil_make or bash with manual env setup."
+  },
+  {
+    "id": "gerbil-aws-namespace-validator",
+    "title": "Tool to check gerbil-aws client namespace configuration",
+    "description": "A tool that takes a gerbil-aws client expression (e.g., AWSClient or AWSJsonClient creation code) and validates that the namespace configuration will produce correct key names in parsed responses. It would check if the service's known namespace URI is mapped, and warn if strip-ns would produce incorrect results. Could also test a live API call and show the actual response keys vs expected keys.",
+    "impact": "medium",
+    "tags": [
+      "gerbil-aws",
+      "namespace",
+      "XML",
+      "validation",
+      "strip-ns"
+    ],
+    "use_case": "When setting up a new gerbil-aws client for a Query API service (STS, RDS, ELBv2, etc.), validate that namespace mappings are correct before writing code that depends on specific response key names.",
+    "example_scenario": "User creates an STSClient without namespace mappings. Tool warns that STS namespace URI 'https://sts.amazonaws.com/doc/2011-06-15/' is not mapped, and strip-ns will produce broken keys like '//sts.amazonaws.com/doc/2011-06-15/:Account instead of 'Account.",
+    "estimated_token_reduction": "~500-1000 tokens per debugging session. Eliminates multi-step diagnosis: eval call → inspect response → trace through strip-ns → identify namespace issue."
+  },
+  {
+    "id": "check-balance-false-positive-hash-literal",
+    "title": "gerbil_check_balance reports false positive on valid code with hash literal binding lists",
+    "description": "The gerbil_check_balance tool reports an \"Unexpected closer ')'\" error on code that the actual Gerbil reader (gerbil_read_forms) parses successfully. The false positive occurs with complex `let` binding lists containing `(hash ...)` literals with multiple key-value pairs. Example: `(let ((result (hash (\"ec2\" (hash)) (\"rds\" (hash)) (\"other\" [])))) ...)` is reported as having an extra closer, but the Gerbil reader and compiler accept it. This forces a wasteful cycle of: (1) check_balance reports error, (2) manual investigation, (3) discover it's a false positive, (4) use gerbil_read_forms instead. The check_balance tool should match the actual Gerbil reader behavior or clearly label results as heuristic.",
+    "impact": "medium",
+    "tags": [
+      "check_balance",
+      "false-positive",
+      "hash",
+      "paren",
+      "balance"
+    ],
+    "use_case": "When editing Gerbil source files and verifying paren balance before building. False positives waste tokens investigating non-issues and reduce trust in the tool.",
+    "example_scenario": "Editing resources.ss with a `(let ((result (hash (\"ec2\" (hash)) ... (\"other\" [])))) (try ... result))` form. gerbil_check_balance reports 'Unexpected closer ) at line 812' but gerbil_read_forms parses all 24 forms successfully with no errors. Had to run gerbil_read_forms separately to confirm the code was valid, wasting ~300 tokens.",
+    "estimated_token_reduction": "~300-500 tokens per false positive. Eliminates the need to cross-check with gerbil_read_forms and manually investigate reported balance errors that turn out to be valid code."
   }
 ]
