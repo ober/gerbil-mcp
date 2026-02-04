@@ -14,5 +14,22 @@
     "use_case": "When setting up a new gerbil-aws client for a Query API service (STS, RDS, ELBv2, etc.), validate that namespace mappings are correct before writing code that depends on specific response key names.",
     "example_scenario": "User creates an STSClient without namespace mappings. Tool warns that STS namespace URI 'https://sts.amazonaws.com/doc/2011-06-15/' is not mapped, and strip-ns will produce broken keys like '//sts.amazonaws.com/doc/2011-06-15/:Account instead of 'Account.",
     "estimated_token_reduction": "~500-1000 tokens per debugging session. Eliminates multi-step diagnosis: eval call → inspect response → trace through strip-ns → identify namespace issue."
+  },
+  {
+    "id": "gambit-symbol-demangler",
+    "title": "Decode Gambit-mangled C symbol names back to Gerbil module/function paths",
+    "description": "A tool that takes a Gambit-mangled symbol name from GDB or a core dump (e.g., `___H_aws_2d_billing____cost_2d_explorer`) and decodes it back to the readable Gerbil module path and function name (e.g., `aws-billing/cost-explorer` module init). Gambit's name mangling encodes hyphens as `_2d_`, underscores as `_5f_`, and uses `____` as module path separators. This tool would parse these conventions and present the human-readable form, helping debug crashes and core dumps.",
+    "impact": "medium",
+    "tags": [
+      "gambit",
+      "demangle",
+      "GDB",
+      "debug",
+      "crash",
+      "symbol"
+    ],
+    "use_case": "When debugging a SIGSEGV or crash from GDB/core dump output, the user sees mangled Gambit C symbols and needs to map them back to Gerbil source modules and functions.",
+    "example_scenario": "GDB reports `0x0000555555af01cc in ___H_aws_2d_billing____cost_2d_explorer ()`. User needs to know this is the `aws-billing/cost-explorer` module. Without the tool, they must manually decode `2d` → `-`, `____` → `/`, etc.",
+    "estimated_token_reduction": "~200-400 tokens per debugging session. Eliminates manual decoding and the back-and-forth of explaining the mangling scheme."
   }
 ]

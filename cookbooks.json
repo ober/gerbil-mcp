@@ -937,5 +937,27 @@
     "related": [
       "export-t-no-reexport"
     ]
+  },
+  {
+    "id": "def-self-shadow-infinite-recursion",
+    "title": "Local def shadows imported/intended function — causes infinite recursion",
+    "tags": [
+      "shadow",
+      "def",
+      "infinite recursion",
+      "SIGSEGV",
+      "stack overflow",
+      "self-call",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/error"
+    ],
+    "code": ";; PROBLEM: Defining a function with the same name as one you intend to call\n;; creates accidental infinite recursion. The local def shadows any import.\n;;\n;; WRONG — infinite recursion, manifests as SIGSEGV (stack overflow):\n;; (def (exception->string e)\n;;   (or (exception->string e)   ;; calls ITSELF, not some library function\n;;       (call-with-output-string (lambda (p) (display-exception e p)))))\n;;\n;; The author likely intended to call a library's exception->string first,\n;; then fall back. But no such function exists in Gerbil's stdlib, and\n;; even if it did, the local def would shadow it.\n;;\n;; This causes SIGSEGV because:\n;; 1. An exception occurs somewhere (e.g., API error)\n;; 2. A catch block calls exception->string\n;; 3. The function calls itself infinitely\n;; 4. Stack overflow hits the guard page → SIGSEGV\n;; 5. GDB may report the crash in a DIFFERENT module's code\n;;    (wherever the stack pointer lands)\n\n;; CORRECT — use type-dispatch, never self-reference unless intended:\n(def (exception->string e)\n  (cond\n    ((Error? e) (Error-message e))              ;; Gerbil Error struct\n    ((error-exception? e)                        ;; Gambit error-exception\n     (error-exception-message e))\n    (else                                        ;; everything else\n     (call-with-output-string\n       (lambda (p) (display-exception e p))))))\n\n;; GENERAL RULE: In Gerbil, a top-level (def (foo ...) ...) in a module\n;; creates a binding for 'foo' that shadows ANY imported 'foo'.\n;; If you call 'foo' inside the body of that def, you call YOURSELF.\n;; There is no way to \"fall through\" to the imported version.\n;;\n;; If you need the imported version, rename on import:\n;; (import (rename-in :some-lib (foo lib-foo)))\n;; (def (foo e)\n;;   (or (lib-foo e)  ;; calls the imported version\n;;       (fallback e)))",
+    "notes": "This is a subtle bug because: (1) it compiles without warning, (2) it only crashes when the code path is actually hit (e.g., when an exception is caught), (3) the SIGSEGV crash location in GDB may point to a completely different module due to how stack overflow works in compiled Gambit code. The key diagnostic clue is a SIGSEGV during exception handling. Always check that your catch-block helper functions don't accidentally recurse.",
+    "related": [
+      "error-message-returns-false",
+      "error-handling"
+    ]
   }
 ]

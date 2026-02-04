@@ -3,6 +3,7 @@
 build-deps
 /manifest.ss
 .gerbil
+.claude/settings.local.json
 
 # Node.js
 node_modules/
