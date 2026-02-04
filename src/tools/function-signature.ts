@@ -5,6 +5,7 @@ import { runGxi, escapeSchemeString, ERROR_MARKER } from '../gxi.js';
 
 const RESULT_MARKER = 'GERBIL-MCP-SIG:';
 const SOURCE_MARKER = 'GERBIL-MCP-SIG-SOURCE:';
+const KEYWORDS_MARKER = 'GERBIL-MCP-SIG-KW:';
 
 export function registerFunctionSignatureTool(server: McpServer): void {
   server.registerTool(
@@ -14,6 +15,7 @@ export function registerFunctionSignatureTool(server: McpServer): void {
       description:
         'Get arity and type info for exported symbols in a Gerbil module. ' +
         'Shows whether each export is a procedure (with parameter names when source is available), macro/syntax, or value. ' +
+        'Detects keyword arguments at runtime even when source is unavailable. ' +
         'Example: module_path ":std/text/json" returns all exports with their signatures. ' +
         'Optionally filter to a single symbol.',
       inputSchema: {
@@ -78,6 +80,22 @@ export function registerFunctionSignatureTool(server: McpServer): void {
           '                       (display (##subprocedure-nb-parameters val))',
           '                       (display "\\t")',
           '                       (display (##procedure-name val))',
+          // Extract keyword args from ##subprocedure-info using built-in string ops
+          '                       (with-catch (lambda (_) (void))',
+          '                         (lambda ()',
+          '                           (let* ((info (##subprocedure-info val))',
+          '                                  (info-str (with-output-to-string (lambda () (write info))))',
+          '                                  (marker "keyword-dispatch \'#(")',
+          '                                  (idx (string-contains info-str marker)))',
+          '                             (when idx',
+          '                               (let* ((start (+ idx (string-length marker)))',
+          '                                      (end-idx (string-index info-str #\\) start))',
+          '                                      (content (substring info-str start end-idx))',
+          '                                      (tokens (string-split content #\\space))',
+          '                                      (kws (filter (lambda (t) (and (not (string=? t "#f")) (not (string=? t "")))) tokens)))',
+          '                                 (when (pair? kws)',
+          '                                   (display "\\t")',
+          '                                   (for-each (lambda (k) (display k) (display " ")) kws)))))))',
           '                       (newline))',
           '                      (else',
           `                       (display "${RESULT_MARKER}")`,
@@ -164,7 +182,8 @@ export function registerFunctionSignatureTool(server: McpServer): void {
         const kind = parts[1] || '';
         const arity = parts[2] || '';
         const qualifiedName = parts[3] || '';
-        return { name, kind, arity, qualifiedName };
+        const keywords = parts[4]?.trim() || '';
+        return { name, kind, arity, qualifiedName, keywords };
       });
 
       // Try to extract formals from source for procedure entries
@@ -185,7 +204,15 @@ export function registerFunctionSignatureTool(server: McpServer): void {
         '',
         ...entries.map((e) => {
           if (e.kind === 'procedure') {
-            const sig = formalsMap.get(e.name) ?? `arity:${e.arity}`;
+            let sig = formalsMap.get(e.name);
+            if (!sig && e.keywords) {
+              // Build signature from arity + keyword args
+              const kwList = e.keywords.split(/\s+/).filter(Boolean);
+              sig = `(... keywords: [${kwList.join(' ')}])`;
+            }
+            if (!sig) {
+              sig = `arity:${e.arity}`;
+            }
             return `  ${e.name}  procedure  ${sig}  (${e.qualifiedName})`;
           } else if (e.kind === 'macro/syntax') {
             return `  ${e.name}  macro/syntax`;

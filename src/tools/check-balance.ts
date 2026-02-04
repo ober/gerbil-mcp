@@ -112,6 +112,18 @@ export function checkBalance(source: string): BalanceResult {
       continue;
     }
 
+    // --- #! reader directives (#!void, #!eof, #!optional, etc.) ---
+    if (ch === '#' && i + 1 < len && source[i + 1] === '!') {
+      i += 2;
+      col += 2;
+      // Consume the rest of the directive name
+      while (i < len && /[a-zA-Z0-9_-]/.test(source[i])) {
+        i++;
+        col++;
+      }
+      continue;
+    }
+
     // --- Character literal #\x ---
     if (ch === '#' && i + 1 < len && source[i + 1] === '\\') {
       i += 2;
@@ -287,6 +299,11 @@ function formatBalanceResult(result: BalanceResult): string {
         break;
     }
   }
+
+  lines.push('');
+  lines.push(
+    'Note: This is a heuristic check. Use gerbil_read_forms or gerbil_check_syntax for definitive validation.',
+  );
 
   return lines.join('\n');
 }

@@ -104,11 +104,31 @@ export function registerCompileCheckTool(server: McpServer): void {
         }
 
         if (result.exitCode !== 0) {
-          // Parse and clean up error output
+          // Combine stdout and stderr for error output — gxc may write
+          // errors to either stream depending on the error type
           let errorOutput = result.stderr.trim();
+          const stdoutOutput = result.stdout.trim();
+          if (!errorOutput && stdoutOutput) {
+            errorOutput = stdoutOutput;
+          } else if (errorOutput && stdoutOutput) {
+            errorOutput = errorOutput + '\n' + stdoutOutput;
+          }
+
           // Replace temp file path with "<input>" for cleaner output
           if (tempFile && errorOutput) {
             errorOutput = errorOutput.replaceAll(targetPath, '<input>');
+          }
+
+          if (!errorOutput) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Compilation failed with exit code ${result.exitCode} (no error details available). Try gerbil_diagnostics for more info.`,
+                },
+              ],
+              isError: true,
+            };
           }
 
           const enhanced = enhanceGxcError(errorOutput);

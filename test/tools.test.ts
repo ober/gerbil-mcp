@@ -508,6 +508,21 @@ test:
       expect(result.text).toContain('passed');
     });
 
+    it('gerbil_compile_check includes error details for invalid code', async () => {
+      const result = await client.callTool('gerbil_compile_check', {
+        code: '(import :nonexistent/module)',
+      });
+      expect(result.isError).toBe(true);
+      // Should contain actual error details, not just "Compilation errors found:"
+      expect(result.text.length).toBeGreaterThan('Compilation errors found:\n\n'.length);
+      // The error should mention something about the module or identifier
+      const hasDetails = result.text.includes('nonexistent') ||
+        result.text.includes('module') ||
+        result.text.includes('import') ||
+        result.text.includes('exit code');
+      expect(hasDetails).toBe(true);
+    });
+
     it('gerbil_format pretty-prints code', async () => {
       const result = await client.callTool('gerbil_format', {
         code: '(define (f x y) (cond ((> x y) (+ x 1)) ((< x y) (- y 1)) (else 0)))',
@@ -851,6 +866,31 @@ test:
       });
       expect(result.isError).toBe(true);
       expect(result.text.toLowerCase()).toContain('unclosed');
+    });
+
+    it('gerbil_check_balance handles #!void reader directives', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def x #!void)\n(def y (list #!eof 1 2))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance OK');
+    });
+
+    it('gerbil_check_balance handles vector literals', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def v #(1 2 3))\n(def w (vector-ref #(a b c) 0))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance OK');
+    });
+
+    it('gerbil_check_balance error output includes verification suggestion', async () => {
+      const result = await client.callTool('gerbil_check_balance', {
+        code: '(def (f x) (+ x 1)',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('heuristic');
+      expect(result.text).toContain('gerbil_check_syntax');
     });
 
   });
@@ -1537,6 +1577,29 @@ test:
       });
       expect(result.isError).toBe(false);
       expect(result.text).toContain('procedure');
+    });
+
+    it('gerbil_function_signature shows keyword args for http-get', async () => {
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/net/request',
+        symbol: 'http-get',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('procedure');
+      // Should show keyword args like headers:, timeout:, etc.
+      expect(result.text).toContain('headers:');
+      expect(result.text).toContain('timeout:');
+    });
+
+    it('gerbil_function_signature shows normal arity for non-keyword function', async () => {
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/text/json',
+        symbol: 'read-json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('procedure');
+      // read-json does NOT have keyword args — should not show keywords:
+      expect(result.text).not.toContain('keywords:');
     });
   });
 

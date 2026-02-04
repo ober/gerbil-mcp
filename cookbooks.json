@@ -733,5 +733,209 @@
     "related": [
       "mutex-unwind-protect"
     ]
+  },
+  {
+    "id": "gerbil-function-signature-keyword-args-arity",
+    "title": "gerbil_function_signature reports arity:1 for functions with keyword args",
+    "tags": [
+      "function-signature",
+      "arity",
+      "keyword",
+      "args",
+      "misleading",
+      "gerbil-mcp"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: gerbil_function_signature (and gerbil_doc) reports arity:1\n;; for functions that accept keyword arguments. This is technically correct\n;; (the compiled lambda takes 1 positional arg — the client/object) but\n;; misleading because the function actually accepts many keyword params.\n;;\n;; Example from gerbil-aws:\n;;   gerbil_function_signature for describe-alarms reports:\n;;     arity:1  (gerbil-aws/cloudwatch/operations#describe-alarms)\n;;\n;;   But the ACTUAL signature (from reading source) is:\n;;     (describe-alarms client\n;;       alarm-names: (alarm-names #f)\n;;       state-value: (state-value #f)\n;;       next-token: (next-token #f)\n;;       max-records: (max-records #f))\n;;\n;;   Similarly, describe-instances reports arity:1 but actually accepts:\n;;     (describe-instances client\n;;       instance-ids: (instance-ids [])\n;;       filters: (filters [])\n;;       max-results: (max-results #f)\n;;       next-token: (next-token #f))\n;;\n;; WORKAROUND: When gerbil_function_signature shows arity:1, ALWAYS\n;; read the actual source code (via gerbil_find_definition with\n;; source_preview: true, or by reading the .ss file directly) to\n;; discover keyword arguments.\n;;\n;; This is especially important for gerbil-aws library functions where\n;; most API operations accept keyword args for optional parameters like\n;; filters:, max-results:, next-token:, etc.",
+    "notes": "Gambit compiles keyword arguments into a rest-args list internally, so the arity reflects only positional parameters. The gerbil_function_signature tool cannot currently extract keyword parameter names from compiled modules. Always verify by reading source when arity seems too low for an API wrapper function.",
+    "related": [
+      "optional-keyword-arguments"
+    ]
+  },
+  {
+    "id": "ec2-monitoring-state-filter",
+    "title": "Filter EC2 instances by monitoring state instead of running state",
+    "tags": [
+      "EC2",
+      "describe-instances",
+      "filter",
+      "monitoring",
+      "detailed-monitoring",
+      "gerbil-aws"
+    ],
+    "imports": [
+      ":gerbil-aws/ec2/instances",
+      ":gerbil-aws/ec2/api"
+    ],
+    "code": ";; To count instances with detailed monitoring enabled, use the\n;; \"monitoring-state\" filter instead of fetching ALL running instances.\n;;\n;; BAD — fetches every running instance (5-20KB each, thousands possible):\n;; (describe-instances ec2 filters: '((\"instance-state-name\" \"running\")))\n;; ;; Then manually check each instance's monitoring.state field\n;;\n;; GOOD — fetches only instances with detailed monitoring (typically few):\n(import :gerbil-aws/ec2/instances :gerbil-aws/ec2/api)\n(let* ((ec2 (EC2Client region: \"us-east-1\"))\n       (reservations (describe-instances ec2\n                       filters: '((\"monitoring-state\" \"enabled\")))))\n  ;; Count instances directly — no need to check monitoring.state\n  (let ((count 0))\n    (for-each\n     (lambda (res)\n       (let ((instances (hash-ref res 'instancesSet [])))\n         (set! count (+ count (if (list? instances) (length instances) 0)))))\n     reservations)\n    count))\n;; This avoids loading full instance metadata for potentially thousands\n;; of running instances when you only need the few with detailed monitoring.",
+    "notes": "The \"monitoring-state\" filter is a standard EC2 DescribeInstances filter that returns only instances matching the given monitoring state (\"enabled\" or \"disabled\"). Using this instead of \"instance-state-name\" + manual filtering reduces API response size from potentially hundreds of MBs (all running instances with full metadata) to KBs (just the few with detailed monitoring). Remember that instancesSet may be \"\" (empty string) instead of [] for empty XML elements — always guard with (list? ...) check.",
+    "related": [
+      "ec2-lowercase-camelcase-keys",
+      "ec2-empty-tagset-string"
+    ]
+  },
+  {
+    "id": "ec2-paginated-query-with-action-hash",
+    "title": "Paginate EC2 API calls using ec2-action/hash to avoid OOM",
+    "tags": [
+      "ec2",
+      "pagination",
+      "nextToken",
+      "ec2-action/hash",
+      "memory",
+      "describe-instances",
+      "MaxResults"
+    ],
+    "imports": [
+      ":gerbil-aws/ec2/api"
+    ],
+    "code": ";; PROBLEM: gerbil-aws high-level functions like describe-instances use\n;; ec2-action/items, which returns only the extracted items list and\n;; DISCARDS the NextToken from the response. This means ALL results\n;; are fetched in a single API call with no pagination.\n;;\n;; For large accounts (thousands of instances), this loads hundreds of\n;; MB of instance metadata into memory at once, causing OOM.\n;;\n;; SOLUTION: Use ec2-action/hash directly to get the full response\n;; hash including nextToken, and paginate manually.\n\n(import :gerbil-aws/ec2/api)\n\n;; Example: count instances with detailed monitoring, paginated\n(def (count-detailed-monitoring ec2)\n  (let loop ((next-token #f) (count 0))\n    (let* ((result (ec2-action/hash ec2 \"DescribeInstances\"\n                     (append\n                       [[\"MaxResults\" :: \"50\"]\n                        [\"Filter.1.Name\" :: \"monitoring-state\"]\n                        [\"Filter.1.Value.1\" :: \"enabled\"]]\n                       (if next-token [[\"NextToken\" :: next-token]] []))))\n           ;; reservationSet is a list of reservation hashes (EC2 uses lowercase)\n           (reservations (let ((rs (hash-get result 'reservationSet)))\n                           (if (list? rs) rs [])))\n           ;; Count instances across all reservations in this page\n           (page-count (let pc ((res reservations) (n 0))\n                         (if (null? res) n\n                           (let ((is (hash-get (car res) 'instancesSet)))\n                             (pc (cdr res) (+ n (if (list? is) (length is) 0)))))))\n           (new-count (+ count page-count))\n           ;; EC2 uses lowercase 'nextToken (not 'NextToken)\n           (nt (hash-get result 'nextToken)))\n      (if (and (string? nt) (> (string-length nt) 0))\n        (loop nt new-count)\n        new-count))))\n\n;; KEY POINTS:\n;; - ec2-action/hash returns the FULL response as a hash, including nextToken\n;; - EC2 uses lowercase camelCase keys: 'nextToken, 'reservationSet, 'instancesSet\n;; - MaxResults limits items per page (5-1000 for DescribeInstances)\n;; - Filter params use dot notation: Filter.N.Name, Filter.N.Value.M\n;; - Always check (list? ...) for set fields — empty XML elements become \"\"\n;; - Only accumulate what you need (counts, IDs) — let each page be GC'd",
+    "notes": "The high-level describe-instances function uses ec2-action/items which extracts items from a specific XML tag but discards the rest of the response (including nextToken). This makes pagination impossible through the high-level API. You MUST drop down to ec2-action/hash for paginated queries. The same pattern applies to all EC2 Describe* operations. Remember EC2 uses lowercase camelCase keys (nextToken not NextToken), unlike CloudWatch which uses PascalCase.",
+    "related": [
+      "ec2-lowercase-camelcase-keys",
+      "ec2-empty-tagset-string",
+      "ec2-monitoring-state-filter"
+    ]
+  },
+  {
+    "id": "cloudwatch-paginated-describe-alarms",
+    "title": "Paginate CloudWatch DescribeAlarms using cw-action/hash",
+    "tags": [
+      "cloudwatch",
+      "pagination",
+      "NextToken",
+      "cw-action/hash",
+      "describe-alarms",
+      "MaxRecords",
+      "memory"
+    ],
+    "imports": [
+      ":gerbil-aws/cloudwatch/api"
+    ],
+    "code": ";; PROBLEM: The describe-alarms function in :gerbil-aws/cloudwatch/operations\n;; uses cw-action/hash internally but only returns MetricAlarms and\n;; CompositeAlarms — it DISCARDS the NextToken. No pagination possible.\n;;\n;; SOLUTION: Use cw-action/hash directly to paginate.\n\n(import :gerbil-aws/cloudwatch/api)\n\n;; Helper to unwrap CloudWatch member-list structures\n(def (cw-member-list raw)\n  (cond\n    ((not raw) [])\n    ((list? raw) raw)\n    ((hash-table? raw)\n     (let ((m (hash-get raw 'member)))\n       (cond ((list? m) m) ((not m) []) (else [m]))))\n    (else [])))\n\n;; Example: count alarms by type across all pages\n(def (count-alarms-by-type cw)\n  (let loop ((next-token #f) (std 0) (hires 0) (comp 0))\n    (let* ((full-hash (cw-action/hash cw \"DescribeAlarms\"\n                        (append\n                          [[\"MaxRecords\" :: \"100\"]]\n                          (if next-token [[\"NextToken\" :: next-token]] []))))\n           ;; CloudWatch wraps response in DescribeAlarmsResult\n           (result (or (hash-get full-hash 'DescribeAlarmsResult) full-hash))\n           (result (if (hash-table? result) result (hash)))\n           (metric-alarms (cw-member-list (hash-get result 'MetricAlarms)))\n           (composite-alarms (cw-member-list (hash-get result 'CompositeAlarms)))\n           ;; Count standard vs high-resolution metric alarms\n           (page-std 0) (page-hires 0))\n      (for-each\n       (lambda (a)\n         (if (and (hash-table? a)\n                  (< (string->number (hash-ref a 'Period \"60\")) 60))\n           (set! page-hires (+ page-hires 1))\n           (set! page-std (+ page-std 1))))\n       metric-alarms)\n      (let ((new-std (+ std page-std))\n            (new-hires (+ hires page-hires))\n            (new-comp (+ comp (length composite-alarms)))\n            ;; CloudWatch uses PascalCase 'NextToken (not lowercase)\n            (nt (hash-get result 'NextToken)))\n        (if (and (string? nt) (> (string-length nt) 0))\n          (loop nt new-std new-hires new-comp)\n          (values new-std new-hires new-comp))))))\n\n;; KEY POINTS:\n;; - cw-action/hash returns full response; navigate to 'DescribeAlarmsResult\n;; - CloudWatch uses PascalCase: 'NextToken, 'MetricAlarms, 'Period\n;; - MetricAlarms/CompositeAlarms use &lt;member&gt; tags — use cw-member-list helper\n;; - MaxRecords limits alarms per page (1-100, default 50)",
+    "notes": "CloudWatch Query API uses PascalCase keys (NextToken, MetricAlarms) unlike EC2 which uses lowercase camelCase (nextToken, reservationSet). The DescribeAlarmsResult wrapper must be navigated to before accessing alarms. The member-list extraction is needed because CloudWatch XML uses member elements instead of item elements, and sxml->hash only auto-unwraps item elements.",
+    "related": [
+      "normalize-xml-member-list",
+      "ec2-paginated-query-with-action-hash",
+      "ec2-lowercase-camelcase-keys"
+    ]
+  },
+  {
+    "id": "aws-sxml-lightweight-counting",
+    "title": "Use raw SXML (cw-action/ec2-action) instead of hash conversion for memory-efficient counting",
+    "tags": [
+      "sxml",
+      "memory",
+      "optimization",
+      "cw-action",
+      "ec2-action",
+      "cloudwatch",
+      "ec2",
+      "hash-table",
+      "count",
+      "strip-ns"
+    ],
+    "imports": [
+      ":gerbil-aws/cloudwatch/api",
+      ":gerbil-aws/ec2/api",
+      ":gerbil-aws/aws/xml"
+    ],
+    "code": ";; PROBLEM: cw-action/hash and ec2-action/hash parse the ENTIRE XML response\n;; into deeply nested hash tables via sxml->hash. For DescribeAlarms with\n;; 100 alarms (each with 25+ fields), this creates thousands of hash table\n;; entries per page — but you may only need a count or one field.\n;;\n;; SOLUTION: Use cw-action / ec2-action (raw SXML) and navigate the tree\n;; directly with strip-ns + sxml-items + sxml-text from :gerbil-aws/aws/xml.\n;; No hash tables are allocated per-object.\n\n(import :gerbil-aws/cloudwatch/api\n        :gerbil-aws/ec2/api\n        (only-in :gerbil-aws/aws/xml strip-ns sxml-items sxml-text))\n\n;; Helper: navigate past *TOP* to the response element\n(def (sxml-unwrap-top sxml)\n  (if (and (pair? sxml) (eq? (car sxml) '*TOP*))\n    (let loop ((children (cdr sxml)))\n      (cond\n        ((null? children) sxml)\n        ((and (pair? (car children))\n              (symbol? (caar children))\n              (not (memq (caar children) '(@ *NAMESPACES* *PI*))))\n         (car children))\n        (else (loop (cdr children)))))\n    sxml))\n\n;; Helper: find first direct child by tag (handles namespace prefixes)\n(def (sxml-child node tag)\n  (and (pair? node)\n       (let loop ((children (cdr node)))\n         (cond\n           ((null? children) #f)\n           ((and (pair? (car children))\n                 (symbol? (caar children))\n                 (eq? (strip-ns (caar children)) tag))\n            (car children))\n           (else (loop (cdr children)))))))\n\n;; Helper: get text of a named child\n(def (sxml-child-text node tag)\n  (let ((child (sxml-child node tag)))\n    (and child (sxml-text child))))\n\n;; Example: count CloudWatch alarms by type from raw SXML\n;; (cw-action returns SXML, NOT hash tables)\n(def (count-alarms-page cw next-token)\n  (let* ((sxml (cw-action cw \"DescribeAlarms\"\n                 (append [[\"MaxRecords\" :: \"100\"]]\n                         (if next-token [[\"NextToken\" :: next-token]] []))))\n         (resp (sxml-unwrap-top sxml))\n         (result (or (sxml-child resp 'DescribeAlarmsResult) resp))\n         ;; sxml-items finds <member> children (CW uses member, EC2 uses item)\n         (ma (sxml-child result 'MetricAlarms))\n         (members (if ma (sxml-items ma 'member) []))\n         (ca (sxml-child result 'CompositeAlarms))\n         (composites (if ca (sxml-items ca 'member) [])))\n    ;; Only extract Period — no hash tables built for each alarm\n    (let ((std 0) (hires 0))\n      (for-each (lambda (m)\n                  (let ((p (sxml-child-text m 'Period)))\n                    (if (and p (< (string->number p) 60))\n                      (set! hires (+ hires 1))\n                      (set! std (+ std 1)))))\n                members)\n      (values std hires (length composites)\n              (sxml-child-text result 'NextToken)))))\n\n;; Example: count EC2 instances from raw SXML\n;; (ec2-action returns SXML; EC2 uses 'item not 'member)\n(def (count-instances-page ec2 next-token)\n  (let* ((sxml (ec2-action ec2 \"DescribeInstances\"\n                 (append [[\"MaxResults\" :: \"50\"]\n                          [\"Filter.1.Name\" :: \"monitoring-state\"]\n                          [\"Filter.1.Value.1\" :: \"enabled\"]]\n                         (if next-token [[\"NextToken\" :: next-token]] []))))\n         (resp (sxml-unwrap-top sxml))\n         (res-set (sxml-child resp 'reservationSet))\n         ;; sxml-items default tag is 'item (EC2 convention)\n         (reservations (if res-set (sxml-items res-set) [])))\n    (let ((count (let loop ((res reservations) (n 0))\n                   (if (null? res) n\n                     (let ((is (sxml-child (car res) 'instancesSet)))\n                       (loop (cdr res)\n                             (+ n (if is (length (sxml-items is)) 0))))))))\n      (values count (sxml-child-text resp 'nextToken)))))",
+    "notes": "Key insight: cw-action/hash and ec2-action/hash call sxml->hash which recursively creates make-hash-table + hash-put! for EVERY XML element. For responses with 100+ objects (alarms, instances), this is the dominant memory cost. Using the raw SXML APIs (cw-action, ec2-action) and navigating with strip-ns/sxml-items/sxml-text avoids all hash allocation.\n\nImportant details:\n- CloudWatch XML uses <member> elements: (sxml-items container 'member)\n- EC2 XML uses <item> elements: (sxml-items container) — default tag is 'item\n- CloudWatch uses PascalCase tags: 'DescribeAlarmsResult, 'NextToken, 'Period\n- EC2 uses lowercase camelCase: 'reservationSet, 'instancesSet, 'nextToken\n- strip-ns handles both full URI namespaces (CloudWatch) and short prefixes (ec2:)\n- sxml-text only works for (tag \"text\") leaf elements — exactly 2 elements\n- sxml-items uses strip-ns internally, so namespace handling is automatic\n- Semaphore concurrency should be reduced when using this pattern (less memory headroom needed but still good practice)",
+    "related": [
+      "paginate-ec2-action-hash",
+      "sxml-skip-pi-nodes",
+      "parse-xml-to-sxml",
+      "ec2-lowercase-camelcase-keys"
+    ]
+  },
+  {
+    "id": "serialize-regions-gc-bound-memory",
+    "title": "Serialize multi-region AWS calls with GC to bound peak memory",
+    "tags": [
+      "memory",
+      "GC",
+      "sequential",
+      "region",
+      "OOM",
+      "serialize",
+      "paginate",
+      "page-size",
+      "aws"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Processing all AWS regions concurrently with semaphore/threads\n;; causes OOM when each region produces large SXML trees (e.g., DescribeAlarms\n;; with 100 records/page, DescribeInstances with 50 full instance records).\n;; Even with raw SXML (no hash conversion), 2+ concurrent regions parsing\n;; large XML responses can exhaust memory before GC runs.\n;;\n;; SOLUTION: Three combined techniques:\n;; 1. Process regions sequentially (for-each, no threads/semaphore)\n;; 2. Use small page sizes (MaxRecords 25, MaxResults 10)\n;; 3. Force GC between phases and after each region\n\n;; BEFORE (OOM-prone):\n;; (let ((sem (make-semaphore 2)))\n;;   (for-each\n;;    (lambda (region)\n;;      (semaphore-wait! sem)\n;;      (spawn (lambda ()\n;;        (try\n;;          (do-alarms region)       ;; large SXML\n;;          (do-dashboards region)   ;; more SXML\n;;          (do-instances region)    ;; huge SXML (full instance details)\n;;          (finally (semaphore-post! sem))))))\n;;    regions))\n\n;; AFTER (memory-bounded):\n(def (process-all-regions regions)\n  (let ((total-count 0))\n    (for-each\n     (lambda (region)\n       (try\n        ;; Phase 1: alarms (small pages)\n        (let loop ((next-token #f))\n          (let* ((sxml (api-call region \"DescribeAlarms\"\n                         [[\"MaxRecords\" :: \"25\"]]))  ;; was 100\n                 (count (count-items sxml))\n                 (nt (extract-next-token sxml)))\n            (set! total-count (+ total-count count))\n            (when nt (loop nt))))\n        (##gc)  ;; free alarm SXML before next phase\n\n        ;; Phase 2: instances (very small pages — response includes\n        ;; ALL instance attributes: security groups, network interfaces,\n        ;; block devices, tags, etc.)\n        (let loop ((next-token #f))\n          (let* ((sxml (api-call region \"DescribeInstances\"\n                         [[\"MaxResults\" :: \"10\"]]))  ;; was 50\n                 (count (count-items sxml))\n                 (nt (extract-next-token sxml)))\n            (set! total-count (+ total-count count))\n            (when nt (loop nt))))\n\n        (catch (e) (handle-error region e))\n        (finally (##gc))))  ;; free everything before next region\n     regions)\n    total-count))\n\n;; WHY SMALL PAGES MATTER:\n;; - DescribeInstances returns FULL instance details for each instance\n;;   (security groups, network interfaces, block devices, tags, etc.)\n;;   A single instance can be 50+ SXML elements.\n;; - MaxResults=50 → ~2500 SXML elements per page\n;; - MaxResults=10 → ~500 SXML elements per page (5x less peak memory)\n;; - More API calls, but each page is GC-friendly\n;;\n;; TRADEOFF: Sequential is slower than concurrent, but won't OOM.\n;; For counting/aggregation tasks, correctness > speed.",
+    "notes": "This pattern applies when you only need aggregated results (counts, sums) from AWS API responses, not the full data. The key insight is that DescribeInstances responses are disproportionately large because they include ALL instance attributes even when you only need a count. Reducing MaxResults from 50 to 10 cuts peak SXML memory ~5x per page. Combined with sequential processing and GC between phases, this bounds memory to roughly one small page worth of SXML at a time. If you need the actual data (not just counts), consider processing each page immediately and discarding the SXML before fetching the next page.",
+    "related": [
+      "force-gc-gambit",
+      "sxml-counting-raw",
+      "paginate-ec2-action-hash"
+    ]
+  },
+  {
+    "id": "memory-snapshot-profiling",
+    "title": "Memory snapshot profiling with RSS + GC heap stats",
+    "tags": [
+      "memory",
+      "profiling",
+      "debug",
+      "heap",
+      "RSS",
+      "VmRSS",
+      "gc",
+      "leak",
+      "snapshot"
+    ],
+    "imports": [
+      ":std/debug/heap",
+      ":std/format"
+    ],
+    "code": ";; Complete memory profiling utility that combines:\n;; 1. OS-level RSS from /proc/self/status (actual process memory)\n;; 2. GC heap stats from :std/debug/heap memory-usage\n;;\n;; Returns an alist: ((gc-heap-size . N) (gc-alloc . N) (gc-live . N)\n;;                    (gc-movable . N) (gc-still . N))\n\n(import :std/debug/heap :std/format)\n\n;; Get VmRSS from /proc/self/status (Linux only)\n(def (get-rss-kb)\n  (try\n    (call-with-input-file \"/proc/self/status\"\n      (lambda (port)\n        (let loop ((line (read-line port)))\n          (if (eof-object? line) 0\n            (if (and (>= (string-length line) 6)\n                     (string=? \"VmRSS:\" (substring line 0 6)))\n              ;; Parse the number from \"VmRSS:   12345 kB\"\n              (let find-num ((i 6))\n                (cond\n                  ((>= i (string-length line)) 0)\n                  ((char-numeric? (string-ref line i))\n                   (let end-num ((j (+ i 1)))\n                     (if (or (>= j (string-length line))\n                             (not (char-numeric? (string-ref line j))))\n                       (string->number (substring line i j))\n                       (end-num (+ j 1)))))\n                  (else (find-num (+ i 1)))))\n              (loop (read-line port)))))))\n    (catch (e) 0)))\n\n;; Print + return memory snapshot\n(def (mem-snapshot label)\n  (let* ((rss-kb (get-rss-kb))\n         (rss-mb (/ rss-kb 1024.0))\n         (heap (memory-usage))\n         (gc-heap-mb (/ (cdr (assoc 'gc-heap-size heap)) (* 1024.0 1024.0)))\n         (gc-live-mb (/ (cdr (assoc 'gc-live heap)) (* 1024.0 1024.0))))\n    (fprintf (current-error-port)\n             \"[MEM ~a] RSS=~aMB | GC-heap=~aMB live=~aMB~n\"\n             label\n             (number->string (inexact->exact (round rss-mb)))\n             (number->string (inexact->exact (round gc-heap-mb)))\n             (number->string (inexact->exact (round gc-live-mb))))\n    (force-output (current-error-port))\n    (list (cons 'rss-kb rss-kb) (cons 'rss-mb rss-mb)\n          (cons 'gc-heap-mb gc-heap-mb) (cons 'gc-live-mb gc-live-mb))))\n\n;; Print delta from previous snapshot\n(def (mem-delta label prev)\n  (let* ((snap (mem-snapshot label))\n         (d-rss (- (cdr (assoc 'rss-mb snap)) (cdr (assoc 'rss-mb prev))))\n         (d-live (- (cdr (assoc 'gc-live-mb snap)) (cdr (assoc 'gc-live-mb prev)))))\n    (fprintf (current-error-port)\n             \"[MEM-DELTA ~a] RSS=~a~aMB live=~a~aMB~n\"\n             label\n             (if (>= d-rss 0) \"+\" \"-\") (number->string (inexact->exact (round (abs d-rss))))\n             (if (>= d-live 0) \"+\" \"-\") (number->string (inexact->exact (round (abs d-live)))))\n    (force-output (current-error-port))\n    snap))\n\n;; Usage: wrap suspect sections\n;; (let ((s (mem-snapshot \"before-heavy-work\")))\n;;   (heavy-work)\n;;   (mem-delta \"after-heavy-work\" s)\n;;   (##gc)\n;;   (mem-delta \"after-gc\" s))",
+    "notes": "memory-usage from :std/debug/heap returns an alist with keys: gc-heap-size, gc-alloc, gc-live, gc-movable, gc-still (all in bytes). The gc-live value shows how much memory is actually retained after GC. RSS from /proc/self/status shows the OS-level resident set — this includes memory that Gambit has allocated from the OS but may not have returned yet (the GC heap can grow but rarely shrinks). Output goes to stderr via current-error-port so it doesn't pollute stdout. The :std/debug/heap import triggers some Gambit warnings about undefined variables (macro-slot, macro-will-action, macro-will-testator) — these are harmless and can be ignored.",
+    "related": [
+      "force-gc-gambit",
+      "serialize-multi-region-gc"
+    ]
+  },
+  {
+    "id": "run-standalone-script-with-project-imports",
+    "title": "Run standalone gxi script that imports project modules",
+    "tags": [
+      "gxi",
+      "script",
+      "standalone",
+      "import",
+      "GERBIL_LOADPATH",
+      "package",
+      "relative",
+      "module context"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: You have a standalone test/utility script that needs to\n;; import modules from your project. Relative imports fail:\n;;\n;;   ;; test-script.ss\n;;   (import ./aws ./resources)  ;; FAILS!\n;;   ;; Error: \"cannot resolve relative module path; not in module context\"\n;;\n;; Relative imports (./module) only work inside a module being compiled\n;; as part of a build. When running a .ss file directly with `gxi`,\n;; the file is NOT in a module context.\n;;\n;; SOLUTION: Use package-qualified imports and set GERBIL_LOADPATH.\n;;\n;; Given a project with gerbil.pkg:\n;;   (package: my-project)\n;;\n;; And modules: aws.ss, resources.ss, etc.\n\n;; test-script.ss — correct way:\n;; (import :my-project/aws\n;;         :my-project/resources\n;;         :my-project/pricing)\n;;\n;; Run with GERBIL_LOADPATH pointing to the project's compiled libs:\n;;   GERBIL_LOADPATH=.gerbil/lib gxi test-script.ss\n;;\n;; Or with absolute path:\n;;   GERBIL_LOADPATH=/path/to/project/.gerbil/lib gxi test-script.ss\n;;\n;; If the project also depends on external packages:\n;;   GERBIL_LOADPATH=/path/to/project/.gerbil/lib:~/.gerbil/lib gxi test-script.ss\n\n;; IMPORTANT: The project must be built first (`gerbil build` or `make`)\n;; so that .gerbil/lib/ contains the compiled module files.\n\n;; Full example — standalone memory test script:\n;; #!/usr/bin/env gxi\n;; (import :std/format\n;;         :std/debug/heap\n;;         :my-project/aws\n;;         :my-project/resources)\n;;\n;; (def (main . args)\n;;   (let ((snap (mem-snapshot \"START\")))\n;;     (get-resources)\n;;     (mem-delta \"END\" snap)))\n;;\n;; (apply main (cdr (command-line)))",
+    "notes": "Key points: (1) ./module syntax ONLY works inside compiled modules, not standalone gxi scripts. (2) Use :package/module paths matching your gerbil.pkg package: declaration. (3) GERBIL_LOADPATH must include the project's .gerbil/lib/ directory. (4) The project must be built first so compiled modules exist. (5) Multiple LOADPATH entries are colon-separated. (6) For CLI scripts, use (command-line) to get args and (apply main (cdr (command-line))) to invoke.",
+    "related": [
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "resolve-import-naming-conflicts",
+    "title": "Resolve naming conflicts when importing modules with only-in/except-in",
+    "tags": [
+      "import",
+      "only-in",
+      "except-in",
+      "conflict",
+      "naming",
+      "duplicate",
+      "shadow",
+      "string-split",
+      "string-prefix"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Your module defines a function that has the same name as\n;; something exported by a standard library module you want to import.\n;;\n;; Example: Your aws.ss defines its own string-split and string-prefix?\n;; but you also want to import :std/misc/string for other utilities.\n;;\n;; WRONG — duplicate definition error:\n;; (import :std/misc/string)  ;; exports string-split, string-prefix?, etc.\n;; (def (string-split s sep) ...)  ;; CONFLICT! already imported\n;;\n;; SOLUTION 1: Use only-in to import specific non-conflicting symbols\n;; (import (only-in :std/misc/string\n;;           string-trim-prefix\n;;           string-trim-suffix\n;;           string-trim-eol))\n;;\n;; SOLUTION 2: Use except-in to exclude conflicting symbols\n;; (import (except-in :std/misc/string\n;;           string-split\n;;           string-prefix?))\n;;\n;; SOLUTION 3: Use prefix-in to namespace all imports\n;; (import (prefix-in str: :std/misc/string))\n;; ;; Now use str:string-split, str:string-prefix?, etc.\n;; ;; Your own string-split is unaffected\n;;\n;; SOLUTION 4: Skip the import entirely if you only need the\n;; conflicting symbols and already have local implementations.\n;; This is the simplest approach when the overlap is large.\n;;\n;; SOLUTION 5: Use rename-in to rename specific conflicting imports\n;; (import (rename-in :std/misc/string\n;;           (string-split std-string-split)\n;;           (string-prefix? std-string-prefix?)))\n;; ;; Now both versions available under different names\n\n;; CHECKING what a module exports before importing:\n;; Use gerbil_module_exports MCP tool, or in the REPL:\n;;   (import :std/misc/string)\n;;   ;; then check which names appeared",
+    "notes": "Common conflict sources: (1) :std/misc/string exports string-split, string-prefix?, string-suffix? which many projects define locally. (2) :std/srfi/1 exports map, for-each, filter etc. which shadow Gerbil's built-ins. (3) :std/iter exports for which shadows Gerbil's for (though they're usually compatible). Always use gerbil_module_exports to check what a module exports BEFORE importing it. The only-in approach is safest — you explicitly list what you need and won't get surprise conflicts if the upstream module adds new exports.",
+    "related": [
+      "export-t-no-reexport"
+    ]
   }
 ]

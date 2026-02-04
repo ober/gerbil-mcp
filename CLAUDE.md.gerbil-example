@@ -9,9 +9,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### Before Writing Code
 
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names.
-- **`gerbil_function_signature`**: Check procedure arities before calling functions. Prevents wrong-number-of-arguments errors.
+- **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
-- **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax.
+- **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax. Combines stdout/stderr for complete error output.
 - **`gerbil_doc`**: Look up any symbol for type, arity, qualified name, and related symbols.
 
 ### When Exploring or Debugging
@@ -68,7 +68,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_find_callers`**: Find all files in a directory that reference a given symbol, with line numbers.
 - **`gerbil_suggest_imports`**: Discover which standard library module exports a given symbol.
 - **`gerbil_call_graph`**: Static call graph analysis — see which functions call which in a source file.
-- **`gerbil_check_balance`**: Fast paren/bracket/brace balance checking without spawning a subprocess.
+- **`gerbil_check_balance`**: Fast paren/bracket/brace balance checking without spawning a subprocess. Handles `#!` reader directives and suggests cross-checking with `gerbil_read_forms` on errors.
 - **`gerbil_read_forms`**: Read a file with the actual Gerbil reader and see each form's line range and summary.
 - **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
 

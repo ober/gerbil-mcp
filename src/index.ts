@@ -70,11 +70,11 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
 - When understanding macros: use gerbil_expand_macro to see what sugar forms expand to.
-- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities, avoiding wrong number of arguments errors.
+- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors.
 - When understanding module structure: use gerbil_module_deps to see what a module imports and depends on.
 - When analyzing user code: use gerbil_load_file to extract definitions from Gerbil source files.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
-- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Enhanced error messages help diagnose internal compiler crashes.
+- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
 - For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context.
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output.
@@ -98,7 +98,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
-- To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
+- To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess. Handles #! reader directives and suggests cross-checking with gerbil_read_forms on errors.
 - To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.
 - To profile function performance: use gerbil_profile to instrument specific functions with call counting and timing while running an expression. Shows per-function call count, time, and percentage.
 - To analyze memory usage: use gerbil_heap_profile to capture GC heap metrics (heap size, allocation, live objects) before and after running an expression.
