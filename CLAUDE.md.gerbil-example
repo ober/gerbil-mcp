@@ -148,9 +148,8 @@ Add this to your project's `.claude/settings.json`:
         "matcher": "auto",
         "hooks": [
           {
-            "type": "agent",
-            "prompt": "Review the conversation for non-trivial Gerbil Scheme patterns, workarounds, API discoveries, or gotchas that were figured out through experimentation or debugging. For each one: (1) call gerbil_howto to check if it already exists, (2) if not, call gerbil_howto_add with a complete working code example, correct imports, and clear notes. Focus on: wrong assumptions that were corrected, arity/signature discoveries, compilation workarounds, and idiom patterns that required multiple attempts to get right. Skip trivial things any Scheme programmer would know.",
-            "timeout": 120
+            "type": "prompt",
+            "prompt": "MANDATORY PRE-COMPACTION ACTION: Before context is compacted, you MUST save any non-trivial Gerbil Scheme patterns, workarounds, API discoveries, or gotchas discovered during this session. For each discovery: (1) call gerbil_howto to check if it already exists, (2) if not found, call gerbil_howto_add with a complete working code example, correct imports, and clear notes. Focus on: wrong assumptions corrected, arity/signature discoveries, compilation workarounds, and idiom patterns that required multiple attempts. Skip trivial things any Scheme programmer would know. This action MUST happen NOW before context is lost."
           }
         ]
       },
@@ -170,7 +169,7 @@ Add this to your project's `.claude/settings.json`:
 
 ### How It Works
 
-- **Auto compaction** (`matcher: "auto"`): When the context window fills up and Claude Code triggers automatic compaction, an agent subagent is spawned that reviews the conversation, checks existing recipes via `gerbil_howto`, and saves new discoveries via `gerbil_howto_add`. The agent has full MCP tool access.
+- **Auto compaction** (`matcher: "auto"`): When the context window fills up, a prompt directive is injected that the main agent sees and acts on — calling `gerbil_howto` and `gerbil_howto_add` with full MCP tool access before compaction proceeds. Note: `type: "agent"` does NOT work for PreCompact (agent hooks only support decision-gate events like PreToolUse, PostToolUse, etc.). Use `type: "prompt"` instead.
 - **Manual compaction** (`matcher: "manual"`): When you run `/compact`, a prompt reminder is injected so Claude saves discoveries before summarizing.
 
 ### Why This Matters
