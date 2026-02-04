@@ -1217,6 +1217,8 @@ Run `gerbil build` on a project directory and return structured diagnostics. On 
 |-----------|------|----------|-------------|
 | `project_path` | string | yes | Directory containing the Gerbil project (with `gerbil.pkg`) |
 | `flags` | string[] | no | Extra build flags: `"--release"`, `"--optimized"`, `"--debug"` |
+| `context_lines` | number | no | Lines of source context to show around each error (default: 3). Set to 0 to disable. |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` for project-local module resolution |
 
 ```
 project_path: "/path/to/myproject"
@@ -1226,6 +1228,9 @@ project_path: "/path/to/myproject"
 
 project_path: "/path/to/myproject", flags: ["--optimized"]
 => Build succeeded (--optimized).
+
+project_path: "/path/to/myproject", loadpath: ["~/.gerbil/lib", "/path/to/deps/.gerbil/lib"]
+=> Build succeeded.
 
 project_path: "/path/to/broken-project"
 => Build failed: 2 error(s), 0 warning(s)

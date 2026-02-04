@@ -105,7 +105,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
 - To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
 - To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports. Saves time writing boilerplate test files.
-- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Use \`loadpath\` to set GERBIL_LOADPATH for projects with external dependencies.
 - To generate module stubs: use gerbil_generate_module_stub to create a module skeleton matching another module's exported signatures.
 - To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent across a project.
 - To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to an existing template file.

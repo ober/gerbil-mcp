@@ -41,7 +41,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### For Building and Testing
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
-- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting.
+- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Use `loadpath` to set `GERBIL_LOADPATH` for projects with external dependencies.
 - **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.

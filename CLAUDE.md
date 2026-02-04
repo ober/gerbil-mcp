@@ -47,7 +47,7 @@ All 141 tests must pass before considering any change complete. The test suite c
 - REPL session tools (create, eval, destroy lifecycle, loadpath, project_path, preload_file)
 - Performance and profiling tools (profile, heap profile, trace calls, call graph)
 - Code generation tools (scaffold test, generate module stub, generate module from template)
-- Build and report tool (structured build diagnostics, source context lines)
+- Build and report tool (structured build diagnostics, source context lines, loadpath support)
 - Enhanced find definition (source preview)
 - Cross-module export checker (check-exports)
 - Diagnostics with loadpath support
