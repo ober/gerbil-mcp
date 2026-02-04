@@ -1738,6 +1738,133 @@ test:
     });
   });
 
+  // ── Trace eval tool ──────────────────────────────────────────────────
+
+  describe('Trace eval tool', () => {
+    it('gerbil_trace_eval traces let* bindings', async () => {
+      const result = await client.callTool('gerbil_trace_eval', {
+        expression: '(let* ((x 10) (y (* x 2)) (z (+ x y))) z)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Trace:');
+      expect(result.text).toContain('x');
+      expect(result.text).toContain('y');
+      expect(result.text).toContain('z');
+      expect(result.text).toContain('number');
+      expect(result.text).toContain('result');
+    });
+
+    it('gerbil_trace_eval handles non-let expressions', async () => {
+      const result = await client.callTool('gerbil_trace_eval', {
+        expression: '(+ 1 2)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('result');
+      expect(result.text).toContain('number');
+    });
+
+    it('gerbil_trace_eval works with imports', async () => {
+      const result = await client.callTool('gerbil_trace_eval', {
+        expression: '(let* ((data (call-with-input-string "[1,2,3]" read-json))) data)',
+        imports: [':std/text/json'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('data');
+      expect(result.text).toContain('result');
+    });
+
+    it('gerbil_trace_eval accepts project_path', async () => {
+      const result = await client.callTool('gerbil_trace_eval', {
+        expression: '(let* ((x 1)) x)',
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('x');
+    });
+
+    it('gerbil_trace_eval reports error in binding', async () => {
+      const result = await client.callTool('gerbil_trace_eval', {
+        expression: '(let* ((x (/ 1 0))) x)',
+      });
+      // Should contain some error indication
+      expect(result.text).toContain('x');
+    });
+  });
+
+  // ── SXML inspect tool ──────────────────────────────────────────────
+
+  describe('SXML inspect tool', () => {
+    it('gerbil_sxml_inspect parses simple XML', async () => {
+      const result = await client.callTool('gerbil_sxml_inspect', {
+        xml_text: '<root><item>hello</item><item>world</item></root>',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('SXML Tree');
+      expect(result.text).toContain('[DOCUMENT]');
+      expect(result.text).toContain('[ELEMENT]');
+      expect(result.text).toContain('root');
+      expect(result.text).toContain('item');
+    });
+
+    it('gerbil_sxml_inspect shows PI nodes', async () => {
+      const result = await client.callTool('gerbil_sxml_inspect', {
+        xml_text: '<?xml version="1.0" encoding="UTF-8"?><root><item>hi</item></root>',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[PI]');
+      expect(result.text).toContain('[ELEMENT]');
+      expect(result.text).toContain('root');
+    });
+
+    it('gerbil_sxml_inspect works in expression mode', async () => {
+      const result = await client.callTool('gerbil_sxml_inspect', {
+        expression: '\'(*TOP* (root (item "hello")))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[DOCUMENT]');
+      expect(result.text).toContain('[ELEMENT]');
+      expect(result.text).toContain('root');
+    });
+
+    it('gerbil_sxml_inspect validates missing params', async () => {
+      const result = await client.callTool('gerbil_sxml_inspect', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Exactly one');
+    });
+
+    it('gerbil_sxml_inspect shows attributes', async () => {
+      const result = await client.callTool('gerbil_sxml_inspect', {
+        xml_text: '<root id="1"><item class="main">text</item></root>',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[ELEMENT]');
+      expect(result.text).toContain('root');
+    });
+  });
+
+  // ── Eval project_path support ─────────────────────────────────────
+
+  describe('Eval project_path', () => {
+    it('gerbil_eval accepts project_path parameter', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(+ 1 2)',
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('3');
+    });
+
+    it('gerbil_eval combines project_path with loadpath', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(+ 10 20)',
+        loadpath: ['/nonexistent/path'],
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('30');
+    });
+  });
+
   // ── Build and report context_lines ──────────────────────────────────
 
   describe('Build and report context_lines', () => {

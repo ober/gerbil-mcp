@@ -54,14 +54,18 @@ import { registerMakeTool } from './tools/make.js';
 import { registerCheckArityTool } from './tools/check-arity.js';
 import { registerHowtoVerifyTool } from './tools/howto-verify.js';
 import { registerResolveImportsTool } from './tools/resolve-imports.js';
+import { registerTraceEvalTool } from './tools/trace-eval.js';
+import { registerSxmlInspectTool } from './tools/sxml-inspect.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
-- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath to import project-local modules.
-- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath for project context.
+- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules.
+- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context.
+- To trace let bindings: use gerbil_trace_eval to step through let*/let/letrec/letrec* bindings, showing each variable's name, type, and value as it is bound.
+- To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
 - When understanding macros: use gerbil_expand_macro to see what sugar forms expand to.
 - BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities, avoiding wrong number of arguments errors.
@@ -170,6 +174,8 @@ registerMakeTool(server);
 registerCheckArityTool(server);
 registerHowtoVerifyTool(server);
 registerResolveImportsTool(server);
+registerTraceEvalTool(server);
+registerSxmlInspectTool(server);
 
 registerPrompts(server);
 

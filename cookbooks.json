@@ -121,8 +121,9 @@
     "imports": [
       ":std/markup/xml"
     ],
-    "code": "(import :std/markup/xml)\\n\\n;; Parse XML string to SXML tree\\n(def sxml\\n  (call-with-input-string\\n    \\\"<root><item>hello</item><item>world</item></root>\\\"\\n    (cut xml->sxml <> namespaces: '())))\\n;; => (*TOP* (root (item \\\"hello\\\") (item \\\"world\\\")))\\n\\n;; With namespace stripping\\n(def sxml-ns\\n  (call-with-input-string\\n    \\\"<ns:root xmlns:ns='http://example.com'><ns:item>hi</ns:item></ns:root>\\\"\\n    (cut xml->sxml <> namespaces: '((\\\"ns\\\" . \\\"http://example.com\\\")))))\\n\\n;; Navigate SXML — it's just nested lists\\n;; (tag child1 child2 ...) where children are strings or nested tags\\n(def root (cadr sxml))    ;; skip *TOP*, get (root ...)\\n(def items (cdr root))    ;; get children: ((item \\\"hello\\\") (item \\\"world\\\"))\\n(def first-text (cadar items))  ;; => \\\"hello\\\"",
-    "notes": "xml->sxml from :std/markup/xml returns SXML (S-expression XML). The result is always wrapped in (*TOP* ...). Namespace prefixes in tag names appear as ns:tag symbols. Pass namespaces: to map prefixes. Use cadr to skip *TOP*, then navigate with car/cdr/assoc."
+    "code": "(import :std/markup/xml)\\n\\n;; Parse XML string to SXML tree\\n(def sxml\\n  (call-with-input-string\\n    \\\"<root><item>hello</item><item>world</item></root>\\\"\\n    read-xml))\\n;; => (*TOP* (root (item \\\"hello\\\") (item \\\"world\\\")))\\n\\n;; GOTCHA: XML with <?xml ...?> declaration produces a *PI* node\\n(def sxml-with-pi\\n  (call-with-input-string\\n    \\\"<?xml version=\\\\\\\"1.0\\\\\\\" encoding=\\\\\\\"UTF-8\\\\\\\"?><root><item>hello</item></root>\\\"\\n    read-xml))\\n;; => (*TOP* (*PI* xml \\\"version=...\\\") (root (item \\\"hello\\\")))\\n;; Note the *PI* node — you must skip it when searching for the root element!\\n\\n;; Navigate SXML — it's just nested lists\\n;; (tag child1 child2 ...) where children are strings or nested tags\\n(def root (cadr sxml))    ;; skip *TOP*, get (root ...)\\n(def items (cdr root))    ;; get children: ((item \\\"hello\\\") (item \\\"world\\\"))\\n(def first-text (cadar items))  ;; => \\\"hello\\\"",
+    "notes": "read-xml from :std/markup/xml returns SXML (S-expression XML). It takes a single port argument. The result is always wrapped in (*TOP* ...). IMPORTANT: When the XML source has a <?xml ...?> processing instruction, a (*PI* xml ...) node appears in the SXML tree — you must skip it (along with @ and *NAMESPACES*) when traversing to find the root element, or it will be mistaken for the content root. See the sxml-skip-pi-nodes recipe for a correct traversal pattern. Use cadr to skip *TOP*, then navigate with car/cdr/assoc.",
+    "related": ["sxml-skip-pi-nodes"]
   },
   {
     "id": "using-typed-struct-access",
@@ -376,5 +377,26 @@
     "related": [
       "gerbil-aws-query-vs-json-response-keys"
     ]
+  },
+  {
+    "id": "sxml-skip-pi-nodes",
+    "title": "Skip *PI* processing instruction nodes when traversing SXML",
+    "tags": [
+      "sxml",
+      "xml",
+      "parsing",
+      "processing-instruction",
+      "PI",
+      "read-xml",
+      "traverse",
+      "gotcha",
+      "*PI*",
+      "*TOP*"
+    ],
+    "imports": [
+      ":std/markup/xml"
+    ],
+    "code": "\n(import :std/markup/xml)\n\n;; XML responses often start with <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n;; read-xml parses this into a *PI* (Processing Instruction) SXML node:\n;;\n;;   (*TOP*\n;;     (@ (*NAMESPACES* ...))\n;;     (*PI* xml \"version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"\")   ;; <-- gotcha!\n;;     (ns:RootElement ...))\n;;\n;; When traversing SXML to find the root element, you MUST skip *PI* nodes\n;; along with @, *NAMESPACES*, and *TOP*. Otherwise *PI* gets mistakenly\n;; treated as the root element.\n\n;; WRONG — misses *PI*, returns wrong node:\n(def (find-root-BAD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES*)) #f)        ;; missing *PI*!\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; CORRECT — skips *PI* nodes:\n(def (find-root-GOOD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES* *PI*)) #f)   ;; includes *PI*\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; Example: parsing an S3 response with XML declaration\n(def xml (read-xml\n           \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><Root><Item>hello</Item></Root>\"\n           namespaces: '()))\n\n(find-root-BAD xml)   ;; => (*PI* xml \"version=\\\"1.0\\\" ...\") — WRONG!\n(find-root-GOOD xml)  ;; => (Root (Item \"hello\")) — correct\n",
+    "notes": "The *PI* node appears in SXML when the source XML contains processing instructions like <?xml ...?>. Most real-world XML APIs (AWS S3, etc.) include this declaration. The SXML metadata nodes to always skip when searching for content elements are: *TOP* (document root wrapper), @ (attributes), *NAMESPACES* (namespace declarations), and *PI* (processing instructions). Forgetting *PI* causes silent data loss — the PI node gets processed as if it were the root element, typically producing an empty string or #f instead of the expected parsed data."
   }
 ]
