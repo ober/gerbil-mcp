@@ -94,6 +94,11 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
   - Optionally pass `cookbook_path` to write to a different file instead.
 - **`gerbil_file_summary`**: Quick structural overview of a `.ss` file — imports, exports, and definitions grouped by kind — without reading the entire file. Faster than `gerbil_load_file` when you only need the shape of a module.
 
+### For Feature Suggestions
+
+- **`gerbil_list_features`**: Search or list existing feature suggestions for the gerbil-mcp toolset. Use before suggesting a new feature to check for duplicates.
+- **`gerbil_suggest_feature`**: Submit a feature suggestion for a new or improved gerbil-mcp tool. Requires `id`, `title`, `description`, `impact` (high/medium/low), `tags`, `use_case`, `example_scenario`, and `estimated_token_reduction`. Suggestions are stored in the server's `features.json`.
+
 ### Key Principle
 
 **Never guess — always verify.** If you are unsure about any Gerbil API, symbol name, module export, function arity, or macro behavior, use the appropriate MCP tool to check before writing code. This is not optional — it is required practice for all Gerbil work in this repository.
@@ -132,13 +137,39 @@ This is a **hard requirement**, not a suggestion. Gerbil is a niche language wit
 
 ---
 
-## Auto-Save Discoveries Before Compaction
+## Save Discoveries: Skill and Hook
 
-To prevent losing Gerbil discoveries when context compacts, add a `PreCompact` hook to `.claude/settings.json`. This automatically triggers cookbook saves before context is summarized.
+There are two mechanisms for saving session discoveries — a manual `/save-discoveries` skill and an automatic PreCompact hook. Both save cookbook recipes AND feature suggestions in one pass.
 
-### Recommended Hook Configuration
+### `/save-discoveries` Skill (Manual)
 
-Add this to your project's `.claude/settings.json`:
+Install the skill by copying the `save-discoveries` directory from the gerbil-mcp repo into your project:
+
+```sh
+mkdir -p .claude/skills
+cp -r /path/to/gerbil-mcp/.claude/skills/save-discoveries .claude/skills/
+```
+
+Or for personal scope (available in all projects):
+
+```sh
+cp -r /path/to/gerbil-mcp/.claude/skills/save-discoveries ~/.claude/skills/
+```
+
+Then invoke at any time during a session:
+
+```
+/save-discoveries
+```
+
+This triggers Claude to review the session and:
+1. Save non-trivial Gerbil patterns as cookbook recipes via `gerbil_howto_add`
+2. Submit tooling improvement ideas via `gerbil_suggest_feature`
+3. Check for duplicates before saving either
+
+### PreCompact Hook (Automatic)
+
+To automatically save discoveries before context compaction, add this to your project's `.claude/settings.json`:
 
 ```json
 {
@@ -149,7 +180,7 @@ Add this to your project's `.claude/settings.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "MANDATORY PRE-COMPACTION ACTION: Before context is compacted, you MUST save any non-trivial Gerbil Scheme patterns, workarounds, API discoveries, or gotchas discovered during this session. For each discovery: (1) call gerbil_howto to check if it already exists, (2) if not found, call gerbil_howto_add with a complete working code example, correct imports, and clear notes. Focus on: wrong assumptions corrected, arity/signature discoveries, compilation workarounds, and idiom patterns that required multiple attempts. Skip trivial things any Scheme programmer would know. This action MUST happen NOW before context is lost."
+            "prompt": "MANDATORY PRE-COMPACTION ACTION: Before context is compacted, you MUST: (1) Save any non-trivial Gerbil Scheme patterns, workarounds, API discoveries, or gotchas. For each: call gerbil_howto to check for duplicates, then gerbil_howto_add with a complete working code example, correct imports, and clear notes. Focus on: wrong assumptions corrected, arity/signature discoveries, compilation workarounds, idiom patterns that required multiple attempts. (2) Save any tooling improvement ideas. For each: call gerbil_list_features to check for duplicates, then gerbil_suggest_feature with impact, use case, and token reduction estimate. Skip trivial items in both categories. This MUST happen NOW before context is lost."
           }
         ]
       },
@@ -158,7 +189,7 @@ Add this to your project's `.claude/settings.json`:
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Before compacting: save any unsaved Gerbil discoveries to the cookbook via gerbil_howto_add. Check gerbil_howto first to avoid duplicates."
+            "prompt": "Before compacting: save any unsaved Gerbil discoveries to the cookbook via gerbil_howto_add and suggest any tooling improvements via gerbil_suggest_feature. Check for duplicates first with gerbil_howto and gerbil_list_features."
           }
         ]
       }
@@ -169,12 +200,34 @@ Add this to your project's `.claude/settings.json`:
 
 ### How It Works
 
-- **Auto compaction** (`matcher: "auto"`): When the context window fills up, a prompt directive is injected that the main agent sees and acts on — calling `gerbil_howto` and `gerbil_howto_add` with full MCP tool access before compaction proceeds. Note: `type: "agent"` does NOT work for PreCompact (agent hooks only support decision-gate events like PreToolUse, PostToolUse, etc.). Use `type: "prompt"` instead.
+- **Auto compaction** (`matcher: "auto"`): When the context window fills up, a prompt directive is injected that the main agent sees and acts on — calling both cookbook and feature suggestion tools with full MCP tool access before compaction proceeds. Note: `type: "agent"` does NOT work for PreCompact (agent hooks only support decision-gate events like PreToolUse, PostToolUse, etc.). Use `type: "prompt"` instead.
 - **Manual compaction** (`matcher: "manual"`): When you run `/compact`, a prompt reminder is injected so Claude saves discoveries before summarizing.
 
 ### Why This Matters
 
-Gerbil is a niche language with limited training data. Long sessions often discover critical patterns (e.g., `hash-get` is strictly 2-arity, `call-with-getopt` changed its API in v0.19+, `for/in-hash` fails during compilation). Without this hook, these discoveries are lost when context compacts, and future sessions waste tokens re-discovering the same things.
+Gerbil is a niche language with limited training data. Long sessions often discover critical patterns (e.g., `hash-get` is strictly 2-arity, `call-with-getopt` changed its API in v0.19+, `for/in-hash` fails during compilation). Without these hooks, discoveries are lost when context compacts, and future sessions waste tokens re-discovering the same things. Feature suggestions similarly capture tooling gaps while the friction is fresh.
+
+---
+
+## MANDATORY: Suggest Tooling Improvements
+
+When you notice opportunities to improve the gerbil-mcp toolset during a session, you MUST record them via `gerbil_suggest_feature`. This helps the toolset evolve based on real usage patterns.
+
+### You MUST call `gerbil_suggest_feature` whenever you:
+
+- Find yourself making multiple sequential tool calls that could be a single tool
+- Encounter a workflow where a missing tool forces you to fall back to `gerbil_eval` or bash
+- Notice repeated patterns across sessions that could be automated
+- Discover that an existing tool is missing a useful parameter or mode
+
+### Before suggesting, first check `gerbil_list_features` to avoid duplicates.
+
+### When suggesting, fill in all fields honestly:
+
+- **`id`**: Use kebab-case (e.g., `"batch-module-check"`, `"cross-file-rename"`)
+- **`impact`**: `"high"` = saves many tokens or round-trips regularly; `"medium"` = useful but less frequent; `"low"` = nice-to-have
+- **`tags`**: Include 3-5 search keywords for discoverability
+- **`estimated_token_reduction`**: Be specific (e.g., `"~500 tokens per invocation"`, `"eliminates 3 tool calls"`)
 
 ---
 

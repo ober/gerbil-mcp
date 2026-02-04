@@ -1903,4 +1903,117 @@ test:
       expect(result.text).toBeDefined();
     }, 60000);
   });
+
+  // ── Feature suggestion tools ─────────────────────────────────────
+
+  describe('Feature suggestion tools', () => {
+    it('gerbil_suggest_feature creates a new features file and adds suggestion', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_suggest_feature', {
+        features_path: featuresPath,
+        id: 'batch-module-check',
+        title: 'Batch module checking',
+        description: 'Check multiple modules in a single call',
+        impact: 'high',
+        tags: ['module', 'batch', 'check'],
+        use_case: 'When working with large projects with many modules',
+        example_scenario: 'User has 20 modules and wants to check all exports at once',
+        estimated_token_reduction: '~500 tokens per invocation',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).toContain('batch-module-check');
+      expect(result.text).toContain('1 total suggestions');
+    });
+
+    it('gerbil_suggest_feature replaces existing suggestion with same id', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      // Add a second suggestion first
+      await client.callTool('gerbil_suggest_feature', {
+        features_path: featuresPath,
+        id: 'another-feature',
+        title: 'Another feature',
+        description: 'Some other feature',
+        impact: 'low',
+        tags: ['other'],
+        use_case: 'Testing',
+        example_scenario: 'Testing update semantics',
+        estimated_token_reduction: '~100 tokens',
+      });
+      // Now update the first suggestion
+      const result = await client.callTool('gerbil_suggest_feature', {
+        features_path: featuresPath,
+        id: 'batch-module-check',
+        title: 'Batch module checking (improved)',
+        description: 'Check multiple modules in a single call with better output',
+        impact: 'high',
+        tags: ['module', 'batch', 'check', 'improved'],
+        use_case: 'Large projects',
+        example_scenario: 'User has 20 modules',
+        estimated_token_reduction: '~800 tokens per invocation',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Updated');
+      expect(result.text).toContain('batch-module-check');
+      expect(result.text).toContain('2 total suggestions');
+    });
+
+    it('gerbil_suggest_feature returns error for corrupt JSON', async () => {
+      const badPath = join(TEST_DIR, 'bad-features.json');
+      writeFileSync(badPath, 'this is not json{{{');
+      const result = await client.callTool('gerbil_suggest_feature', {
+        features_path: badPath,
+        id: 'test',
+        title: 'Test',
+        description: 'Test',
+        impact: 'low',
+        tags: ['test'],
+        use_case: 'Test',
+        example_scenario: 'Test',
+        estimated_token_reduction: '~0',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Error');
+    });
+
+    it('gerbil_list_features lists all suggestions', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('2 feature suggestion(s)');
+      expect(result.text).toContain('batch-module-check');
+      expect(result.text).toContain('another-feature');
+    });
+
+    it('gerbil_list_features searches by keyword', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+        query: 'batch module',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('batch-module-check');
+      expect(result.text).toContain('matching "batch module"');
+    });
+
+    it('gerbil_list_features returns empty when no matches', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+        query: 'xyznonexistent',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No feature suggestions matching');
+    });
+
+    it('gerbil_list_features handles missing file gracefully', async () => {
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: '/nonexistent/path/features.json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No feature suggestions found');
+    });
+  });
 });

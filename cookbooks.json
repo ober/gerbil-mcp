@@ -540,5 +540,51 @@
       "gerbil-aws-query-vs-json-response-keys",
       "json-parse"
     ]
+  },
+  {
+    "id": "ec2-xml-lowercase-camelcase-keys",
+    "title": "EC2 Query API XML uses lowercase camelCase keys, not PascalCase",
+    "tags": [
+      "ec2",
+      "query-api",
+      "xml",
+      "camelCase",
+      "lowercase",
+      "regionName",
+      "instanceId",
+      "symbol",
+      "key",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: AWS API documentation shows PascalCase names like\n;; \"RegionName\", \"InstanceId\", \"VolumeId\". But the EC2 Query API\n;; XML response uses lowercase camelCase: <regionName>, <instanceId>.\n;;\n;; After XML parsing in gerbil-aws, these become lowercase symbols:\n;;   'regionName  NOT 'RegionName\n;;   'instanceId  NOT 'InstanceId\n;;   'volumeId    NOT 'VolumeId\n;;   'vpcId       NOT 'VpcId\n;;\n;; WRONG — throws UnboundKeyError:\n;; (hash-ref region-hash 'RegionName)   ;; key not found!\n;; (hash-ref instance 'InstanceId)      ;; key not found!\n;;\n;; CORRECT — use lowercase camelCase:\n;; (hash-ref region-hash 'regionName)   ;; works\n;; (hash-ref instance 'instanceId)      ;; works\n;;\n;; This applies to ALL ec2-action/items responses in gerbil-aws:\n;;   describe-regions     → 'regionName, 'regionEndpoint\n;;   describe-instances   → 'instanceId, 'instanceType, 'imageId\n;;   describe-volumes     → 'volumeId, 'size, 'volumeType\n;;   describe-snapshots   → 'snapshotId, 'volumeId, 'startTime\n;;   describe-addresses   → 'publicIp, 'allocationId\n;;   describe-nat-gateways → 'natGatewayId, 'vpcId, 'subnetId\n;;   describe-images      → 'imageId, 'name, 'creationDate\n;;\n;; But OTHER Query API services may use different casing:\n;;   CloudWatch  → 'MetricName, 'Namespace (PascalCase)\n;;   RDS         → 'DBInstanceIdentifier (PascalCase)\n;;   ELBv2       → 'LoadBalancerArn (PascalCase)\n;;\n;; The casing matches the actual XML element names in each service's\n;; API response, which varies by service. EC2 happens to use lowercase.",
+    "notes": "The AWS documentation and CLI both show PascalCase (RegionName, InstanceId), but EC2's actual XML response uses lowercase camelCase. Other Query API services like CloudWatch and RDS use PascalCase in their XML. There's no universal rule — you must check the actual XML element names for each service. When in doubt, add a debug line: (displayln (hash->list my-hash)) to see the actual keys.",
+    "related": [
+      "gerbil-aws-query-vs-json-response-keys"
+    ]
+  },
+  {
+    "id": "write-json-cannot-serialize-cons-pairs",
+    "title": "write-json cannot serialize cons pairs from hash->list — convert to hashes first",
+    "tags": [
+      "write-json",
+      "hash->list",
+      "cons",
+      "pair",
+      "alist",
+      "serialize",
+      "json",
+      "Missing method",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": ";; PROBLEM: (hash->list ht) returns alist pairs: ((\"key1\" . val1) (\"key2\" . val2) ...)\n;; write-json does NOT know how to serialize cons pairs (dotted pairs).\n;; It throws: \"Missing method --- irritants: (\"key\" . value) :json\"\n;;\n;; This commonly happens when you sort a hash table and embed the\n;; sorted result in a data structure that later gets written to JSON.\n\n;; WRONG — crashes at JSON serialization time:\n;; (def sorted-services\n;;   (sort (hash->list service-totals)\n;;         (lambda (a b) (> (cdr a) (cdr b)))))\n;; (hash-put! data \"top_services\" sorted-services)\n;; ;; Later: (write-json data port)\n;; ;; ERROR: Missing method (\"EC2 - Other\" . 1073969.83) :json\n\n;; CORRECT — convert cons pairs to hashes before storing:\n(import :std/text/json)\n(def sorted-services\n  (sort (hash->list service-totals)\n        (lambda (a b) (> (cdr a) (cdr b)))))\n\n;; Convert alist pairs to list of hashes for JSON serialization:\n(def json-safe-services\n  (map (lambda (p) (hash (\"service\" (car p)) (\"cost\" (cdr p))))\n       sorted-services))\n\n(hash-put! data \"top_services\" json-safe-services)\n;; Now write-json works: [{\"service\":\"EC2\",\"cost\":1073969.83}, ...]\n\n;; write-json handles these types:\n;;   hash-table  → JSON object {\"key\": value}\n;;   list        → JSON array [...]\n;;   string      → JSON string \"...\"\n;;   number      → JSON number\n;;   #t / #f     → true / false\n;;   void / #!void → null\n;;\n;; It does NOT handle:\n;;   cons pair (\"k\" . v) → ERROR: Missing method :json\n;;   struct             → ERROR (unless has :json method)\n;;   symbol             → ERROR",
+    "notes": "This error only surfaces at JSON write time, not when building the data structure. It's easy to miss during development if you only test the markdown output (which uses car/cdr on pairs directly). The fix is to convert alist pairs to hashes at the point where they're stored in the data structure, before they reach write-json. An alternative is to define a recursive sanitizer that walks the data tree and converts all cons pairs to hashes, but it's cleaner to convert at the source.",
+    "related": [
+      "gerbil-json-arrays-are-lists-not-vectors",
+      "json-generate"
+    ]
   }
 ]

@@ -56,6 +56,8 @@ import { registerHowtoVerifyTool } from './tools/howto-verify.js';
 import { registerResolveImportsTool } from './tools/resolve-imports.js';
 import { registerTraceEvalTool } from './tools/trace-eval.js';
 import { registerSxmlInspectTool } from './tools/sxml-inspect.js';
+import { registerSuggestFeatureTool } from './tools/suggest-feature.js';
+import { registerListFeaturesTool } from './tools/list-features.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -114,6 +116,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.
 - To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe.
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
+- To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration.
+- To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -176,6 +180,8 @@ registerHowtoVerifyTool(server);
 registerResolveImportsTool(server);
 registerTraceEvalTool(server);
 registerSxmlInspectTool(server);
+registerSuggestFeatureTool(server);
+registerListFeaturesTool(server);
 
 registerPrompts(server);
 
