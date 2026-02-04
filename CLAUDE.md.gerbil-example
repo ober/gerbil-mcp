@@ -22,6 +22,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_find_definition`**: Locate where a symbol is defined (source file, module, kind, arity). Use `source_preview: true` to include a code preview.
 - **`gerbil_load_file`**: Parse a `.ss` file to extract its imports, exports, and definitions without executing it.
 - **`gerbil_module_deps`**: See what a module imports. Use `transitive: true` for full dependency tree.
+- **`gerbil_demangle`**: Decode Gambit-mangled C symbol names from GDB backtraces or core dumps back to readable Gerbil module/function paths. Recognizes prefixes like `___H_` (module init), `___G_` (global).
 
 ### When Understanding Macros
 
@@ -46,6 +47,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.
 - **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
+- **`gerbil_stale_static`**: Compare compiled artifacts in global `$GERBIL_PATH/lib/static/` vs project-local `.gerbil/lib/static/` to detect stale global copies that could shadow the current build. Common cause of segfaults and `#!unbound` errors in compiled executables.
 
 ### For Performance Analysis
 

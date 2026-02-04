@@ -31,5 +31,24 @@
     "use_case": "When debugging a SIGSEGV or crash from GDB/core dump output, the user sees mangled Gambit C symbols and needs to map them back to Gerbil source modules and functions.",
     "example_scenario": "GDB reports `0x0000555555af01cc in ___H_aws_2d_billing____cost_2d_explorer ()`. User needs to know this is the `aws-billing/cost-explorer` module. Without the tool, they must manually decode `2d` → `-`, `____` → `/`, etc.",
     "estimated_token_reduction": "~200-400 tokens per debugging session. Eliminates manual decoding and the back-and-forth of explaining the mangling scheme."
+  },
+  {
+    "id": "detect-stale-global-static-files",
+    "title": "Detect stale global static files shadowing project-local builds",
+    "description": "A tool that compares compiled artifacts (.scm, .c, .o) in $HOME/.gerbil/lib/static/ against project-local .gerbil/lib/static/ to detect when a stale global copy would shadow the current project build during exe linking. Reports mismatched timestamps, file sizes, and which copy the linker would pick based on GERBIL_LOADPATH order. Could also detect orphaned global artifacts for packages that are only built locally.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "static",
+      "stale",
+      "global",
+      "shadow",
+      "linker",
+      "segfault",
+      "debug"
+    ],
+    "use_case": "When a compiled Gerbil binary crashes with SIGSEGV or #!unbound errors that don't reproduce in the gxi REPL, and gerbil clean + rebuild doesn't fix it, the cause is often stale artifacts in the global $HOME/.gerbil/lib/static/ path shadowing the project-local build. This tool would catch the problem immediately instead of requiring manual investigation of build output paths and file timestamps.",
+    "example_scenario": "User rebuilds a project after adding new exports to a module. The project-local .scm grows from 45KB to 53KB, but a stale 45KB copy in $HOME/.gerbil/lib/static/ gets linked into the exe instead. The binary segfaults when calling newly-added functions. Running this tool would immediately flag: 'aws-billing__aws.scm: global copy (45751 bytes, 2025-01-05) shadows project copy (53574 bytes, 2025-01-05) — STALE'.",
+    "estimated_token_reduction": "~2000-5000 tokens per debugging session. The root cause investigation in this session took ~50 tool calls and extensive strace/file comparison work that this tool would replace with a single call."
   }
 ]

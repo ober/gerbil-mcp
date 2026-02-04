@@ -58,6 +58,8 @@ import { registerTraceEvalTool } from './tools/trace-eval.js';
 import { registerSxmlInspectTool } from './tools/sxml-inspect.js';
 import { registerSuggestFeatureTool } from './tools/suggest-feature.js';
 import { registerListFeaturesTool } from './tools/list-features.js';
+import { registerDemangleTool } from './tools/demangle.js';
+import { registerStaleStaticTool } from './tools/stale-static.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -118,6 +120,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
 - To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration.
 - To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones.
+- To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers from GDB/core dumps back to readable Gerbil module/function paths.
+- To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files and find stale copies that could shadow the current build.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -182,6 +186,8 @@ registerTraceEvalTool(server);
 registerSxmlInspectTool(server);
 registerSuggestFeatureTool(server);
 registerListFeaturesTool(server);
+registerDemangleTool(server);
+registerStaleStaticTool(server);
 
 registerPrompts(server);
 

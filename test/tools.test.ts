@@ -2161,4 +2161,159 @@ test:
       expect(result.text).toContain('No feature suggestions found');
     });
   });
+
+  describe('Demangle tool', () => {
+    it('decodes hex-encoded characters', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: 'hash_2d_ref',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('hash-ref');
+    });
+
+    it('decodes double underscore as literal underscore', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: 'my__var',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('my_var');
+    });
+
+    it('strips ___H_ prefix and labels as module init', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: '___H_test_2d_aws',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('module init');
+      expect(result.text).toContain('test-aws');
+    });
+
+    it('strips ___G_ prefix and labels as global', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: '___G_hash_2d_put_21_',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('global');
+      expect(result.text).toContain('hash-put!');
+    });
+
+    it('decodes full module path with slashes and hash separator', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: '___G_gerbil_2d_aws_2f_ec2_2f_api_23_EC2Client',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('gerbil-aws/ec2/api#EC2Client');
+      expect(result.text).toContain('module:');
+      expect(result.text).toContain('gerbil-aws/ec2/api');
+      expect(result.text).toContain('symbol:');
+      expect(result.text).toContain('EC2Client');
+    });
+
+    it('handles multiple symbols separated by newlines', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: '___H_test_2d_aws\n___G_set_21_',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('test-aws');
+      expect(result.text).toContain('set!');
+    });
+
+    it('returns error for empty input', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: '',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('No symbols provided');
+    });
+
+    it('handles symbols without known prefix', async () => {
+      const result = await client.callTool('gerbil_demangle', {
+        symbols: 'string_2d__3e_number',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('string->number');
+    });
+  });
+
+  describe('Stale static files tool', () => {
+    const staleDir = join(TEST_DIR, 'stale-test');
+
+    it('reports no local files when project has not been built', async () => {
+      mkdirSync(join(staleDir, 'empty-project'), { recursive: true });
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'empty-project'),
+        gerbil_path: join(staleDir, 'fake-global'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No local static files found');
+    });
+
+    it('reports no shadowing when global dir is empty', async () => {
+      const localDir = join(staleDir, 'proj-only', '.gerbil', 'lib', 'static');
+      const globalDir = join(staleDir, 'global-empty', 'lib', 'static');
+      mkdirSync(localDir, { recursive: true });
+      mkdirSync(globalDir, { recursive: true });
+      writeFileSync(join(localDir, 'mod.scm'), 'local-content');
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'proj-only'),
+        gerbil_path: join(staleDir, 'global-empty'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No shadowing possible');
+    });
+
+    it('detects stale global file with different size', async () => {
+      const localDir = join(staleDir, 'size-diff', '.gerbil', 'lib', 'static');
+      const globalDir = join(staleDir, 'global-size', 'lib', 'static');
+      mkdirSync(localDir, { recursive: true });
+      mkdirSync(globalDir, { recursive: true });
+      writeFileSync(join(globalDir, 'pkg__mod.scm'), 'old-short');
+      writeFileSync(join(localDir, 'pkg__mod.scm'), 'new-longer-content-here');
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'size-diff'),
+        gerbil_path: join(staleDir, 'global-size'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('STALE');
+      expect(result.text).toContain('pkg__mod.scm');
+    });
+
+    it('reports ok when files match', async () => {
+      const localDir = join(staleDir, 'match', '.gerbil', 'lib', 'static');
+      const globalDir = join(staleDir, 'global-match', 'lib', 'static');
+      mkdirSync(localDir, { recursive: true });
+      mkdirSync(globalDir, { recursive: true });
+      const content = 'identical-content';
+      writeFileSync(join(globalDir, 'pkg__mod.scm'), content);
+      // Write local file with same content — the global mtime will be <= local
+      writeFileSync(join(localDir, 'pkg__mod.scm'), content);
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'match'),
+        gerbil_path: join(staleDir, 'global-match'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Matching files');
+      expect(result.text).toContain('0 STALE');
+    });
+
+    it('filters by extension', async () => {
+      const localDir = join(staleDir, 'ext-filter', '.gerbil', 'lib', 'static');
+      const globalDir = join(staleDir, 'global-ext', 'lib', 'static');
+      mkdirSync(localDir, { recursive: true });
+      mkdirSync(globalDir, { recursive: true });
+      writeFileSync(join(globalDir, 'mod.scm'), 'old');
+      writeFileSync(join(localDir, 'mod.scm'), 'new-content');
+      writeFileSync(join(globalDir, 'mod.o'), 'old-obj');
+      writeFileSync(join(localDir, 'mod.o'), 'new-obj-content');
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'ext-filter'),
+        gerbil_path: join(staleDir, 'global-ext'),
+        extensions: ['.scm'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('mod.scm');
+      // .o file should not appear since we filtered to .scm only
+      expect(result.text).not.toContain('mod.o');
+    });
+  });
 });

@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 151 tests must pass before considering any change complete. The test suite covers:
+All 164 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -62,6 +62,8 @@ All 151 tests must pass before considering any change complete. The test suite c
 - SXML inspect tool (XML parsing and tree visualization)
 - Eval project_path support
 - Feature suggestion tools (suggest_feature, list_features)
+- Demangle tool (hex decoding, double underscore, prefix recognition, module/symbol split)
+- Stale static files tool (no local files, no overlap, size mismatch detection, matching files, extension filtering)
 
 
 ### Adding a New Tool
@@ -69,8 +71,11 @@ All 151 tests must pass before considering any change complete. The test suite c
 1. Create a new file in `src/tools/` (e.g., `src/tools/my-tool.ts`)
 2. Export a `registerMyTool(server: McpServer)` function
 3. Import and call the register function in `src/index.ts`
-4. Add corresponding test(s) in `test/tools.test.ts`
-5. Run `npm run build && npm run test` to verify
+4. Add the tool to the `INSTRUCTIONS` string in `src/index.ts`
+5. Add corresponding test(s) in `test/tools.test.ts`
+6. Add the tool to `CLAUDE.md.gerbil-example` under the appropriate section
+7. Update the test count and coverage list in this file (`CLAUDE.md`)
+8. Run `npm run build && npm run test` to verify
 
 ### Common Patterns
 
