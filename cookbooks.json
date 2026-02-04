@@ -695,5 +695,43 @@
       "gerbil-aws-query-vs-json-response-keys",
       "ec2-lowercase-camelcase-keys"
     ]
+  },
+  {
+    "id": "force-gc-gambit",
+    "title": "Force garbage collection with ##gc in Gambit/Gerbil",
+    "tags": [
+      "gc",
+      "garbage collection",
+      "memory",
+      "gambit",
+      "heap",
+      "oom"
+    ],
+    "imports": [],
+    "code": ";; Force a full garbage collection using Gambit's ##gc primitive.\n;; Useful between memory-intensive sections to prevent heap from\n;; growing unboundedly when processing large datasets.\n\n;; Basic usage:\n(##gc)\n\n;; Pattern: Insert between heavy processing sections\n(def (process-large-dataset)\n  ;; Section 1: fetch and process data\n  (let ((data1 (fetch-large-data-1)))\n    (process data1)\n    (store-results data1))\n\n  ;; Force GC to reclaim temporary data from section 1\n  ;; before starting section 2\n  (##gc)\n\n  ;; Section 2: fetch more data\n  (let ((data2 (fetch-large-data-2)))\n    (process data2)\n    (store-results data2))\n\n  (##gc))\n\n;; Real-world example: AWS report data collection\n;; Without ##gc, parsed JSON from API responses accumulates\n;; until Gambit decides to collect, which may be too late\n;; on memory-constrained systems.\n;;\n;; (displayln \"  Fetching snapshots...\")\n;; (fetch-snapshots)\n;; (##gc)  ;; reclaim parsed API responses\n;; (displayln \"  Analyzing rightsizing...\")\n;; (analyze-rightsizing)  ;; another memory-heavy operation\n;; (##gc)\n",
+    "notes": "##gc is a Gambit primitive (double-hash prefix). It triggers a full GC cycle synchronously. Returns void. Safe to call at any time. Particularly important in multi-threaded applications where many short-lived objects are created rapidly (e.g., parsing large JSON API responses) and the GC can't keep up with allocation pressure. Also useful in long-running batch programs that process data in phases. Note: calling ##gc too frequently adds overhead; use it between major processing phases, not in tight loops.",
+    "related": [
+      "srfi-19-current-time-shadows-gambit"
+    ]
+  },
+  {
+    "id": "thread-safe-list-accumulation",
+    "title": "Thread-safe list accumulation — avoid O(n²) append anti-pattern",
+    "tags": [
+      "append",
+      "cons",
+      "thread",
+      "parallel",
+      "mutex",
+      "performance",
+      "memory",
+      "accumulate"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When accumulating results from parallel threads, using\n;; (append accumulated new-items) copies the ENTIRE accumulated list\n;; on every call, creating O(n²) memory and time behavior.\n;;\n;; With large result sets across many threads, this wastes gigabytes\n;; of memory on redundant list copies before GC can reclaim them.\n\n;; WRONG — O(n²) memory, copies all-results on every append:\n;; (def result-mx (make-mutex 'result-mx))\n;; (def all-results [])\n;; ;; ... in each thread:\n;; (mutex-lock! result-mx)\n;; (set! all-results (append all-results new-results))  ;; BAD\n;; (mutex-unlock! result-mx)\n;; ;; append copies its FIRST argument, so (append big-list small-list)\n;; ;; copies big-list entirely. This grows quadratically.\n\n;; CORRECT — O(n) total, only copies the small new-results list:\n(def result-mx (make-mutex 'result-mx))\n(def all-results [])\n;; ... in each thread:\n(mutex-lock! result-mx)\n(set! all-results (append new-results all-results))  ;; GOOD\n(mutex-unlock! result-mx)\n;; append copies its first arg (small new-results) and links to second\n;; arg (large all-results) without copying it. O(k) per call where\n;; k = length of new-results.\n\n;; ALTERNATIVE — cons individual items (best for single results):\n(mutex-lock! result-mx)\n(set! all-results (cons single-result all-results))\n(mutex-unlock! result-mx)\n\n;; NOTE: Both correct approaches prepend, so results are in reverse\n;; order. Use (reverse all-results) at the end if order matters.\n;; But for many use cases (sorting results anyway), order doesn't matter.\n",
+    "notes": "Scheme's append copies all cons cells of every argument except the last. So (append big-list small-list) copies big-list entirely. In a parallel accumulation loop, the accumulated list grows on each iteration, making the copy cost grow linearly and total cost quadratic. Swapping argument order — (append small-list big-list) — means only the small per-thread result is copied, keeping total cost linear. This matters when accumulating thousands of results across many threads: the O(n²) version can waste gigabytes of memory on intermediate copies that become garbage.",
+    "related": [
+      "mutex-unwind-protect"
+    ]
   }
 ]

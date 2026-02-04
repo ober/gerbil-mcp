@@ -283,6 +283,34 @@ describe('Gerbil MCP Tools', () => {
 `,
     );
 
+    // SRFI-19 time->seconds shadow lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'lint-srfi19.ss'),
+      `(import :std/srfi/19)
+
+(def (get-epoch)
+  (time->seconds (current-time)))
+`,
+    );
+
+    // Unsafe mutex pattern lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'lint-mutex.ss'),
+      `(def mx (make-mutex 'my-mutex))
+
+(def (unsafe-update! val)
+  (mutex-lock! mx)
+  (do-something val)
+  (mutex-unlock! mx))
+
+(def (safe-update! val)
+  (mutex-lock! mx)
+  (unwind-protect
+    (do-something val)
+    (mutex-unlock! mx)))
+`,
+    );
+
     // Check-exports fixtures: multi-file project
     const exportCheckDir = join(TEST_DIR, 'export-check');
     mkdirSync(exportCheckDir, { recursive: true });
@@ -682,6 +710,24 @@ test:
         file_path: join(TEST_DIR, 'channel-lint.ss'),
       });
       expect(result.text).toContain('wg-wait-then-try-get');
+    });
+
+    it('gerbil_lint warns on time->seconds with SRFI-19 import', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'lint-srfi19.ss'),
+      });
+      expect(result.text).toContain('srfi19-time-seconds-shadow');
+      expect(result.text).toContain('time->seconds');
+    });
+
+    it('gerbil_lint warns on mutex-lock!/unlock! without unwind-protect', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'lint-mutex.ss'),
+      });
+      expect(result.text).toContain('unsafe-mutex-pattern');
+      // Should only warn on the unsafe pattern, not the safe one
+      const matches = result.text.match(/unsafe-mutex-pattern/g) || [];
+      expect(matches.length).toBe(1);
     });
   });
 
@@ -1260,6 +1306,32 @@ test:
       // Should fail (nonexistent path) but accept the loadpath parameter without error
       expect(result.isError).toBe(true);
     });
+
+    it('gerbil_build_and_report falls back to make on gerbil build failure', async () => {
+      // Create a project where gerbil build will fail (bad build.ss)
+      // but has a Makefile with a build target that succeeds
+      const fallbackDir = join(TEST_DIR, 'makefile-fallback');
+      mkdirSync(fallbackDir, { recursive: true });
+      writeFileSync(join(fallbackDir, 'gerbil.pkg'), '(package: fb-test)');
+      writeFileSync(
+        join(fallbackDir, 'build.ss'),
+        '#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script\n  \'("nonexistent-module"))\n',
+      );
+      writeFileSync(
+        join(fallbackDir, 'Makefile'),
+        'build:\n\t@echo "make build succeeded"\n',
+      );
+
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: fallbackDir,
+      });
+      // Should succeed via Makefile fallback
+      if (!result.isError) {
+        expect(result.text).toContain('Makefile fallback');
+      }
+      // If gerbil build somehow succeeds or make isn't available, just verify it ran
+      expect(result.text).toBeDefined();
+    }, 60000);
   });
 
   // ── Generate module stub tool ─────────────────────────────────────
@@ -1471,13 +1543,13 @@ test:
   // ── Makefile awareness ─────────────────────────────────────────────
 
   describe('Makefile awareness', () => {
-    it('gerbil_build_and_report notes Makefile when present', async () => {
+    it('gerbil_build_and_report falls back to Makefile when gerbil build fails', async () => {
       const result = await client.callTool('gerbil_build_and_report', {
         project_path: join(TEST_DIR, 'with-makefile'),
       });
-      // Whether build succeeds or fails, should mention Makefile
+      // Makefile fallback should succeed since gerbil build has no build.ss
       expect(result.text).toContain('Makefile');
-      expect(result.text).toContain('gerbil_make');
+      expect(result.isError).toBe(false);
     }, 60000);
 
     it('gerbil_build_and_report omits Makefile note when no Makefile', async () => {

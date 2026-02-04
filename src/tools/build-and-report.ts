@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
@@ -12,7 +13,8 @@ export function registerBuildAndReportTool(server: McpServer): void {
       title: 'Build and Report',
       description:
         'Run `gerbil build` on a project directory and return structured diagnostics. ' +
-        'On success, reports a summary. On failure, parses compiler errors into ' +
+        'On success, reports a summary. On failure, if a Makefile with a build target ' +
+        'is detected, automatically retries with `make`. Parses compiler errors into ' +
         'structured file:line:column diagnostics. ' +
         'Uses the modern `gerbil` CLI (not gxpkg).',
       inputSchema: {
@@ -43,7 +45,10 @@ export function registerBuildAndReportTool(server: McpServer): void {
     },
     async ({ project_path, flags, context_lines, loadpath }) => {
       // Detect Makefile and extract targets
-      const makefileNote = await detectMakefile(project_path);
+      const makefileTargets = await detectMakefileTargets(project_path);
+      const makefileNote = makefileTargets.length > 0
+        ? `Note: This project has a Makefile with targets: ${makefileTargets.join(', ')}. Use gerbil_make to run them.`
+        : null;
 
       const args = ['build', ...(flags ?? [])];
       const loadpathEnv = loadpath ? buildLoadpathEnv(loadpath) : undefined;
@@ -104,7 +109,35 @@ export function registerBuildAndReportTool(server: McpServer): void {
         };
       }
 
-      // Failure path — parse stderr into diagnostics
+      // Failure path — try Makefile fallback before reporting errors
+      const makeTarget = pickMakeBuildTarget(makefileTargets);
+      if (makeTarget) {
+        const makeResult = await runMake(
+          makeTarget === '(default)' ? [] : [makeTarget],
+          project_path,
+          120_000,
+        );
+
+        if (!makeResult.timedOut && makeResult.exitCode === 0) {
+          const output = [makeResult.stdout, makeResult.stderr]
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+
+          const sections: string[] = [
+            'Build succeeded via Makefile fallback (gerbil build failed, make succeeded).',
+          ];
+          if (output) {
+            sections.push('');
+            sections.push(output);
+          }
+          return {
+            content: [{ type: 'text' as const, text: sections.join('\n') }],
+          };
+        }
+      }
+
+      // Both gerbil build and make failed (or no Makefile) — report gerbil build errors
       const combined = [result.stdout, result.stderr]
         .filter(Boolean)
         .join('\n')
@@ -193,17 +226,27 @@ export function registerBuildAndReportTool(server: McpServer): void {
 
 /**
  * Detect a Makefile in the project directory and extract build-related targets.
- * Returns an advisory note string, or null if no Makefile found.
+ * Returns the list of targets, or empty array if no Makefile found.
  */
-async function detectMakefile(projectPath: string): Promise<string | null> {
+async function detectMakefileTargets(projectPath: string): Promise<string[]> {
   try {
     const content = await readFile(join(projectPath, 'Makefile'), 'utf-8');
-    const targets = parseMakeTargets(content);
-    if (targets.length === 0) return null;
-    return `Note: This project has a Makefile with targets: ${targets.join(', ')}. Use gerbil_make to run them.`;
+    return parseMakeTargets(content);
   } catch {
-    return null;
+    return [];
   }
+}
+
+/**
+ * Pick the best make target for a build fallback.
+ * Returns 'build', 'all', '(default)' (for make with no target), or null if no suitable target.
+ */
+function pickMakeBuildTarget(targets: string[]): string | null {
+  if (targets.includes('build')) return 'build';
+  if (targets.includes('all')) return 'all';
+  // If there are any build-related targets, run make with no target (uses default)
+  if (targets.length > 0) return '(default)';
+  return null;
 }
 
 const BUILD_TARGETS = new Set([
@@ -224,4 +267,45 @@ function parseMakeTargets(content: string): string[] {
   // Only return if at least one is a "build-related" target
   const hasBuildTarget = targets.some((t) => BUILD_TARGETS.has(t));
   return hasBuildTarget ? targets : [];
+}
+
+const MAKE_MAX_BUFFER = 1024 * 1024;
+
+function runMake(
+  args: string[],
+  cwd: string,
+  timeout: number,
+): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    execFile(
+      'make',
+      args,
+      { timeout, maxBuffer: MAKE_MAX_BUFFER, cwd },
+      (error, stdout, stderr) => {
+        if (error) {
+          const timedOut = error.killed === true;
+          const code = (error as NodeJS.ErrnoException).code;
+          const exitCode =
+            typeof error.code === 'number'
+              ? error.code
+              : code === 'ENOENT'
+                ? 127
+                : 2;
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode,
+            timedOut,
+          });
+        } else {
+          resolve({
+            stdout: stdout ?? '',
+            stderr: stderr ?? '',
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+      },
+    );
+  });
 }

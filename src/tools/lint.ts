@@ -70,7 +70,8 @@ export function registerLintTool(server: McpServer): void {
         'style warnings (define vs def, missing transparent:), shadowed standard bindings, ' +
         'hash literal symbol key warnings, channel anti-patterns (spinning try-get, ' +
         'wg-wait visibility gaps), pitfall detection (unquote outside quasiquote, ' +
-        'dot in brackets, missing exported definitions), and compilation errors via gxc.',
+        'dot in brackets, missing exported definitions), SRFI-19 time->seconds shadow, ' +
+        'unsafe mutex-lock!/unlock! without unwind-protect, and compilation errors via gxc.',
       inputSchema: {
         file_path: z
           .string()
@@ -105,6 +106,8 @@ export function registerLintTool(server: McpServer): void {
       checkUnquoteOutsideQuasiquote(lines, diagnostics);
       checkDotInBrackets(lines, diagnostics);
       checkMissingExportedDefinitions(analysis, diagnostics);
+      checkSrfi19TimeShadow(content, analysis, diagnostics);
+      checkUnsafeMutexPattern(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -655,6 +658,142 @@ function checkDotInBrackets(
           break; // One warning per line is enough
         }
       }
+    }
+  }
+}
+
+/**
+ * Detect time->seconds usage in files that import :std/srfi/19.
+ * SRFI-19's current-time shadows Gambit's current-time, but time->seconds
+ * remains Gambit's version. Passing an SRFI-19 time object to Gambit's
+ * time->seconds causes a runtime type error. This is invisible at compile
+ * time and can cause cascading deadlocks if inside a mutex-protected section.
+ */
+function checkSrfi19TimeShadow(
+  content: string,
+  analysis: FileAnalysis,
+  diagnostics: LintDiagnostic[],
+): void {
+  // Check if file imports :std/srfi/19
+  const hasSrfi19 = analysis.imports.some((imp) =>
+    imp.raw.includes(':std/srfi/19'),
+  );
+  if (!hasSrfi19) return;
+
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1;
+    const trimmed = line.trimStart();
+
+    // Skip comments and import lines
+    if (trimmed.startsWith(';')) continue;
+    if (trimmed.startsWith('(import ')) continue;
+
+    // Check for time->seconds usage
+    let searchFrom = 0;
+    while (true) {
+      const idx = line.indexOf('time->seconds', searchFrom);
+      if (idx === -1) break;
+
+      // Word boundary check
+      const leftOk = idx === 0 || /[\s([\]{}'`,;]/.test(line[idx - 1]);
+      const rightIdx = idx + 'time->seconds'.length;
+      const rightOk =
+        rightIdx >= line.length || /[\s)[\]{}'`,;]/.test(line[rightIdx]);
+
+      if (leftOk && rightOk) {
+        // Check it's not inside a string or comment
+        const before = line.slice(0, idx);
+        const inComment = before.includes(';');
+        const quoteCount = (before.match(/"/g) || []).length;
+        const inString = quoteCount % 2 !== 0;
+
+        if (!inComment && !inString) {
+          diagnostics.push({
+            line: lineNum,
+            severity: 'warning',
+            code: 'srfi19-time-seconds-shadow',
+            message:
+              'time->seconds with :std/srfi/19 import is likely a bug. ' +
+              "SRFI-19's current-time shadows Gambit's, but time->seconds remains " +
+              "Gambit's version and will fail on SRFI-19 time objects. " +
+              'Use time-second for SRFI-19, or ##current-time for Gambit timing.',
+          });
+        }
+      }
+      searchFrom = idx + 1;
+    }
+  }
+}
+
+/**
+ * Detect mutex-lock!/mutex-unlock! pairs not wrapped in unwind-protect
+ * or dynamic-wind. If an exception occurs between lock and unlock, the
+ * mutex stays permanently locked, causing deadlocks for all subsequent callers.
+ */
+function checkUnsafeMutexPattern(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  const defBoundary = /^\s*\(\s*(def\b|def\*|defmethod|defclass|defstruct)/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    if (!trimmed.includes('mutex-lock!')) continue;
+
+    // Check it's not inside a string or comment
+    const before = trimmed.slice(0, trimmed.indexOf('mutex-lock!'));
+    if (before.includes(';')) continue;
+    const quoteCount = (before.match(/"/g) || []).length;
+    if (quoteCount % 2 !== 0) continue;
+
+    // Scan backward to check if we're inside an unwind-protect or dynamic-wind
+    let protected_ = false;
+    for (let j = i - 1; j >= Math.max(0, i - 30); j--) {
+      const prev = lines[j].trimStart();
+      // Stop at definition boundaries
+      if (defBoundary.test(prev) && j < i) break;
+      if (prev.includes('unwind-protect') || prev.includes('dynamic-wind')) {
+        protected_ = true;
+        break;
+      }
+    }
+
+    if (protected_) continue;
+
+    // Scan forward for a matching mutex-unlock! in the same scope
+    let hasUnlock = false;
+    for (let j = i + 1; j < Math.min(lines.length, i + 30); j++) {
+      if (defBoundary.test(lines[j])) break;
+      if (lines[j].includes('mutex-unlock!')) {
+        hasUnlock = true;
+        break;
+      }
+      // Also check if unwind-protect appears after the lock (wrapping the body)
+      if (lines[j].includes('unwind-protect') || lines[j].includes('dynamic-wind')) {
+        protected_ = true;
+        break;
+      }
+    }
+
+    if (protected_) continue;
+
+    if (hasUnlock) {
+      diagnostics.push({
+        line: lineNum,
+        severity: 'warning',
+        code: 'unsafe-mutex-pattern',
+        message:
+          'mutex-lock!/mutex-unlock! without unwind-protect. ' +
+          'If an exception occurs between lock and unlock, the mutex stays permanently locked. ' +
+          'Wrap the body in (unwind-protect body (mutex-unlock! mx)).',
+      });
     }
   }
 }
