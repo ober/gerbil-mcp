@@ -282,5 +282,99 @@
     "related": [
       "cli-getopt-subcommands"
     ]
+  },
+  {
+    "id": "export-t-does-not-reexport-imports",
+    "title": "(export #t) does NOT re-export imported symbols",
+    "tags": [
+      "export",
+      "import",
+      "re-export",
+      "module",
+      "gotcha",
+      "transitive"
+    ],
+    "imports": [],
+    "code": ";; Module A (a.ss) — imports and re-exports\n(import :some-library/foo)  ;; provides make-foo\n(export #t)\n\n(def (helper x) (make-foo x))  ;; make-foo is usable here\n\n;; Module B (b.ss) — imports Module A\n(import ./a)\n\n;; (make-foo 42)  ;; ERROR: make-foo is NOT available!\n;; (export #t) only exports symbols DEFINED in the module,\n;; not symbols imported from other modules.\n\n;; WORKAROUND 1: Import the library directly in Module B\n(import :some-library/foo)  ;; now make-foo is available\n\n;; WORKAROUND 2: Explicitly re-export in Module A\n;; (export (import: :some-library/foo))  ;; re-exports foo's bindings",
+    "notes": "In Gerbil, (export #t) exports all bindings DEFINED in the current module's scope, but does NOT transitively re-export symbols imported from other modules. If module A imports :lib/foo and uses (export #t), module B importing A will NOT get :lib/foo's symbols. Module B must import :lib/foo directly, or module A must use (export (import: :lib/foo)) for explicit re-export. This is a common source of \"Reference to unbound identifier\" errors when refactoring."
+  },
+  {
+    "id": "cons-pair-in-bracket-list-gotcha",
+    "title": "Dotted pair syntax inside [] is a function call, not a cons pair",
+    "tags": [
+      "cons",
+      "pair",
+      "list",
+      "bracket",
+      "dotted",
+      "gotcha",
+      "alist",
+      "dimensions"
+    ],
+    "imports": [],
+    "code": ";; WRONG: Dotted pair syntax with a variable inside [] list sugar\n;; This is interpreted as calling \"Key\" as a function with value as arg!\n(def key-name \"MyKey\")\n;; [(\"Key\" . key-name)]  ;; ERROR: Bad syntax; invalid match target\n;; Expands to (@list (\"Key\" . key-name)) where (\"Key\" . key-name)\n;; is treated as (%%app \"Key\" . key-name) — a function application.\n\n;; CORRECT: Use (cons ...) to build pairs with variables\n[(cons \"Key\" key-name)]        ;; => ((\"Key\" . \"MyKey\"))\n\n;; Literal dotted pairs (both sides are constants) work inside quote:\n'((\"Key\" . \"literal-value\"))   ;; OK — quoted datum\n\n;; Common use case: building alists for AWS API dimensions\n(def instance-id \"i-abc123\")\n;; Wrong:  dimensions: [(\"InstanceId\" . instance-id)]\n;; Right:  dimensions: [(cons \"InstanceId\" instance-id)]\n\n;; Multiple pairs:\n(def name \"my-func\")\n(def dims [(cons \"FunctionName\" name)\n           (cons \"Resource\" \"my-resource\")])\n;; => ((\"FunctionName\" . \"my-func\") (\"Resource\" . \"my-resource\"))",
+    "notes": "In Gerbil, [x y z] is sugar for (@list x y z). Each element is an expression. The syntax (\"Key\" . var) in expression position is NOT a cons pair — it's a function application where \"Key\" is the operator. This causes \"Bad syntax; invalid match target\" or similar errors. Use (cons \"Key\" var) instead. Literal pairs work fine inside quote: '((\"k\" . \"v\")). This commonly bites when building alists (e.g., AWS API dimension parameters) where keys are string literals but values are variables."
+  },
+  {
+    "id": "gerbil-build-loadpath-for-packages",
+    "title": "gerbil build needs GERBIL_LOADPATH to find installed packages",
+    "tags": [
+      "build",
+      "GERBIL_LOADPATH",
+      "package",
+      "import",
+      "cannot find",
+      "library module",
+      "Makefile"
+    ],
+    "imports": [],
+    "code": ";; If your project imports a third-party package installed via gerbil pkg:\n;; (import :my-library/module)\n;;\n;; Running bare `gerbil build` may fail with:\n;;   Syntax Error: cannot find library module\n;;   form: :my-library/module\n;;\n;; The fix: set GERBIL_LOADPATH to include ~/.gerbil/lib\n;;\n;; Option 1: Shell environment variable\n;; $ GERBIL_LOADPATH=~/.gerbil/lib gerbil build\n;;\n;; Option 2: Makefile (recommended for projects)\n;; ------- Makefile -------\n;; GERBIL_PATH = $(HOME)/.gerbil\n;; export GERBIL_LOADPATH = $(GERBIL_PATH)/lib\n;;\n;; build:\n;; \tgerbil build\n;;\n;; clean:\n;; \tgerbil clean\n;; ------- end -------\n;;\n;; Note: gxi (the REPL) finds packages without GERBIL_LOADPATH,\n;; but the build subprocess spawned by `gerbil build` does not.\n;; This is a common source of confusion when imports work in gxi\n;; but fail during compilation.",
+    "notes": "The gerbil build command spawns a subprocess to compile, and that subprocess does not inherit the default package search paths that gxi uses. You must explicitly set GERBIL_LOADPATH=$HOME/.gerbil/lib (or wherever packages are installed). A Makefile with `export GERBIL_LOADPATH` is the standard pattern. This explains why `gxi -e '(import :pkg/mod)'` works but `gerbil build` fails with \"cannot find library module\"."
+  },
+  {
+    "id": "gerbil-aws-query-vs-json-response-keys",
+    "title": "gerbil-aws Query API vs JSON API response key differences",
+    "tags": [
+      "gerbil-aws",
+      "query",
+      "json",
+      "XML",
+      "symbol",
+      "string",
+      "keys",
+      "AWS",
+      "migration",
+      "CloudWatch",
+      "RDS",
+      "ELBv2"
+    ],
+    "imports": [],
+    "code": ";; gerbil-aws has two API protocols with DIFFERENT response formats:\n;;\n;; 1. Query API (XML): EC2, STS, IAM, CloudWatch, RDS, ELBv2, SNS, SQS, CloudFormation\n;;    - Keys are SYMBOLS: 'Average, 'InstanceId, 'DBInstanceIdentifier\n;;    - Values are STRINGS (from XML text): \"30.5\", \"true\", \"i-abc123\"\n;;    - Lists use {member: [...]} wrapper from XML <member> elements\n;;    - Booleans are strings: \"true\" / \"false\"\n;;\n;; 2. JSON API: Lambda, CloudWatch Logs, DynamoDB, Compute Optimizer, Cost Optimization Hub\n;;    - Keys are STRINGS: \"Average\", \"instanceId\", \"functionName\"\n;;    - Values are TYPED: 30.5 (number), #t (boolean), \"i-abc123\" (string)\n;;    - Lists are plain lists (JSON arrays)\n;;    - Booleans are #t / #f\n;;\n;; When migrating from AWS CLI (JSON output) to native Query API:\n;;   (hget resp \"Datapoints\")          ;; CLI: string key, list value\n;;   ;; becomes:\n;;   ;; get-metric-statistics returns the list directly (no wrapper key)\n;;\n;;   (hget dp \"Average\")               ;; CLI: string key, number value\n;;   ;; becomes:\n;;   (safe-number (hash-ref dp 'Average #f) 0)  ;; Query: symbol key, STRING value\n;;\n;; When migrating from AWS CLI to native JSON API:\n;;   (hget resp \"Functions\")           ;; CLI: string key, list value\n;;   ;; stays the same — JSON API matches CLI output format\n;;\n;; IMPORTANT: Query API numeric values MUST be converted with string->number\n;; or a safe-number wrapper. They come back as strings like \"30.5\" not 30.5.",
+    "notes": "This is the most common source of bugs when migrating from AWS CLI calls to native gerbil-aws. Query API services return symbol keys and string values from XML parsing, while JSON API services return string keys and typed values (matching CLI output). Always use hash-ref with symbol keys ('Key) for Query API responses, and convert numeric strings with string->number or a safe wrapper.",
+    "related": [
+      "http-post-form-encoded",
+      "parse-xml-to-sxml"
+    ]
+  },
+  {
+    "id": "extract-member-list-xml-normalization",
+    "title": "Normalize XML member-list structures from gerbil-aws Query API",
+    "tags": [
+      "gerbil-aws",
+      "XML",
+      "member",
+      "list",
+      "normalize",
+      "query",
+      "API",
+      "dimensions",
+      "CloudWatch"
+    ],
+    "imports": [],
+    "code": ";; AWS Query API XML uses <member> elements for lists:\n;;   <Dimensions>\n;;     <member><Name>InstanceId</Name><Value>i-abc</Value></member>\n;;     <member><Name>ImageId</Name><Value>ami-xyz</Value></member>\n;;   </Dimensions>\n;;\n;; After sxml->hash parsing, this becomes different structures depending\n;; on the number of <member> elements:\n;;\n;;   Single member:  {member: {Name: \"InstanceId\", Value: \"i-abc\"}}\n;;   Multiple:       {member: [{Name: \"InstanceId\", ...}, {Name: \"ImageId\", ...}]}\n;;   Empty:          #f or missing key\n;;\n;; Use this helper to normalize to a plain list in all cases:\n\n(def (extract-member-list raw)\n  \"Normalize XML member-list to a plain list.\n   Handles: #f -> [], list -> list, {member: list} -> list,\n            {member: hash} -> [hash], string -> [string]\"\n  (cond\n    ((not raw) [])\n    ((list? raw) raw)\n    ((hash-table? raw)\n     (let ((m (hash-get raw 'member)))\n       (cond\n         ((list? m) m)\n         ((not m) [])\n         (else [m]))))          ;; single member: wrap in list\n    (else [])))\n\n;; Example: extracting CloudWatch dimensions from list-metrics response\n;; (def metric (car (list-metrics cw metric-name: \"CPUUtilization\" ...)))\n;; (def dims-raw (hash-ref metric 'Dimensions #f))\n;; (def dims (extract-member-list dims-raw))\n;; ;; dims is now always a list of hashes with 'Name and 'Value keys\n;; (def dims-alist\n;;   (map (lambda (d) (cons (hash-ref d 'Name \"\") (hash-ref d 'Value \"\")))\n;;        dims))",
+    "notes": "The gerbil-aws Query API functions like cw-action/items extract the outer member list, but inner nested member-list structures (e.g., Dimensions within a Metric) remain in raw XML-parsed form. This helper normalizes the three possible shapes (single hash, list of hashes, or #f) into a consistent list. Essential when processing CloudWatch list-metrics dimensions, IAM policy documents, or any Query API response with nested lists.",
+    "related": [
+      "gerbil-aws-query-vs-json-response-keys"
+    ]
   }
 ]
