@@ -1124,5 +1124,27 @@
       "srfi-19-current-time-shadows-gambit",
       "date-time-formatting-srfi-19"
     ]
+  },
+  {
+    "id": "gambit-path-builtins",
+    "title": "Gambit path manipulation builtins (path-directory, path-normalize, path-strip-directory, path-extension)",
+    "tags": [
+      "path",
+      "directory",
+      "normalize",
+      "gambit",
+      "builtin",
+      "file",
+      "basename",
+      "dirname",
+      "extension"
+    ],
+    "imports": [],
+    "code": ";; Gambit provides path manipulation primitives — NO import needed.\n;; These are available in any Gerbil module automatically.\n\n;; path-directory — like dirname, returns directory portion with trailing /\n(path-directory \"/home/user/project/src/main.ss\")\n;; => \"/home/user/project/src/\"\n\n(path-directory \"src/main.ss\")\n;; => \"src/\"\n\n(path-directory \"main.ss\")\n;; => \"\"\n\n;; path-strip-directory — like basename, returns filename only\n(path-strip-directory \"/home/user/project/src/main.ss\")\n;; => \"main.ss\"\n\n;; path-strip-extension — remove file extension\n(path-strip-extension \"main.ss\")\n;; => \"main\"\n\n(path-strip-extension \"/path/to/module.ss\")\n;; => \"/path/to/module\"\n\n;; path-extension — get file extension (includes dot)\n(path-extension \"main.ss\")\n;; => \".ss\"\n\n;; path-normalize — resolve to absolute path, canonicalize . and ..\n(path-normalize \"src/../lib/module.ss\")\n;; => \"/home/user/project/lib/module.ss\"  (resolves relative to cwd)\n\n;; path-normalize with origin-directory (2nd arg)\n(path-normalize \"../other/file.ss\" \"/home/user/project/src/\")\n;; => \"/home/user/project/other/file.ss\"\n\n;; COMMON PATTERN: compute relative path between two files\n;; (useful for generating relative import paths in LSP/tooling)\n(def (compute-relative-path from-file to-file)\n  (let* ((from-dir (path-directory (path-normalize from-file)))\n         (to-norm (path-normalize to-file))\n         (to-no-ext (path-strip-extension to-norm)))\n    ;; Build relative path from from-dir to to-no-ext\n    ;; (simplified — real implementation needs directory traversal)\n    (string-append \"./\" (path-strip-directory to-no-ext))))",
+    "notes": "These are Gambit primitives (##path-directory etc.) exposed as safe wrappers. No import is needed — they're always available. Key gotcha: path-directory returns trailing slash (e.g., \"src/\" not \"src\"). path-normalize resolves against cwd by default; pass a second argument to resolve against a different origin directory. These are NOT from :std/misc/path — that module provides different utilities like path-default-extension and path-force-extension.",
+    "related": [
+      "read-file-to-string",
+      "read-file-lines"
+    ]
   }
 ]
