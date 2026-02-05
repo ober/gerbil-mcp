@@ -8,7 +8,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### Before Writing Code
 
-- **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names.
+- **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
 - **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
 - **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax. Combines stdout/stderr for complete error output.
@@ -42,10 +42,10 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### For Building and Testing
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
-- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Use `loadpath` to set `GERBIL_LOADPATH` for projects with external dependencies.
+- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Auto-detects external dependencies from `gerbil.pkg` `depend:` entries and sets `GERBIL_LOADPATH` automatically. Use `loadpath` to override.
 - **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
-- **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages.
+- **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages. Automatically defaults to `$HOME` as working directory when in a project directory (with `gerbil.pkg`) to prevent destructive operations on local package context.
 - **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
 - **`gerbil_stale_static`**: Compare compiled artifacts in global `$GERBIL_PATH/lib/static/` vs project-local `.gerbil/lib/static/` to detect stale global copies that could shadow the current build. Common cause of segfaults and `#!unbound` errors in compiled executables.
 
