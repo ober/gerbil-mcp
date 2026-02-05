@@ -60,6 +60,9 @@ import { registerSuggestFeatureTool } from './tools/suggest-feature.js';
 import { registerListFeaturesTool } from './tools/list-features.js';
 import { registerDemangleTool } from './tools/demangle.js';
 import { registerStaleStaticTool } from './tools/stale-static.js';
+import { registerBalancedReplaceTool } from './tools/balanced-replace.js';
+import { registerWrapFormTool } from './tools/wrap-form.js';
+import { registerSpliceFormTool } from './tools/splice-form.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -122,6 +125,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones.
 - To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers from GDB/core dumps back to readable Gerbil module/function paths.
 - To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files and find stale copies that could shadow the current build.
+- For balance-safe editing: use gerbil_balanced_replace instead of string replace. It validates delimiter balance before and after the edit, rejecting changes that break balance. Dry-run by default.
+- To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form (e.g. when, let, begin) with guaranteed matching parentheses. Auto-detects form boundaries. Dry-run by default.
+- To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children. The inverse of wrap. Dry-run by default.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -188,6 +194,9 @@ registerSuggestFeatureTool(server);
 registerListFeaturesTool(server);
 registerDemangleTool(server);
 registerStaleStaticTool(server);
+registerBalancedReplaceTool(server);
+registerWrapFormTool(server);
+registerSpliceFormTool(server);
 
 registerPrompts(server);
 

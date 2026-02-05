@@ -1580,5 +1580,76 @@
     "related": [
       "leveldb-snapshot"
     ]
+  },
+  {
+    "id": "for-destructuring-compile-workaround",
+    "title": "for loop destructuring fails with gxc compiler — use let or with instead",
+    "tags": [
+      "for",
+      "destructuring",
+      "in-hash",
+      "in-indexed",
+      "compile",
+      "gxc",
+      "unbound",
+      "workaround"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": ";; PROBLEM: Destructuring bindings in (for ...) work in the REPL (gxi)\n;; but cause \"Reference to unbound identifier\" errors when compiled with gxc.\n;;\n;; WRONG — works in REPL, fails with gxc:\n;; (for ((k v) (in-hash ht))        ;; v is unbound at compile time\n;;   (displayln k \": \" v))\n;;\n;; (for ((item i) (in-indexed lst))  ;; i is unbound at compile time\n;;   (displayln i \": \" item))        ;; also: in-indexed not exported from :std/iter\n\n;; CORRECT — iterate hash with single binding + let destructure:\n(import :std/iter)\n(def ht (hash (\"name\" \"Alice\") (\"age\" 30)))\n(for (kv (in-hash ht))\n  (let ((k (car kv)) (v (cdr kv)))\n    (displayln k \": \" v)))\n;; name: Alice\n;; age: 30\n\n;; CORRECT — indexed iteration with named let loop:\n(def items '(\"apple\" \"banana\" \"cherry\"))\n(let loop ((rest items) (i 0))\n  (unless (null? rest)\n    (displayln i \": \" (car rest))\n    (loop (cdr rest) (+ i 1))))\n;; 0: apple\n;; 1: banana\n;; 2: cherry\n\n;; CORRECT — use (with ...) for destructuring inside for body:\n(for (kv (in-hash ht))\n  (with ([k . v] kv)\n    (displayln k \" => \" v)))\n;; name => Alice\n;; age => 30",
+    "notes": "This is a critical REPL-vs-compiler divergence. The for macro's destructuring pattern ((k v) (in-hash ...)) expands correctly in gxi (interpreter) but the gxc compiler does not bind the destructured variables, causing \"Reference to unbound identifier\" errors. Similarly, in-indexed is NOT exported from :std/iter (only 33 symbols are exported, in-indexed is not among them) — it only works in the REPL because it resolves dynamically. Always use single-variable for bindings and destructure in the body when writing code that will be compiled. The (with ...) pattern from match is the most concise alternative for destructuring pairs.",
+    "related": [
+      "iterate-hash",
+      "for-collect",
+      "for-fold"
+    ]
+  },
+  {
+    "id": "display-human-readable-hash",
+    "title": "Display hash tables and lists in human-readable YAML-like format",
+    "tags": [
+      "display",
+      "human",
+      "readable",
+      "hash",
+      "nested",
+      "yaml",
+      "cli",
+      "output",
+      "pretty"
+    ],
+    "imports": [
+      ":std/iter",
+      ":std/format",
+      ":std/srfi/13"
+    ],
+    "code": "(import :std/iter :std/format :std/srfi/13)\n\n;; Recursively display hash tables and lists in a human-readable format.\n;; Nested hashes indent, lists of hashes get numbered separators,\n;; flat lists join with commas.\n;; NOTE: Uses compiler-safe for patterns (no destructuring in for bindings).\n\n(def (display-human data (indent 0))\n  (let ((prefix (make-string indent #\\space)))\n    (cond\n     ((hash-table? data)\n      (for (kv (in-hash data))\n        (let ((k (car kv)) (v (cdr kv)))\n          (cond\n           ((or (hash-table? v)\n                (and (list? v) (not (null? v)) (hash-table? (car v))))\n            (displayln prefix k \":\")\n            (display-human v (+ indent 2)))\n           ((list? v)\n            (displayln prefix k \": \"\n                       (string-join (map (lambda (x) (format \"~a\" x)) v) \", \")))\n           (else\n            (displayln prefix k \": \" v))))))\n     ((list? data)\n      (if (and (not (null? data)) (hash-table? (car data)))\n        (let loop ((rest data) (i 1))\n          (unless (null? rest)\n            (when (> i 1) (displayln))\n            (displayln prefix \"--- [\" i \"] ---\")\n            (display-human (car rest) indent)\n            (loop (cdr rest) (+ i 1))))\n        (for (item data)\n          (displayln prefix item))))\n     (else\n      (displayln prefix data)))))\n\n;; Example:\n(display-human\n  (hash (\"key\" \"PROJ-123\")\n        (\"summary\" \"Fix bug\")\n        (\"status\" (hash (\"name\" \"In Progress\")))\n        (\"labels\" '(\"bug\" \"urgent\"))))\n;; Output:\n;; key: PROJ-123\n;; summary: Fix bug\n;; status:\n;;   name: In Progress\n;; labels: bug, urgent\n\n;; List of objects:\n(display-human\n  (list (hash (\"key\" \"PROJ-1\") (\"summary\" \"First\"))\n        (hash (\"key\" \"PROJ-2\") (\"summary\" \"Second\"))))\n;; Output:\n;; --- [1] ---\n;; key: PROJ-1\n;; summary: First\n;;\n;; --- [2] ---\n;; key: PROJ-2\n;; summary: Second",
+    "notes": "This is a compiler-safe pattern (uses (for (kv (in-hash ...))) with manual car/cdr, not destructuring). Designed for CLI tools that need human-readable default output with a --json flag for machine-readable. Pair with a display-result dispatcher: (def (display-result data) (if (current-json-output) (display-json data) (display-human data))). The indent parameter enables recursive nesting for sub-hashes.",
+    "related": [
+      "for-destructuring-compile-workaround",
+      "iterate-hash",
+      "print-table"
+    ]
+  },
+  {
+    "id": "let-star-nested-hash-invalid-match-target",
+    "title": "let* with deeply nested hash literals causes \"Bad syntax; invalid match target\"",
+    "tags": [
+      "let*",
+      "hash",
+      "bad syntax",
+      "invalid match target",
+      "nested",
+      "destructure",
+      "test"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: In Gerbil, let* supports pattern-matching destructure on\n;; its bindings. When a deeply nested (hash ...) literal appears as\n;; the init-expr of the FIRST binding in let*, the compiler may\n;; misparse it as a destructuring pattern, causing:\n;;   \"Bad syntax; invalid match target\"\n;;\n;; WRONG — let* with deeply nested hash as first binding init-expr:\n;; (let* ((spec (hash (\"components\"\n;;                     (hash (\"schemas\"\n;;                            (hash (\"Container\"\n;;                                   (hash (\"type\" \"object\")\n;;                                         (\"properties\"\n;;                                          (hash (\"items\" (hash (\"type\" \"array\")\n;;                                                               (\"items\" (hash (\"$ref\" \"...\")))))\n;;                                                (\"owner\" (hash (\"$ref\" \"...\"))))))))))))\n;;        (resolved (process spec)))\n;;   (use resolved))\n;; => Syntax Error: Bad syntax; invalid match target\n\n;; FIX 1: Use plain (let ...) for the deeply nested hash binding,\n;; then let* for the rest:\n(let ((spec (hash (\"components\"\n                   (hash (\"schemas\"\n                          (hash (\"Container\"\n                                 (hash (\"type\" \"object\")\n                                       (\"properties\"\n                                        (hash (\"items\" (hash (\"type\" \"array\")\n                                                             (\"items\" (hash (\"$ref\" \"...\")))))\n                                              (\"owner\" (hash (\"type\" \"object\")))))))))))))\n  (let* ((resolved (process spec))\n         (result (transform resolved)))\n    (use result)))\n\n;; FIX 2: Build the hash in a separate def before the let*:\n(def test-spec\n  (hash (\"components\"\n         (hash (\"schemas\"\n                (hash (\"Container\"\n                       (hash (\"type\" \"object\")\n                             (\"properties\"\n                              (hash (\"items\" (hash (\"type\" \"array\"))))))))))))\n(let* ((resolved (process test-spec))\n       (result (transform resolved)))\n  (use result))",
+    "notes": "This commonly bites in test code where you construct complex hash-table fixtures inline. The issue is that Gerbil's let* uses syntax-case matching on binding forms, and deeply nested hash literals with string keys can confuse the pattern matcher. Shallow hashes in let* work fine — it's specifically when there are 3+ levels of nesting that the problem appears. The workaround is to use plain (let ...) for the problematic binding and nest a let* inside for the sequential bindings, or to extract the hash construction into a separate (def ...).",
+    "related": [
+      "hash-table-operations",
+      "dotted-pair-syntax-in-brackets"
+    ]
   }
 ]

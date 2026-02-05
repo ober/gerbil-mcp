@@ -430,6 +430,35 @@ test:
       '(export greet)\n(def (greet name) (string-append "Hi " name))\n',
     );
 
+    // Balanced-replace fixture
+    writeFileSync(
+      join(TEST_DIR, 'balanced-edit.ss'),
+      `(import :std/text/json)
+(def (process x)
+  (+ x 1))
+`,
+    );
+
+    // Wrap-form fixture
+    writeFileSync(
+      join(TEST_DIR, 'wrap-target.ss'),
+      `(import :std/iter)
+(def (process x)
+  (displayln x)
+  (+ x 1))
+`,
+    );
+
+    // Splice-form fixture
+    writeFileSync(
+      join(TEST_DIR, 'splice-target.ss'),
+      `(import :std/iter)
+(when (> x 0)
+  (do-x)
+  (do-y))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -2364,6 +2393,244 @@ test:
       expect(result.text).toContain('mod.scm');
       // .o file should not appear since we filtered to .scm only
       expect(result.text).not.toContain('mod.o');
+    });
+  });
+
+  describe('Balanced replace tool', () => {
+    it('accepts a balance-preserving edit (dry_run)', async () => {
+      const file = join(TEST_DIR, 'balanced-edit.ss');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(+ x 1)',
+        new_string: '(* x 2)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Dry run');
+      expect(result.text).toContain('(* x 2)');
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('rejects an edit that breaks balance', async () => {
+      const file = join(TEST_DIR, 'balanced-edit.ss');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(+ x 1)',
+        new_string: '(+ x 1',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('REJECTED');
+      expect(result.text).toContain('break delimiter balance');
+    });
+
+    it('reports when old_string is not found', async () => {
+      const file = join(TEST_DIR, 'balanced-edit.ss');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: 'nonexistent text',
+        new_string: 'replacement',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+
+    it('applies edit when dry_run is false', async () => {
+      // Create a fresh file for this test
+      const file = join(TEST_DIR, 'balanced-apply.ss');
+      writeFileSync(file, '(def (f x) (+ x 1))\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(+ x 1)',
+        new_string: '(* x 2)',
+        dry_run: false,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Applied change');
+      // Verify file was actually changed
+      const { readFileSync } = require('node:fs');
+      const content = readFileSync(file, 'utf-8');
+      expect(content).toContain('(* x 2)');
+    });
+
+    it('detects when edit fixes balance', async () => {
+      const file = join(TEST_DIR, 'balanced-fix.ss');
+      writeFileSync(file, '(def (f x) (+ x 1)\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(+ x 1)',
+        new_string: '(+ x 1))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('FIXES');
+    });
+
+    it('handles parens inside strings correctly', async () => {
+      const file = join(TEST_DIR, 'balanced-strings.ss');
+      writeFileSync(file, '(def msg "hello (world")\n(def x 1)\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(def x 1)',
+        new_string: '(def x 2)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('rejects ambiguous old_string with multiple matches', async () => {
+      const file = join(TEST_DIR, 'balanced-ambiguous.ss');
+      writeFileSync(file, '(def x 1)\n(def x 1)\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: file,
+        old_string: '(def x 1)',
+        new_string: '(def x 2)',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('multiple times');
+    });
+  });
+
+  describe('Wrap form tool', () => {
+    it('wraps a single line (dry_run)', async () => {
+      const file = join(TEST_DIR, 'wrap-single.ss');
+      writeFileSync(file, '(displayln "hello")\n');
+      const result = await client.callTool('gerbil_wrap_form', {
+        file_path: file,
+        start_line: 1,
+        end_line: 1,
+        wrapper: 'when #t',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Dry run');
+      expect(result.text).toContain('when #t');
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('wraps a multi-line range', async () => {
+      const file = join(TEST_DIR, 'wrap-multi.ss');
+      writeFileSync(file, '(do-x)\n(do-y)\n(do-z)\n');
+      const result = await client.callTool('gerbil_wrap_form', {
+        file_path: file,
+        start_line: 1,
+        end_line: 2,
+        wrapper: 'begin',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('begin');
+      expect(result.text).toContain('do-x');
+      expect(result.text).toContain('do-y');
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('auto-detects form end when end_line is omitted', async () => {
+      const file = join(TEST_DIR, 'wrap-target.ss');
+      const result = await client.callTool('gerbil_wrap_form', {
+        file_path: file,
+        start_line: 2,
+        wrapper: 'when (> x 0)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Dry run');
+      expect(result.text).toContain('when (> x 0)');
+    });
+
+    it('rejects an invalid wrapper', async () => {
+      const file = join(TEST_DIR, 'wrap-single.ss');
+      writeFileSync(file, '(displayln "hello")\n');
+      const result = await client.callTool('gerbil_wrap_form', {
+        file_path: file,
+        start_line: 1,
+        end_line: 1,
+        wrapper: 'when (> x 0',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Invalid wrapper');
+      expect(result.text).toContain('unbalanced');
+    });
+
+    it('applies wrap when dry_run is false', async () => {
+      const file = join(TEST_DIR, 'wrap-apply.ss');
+      writeFileSync(file, '(displayln "hello")\n');
+      const result = await client.callTool('gerbil_wrap_form', {
+        file_path: file,
+        start_line: 1,
+        end_line: 1,
+        wrapper: 'when #t',
+        dry_run: false,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Wrapped lines');
+      const { readFileSync } = require('node:fs');
+      const content = readFileSync(file, 'utf-8');
+      expect(content).toContain('(when #t');
+      expect(content).toContain('displayln');
+    });
+  });
+
+  describe('Splice form tool', () => {
+    it('removes head by default (dry_run)', async () => {
+      const file = join(TEST_DIR, 'splice-default.ss');
+      writeFileSync(file, '(when cond\n  (do-x)\n  (do-y))\n');
+      const result = await client.callTool('gerbil_splice_form', {
+        file_path: file,
+        line: 1,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Dry run');
+      expect(result.text).toContain('do-x');
+      expect(result.text).toContain('do-y');
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('keeps explicit children', async () => {
+      const file = join(TEST_DIR, 'splice-explicit.ss');
+      writeFileSync(file, '(if cond then-branch else-branch)\n');
+      const result = await client.callTool('gerbil_splice_form', {
+        file_path: file,
+        line: 1,
+        keep_children: [3],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('then-branch');
+      expect(result.text).not.toContain('--- result ---\nelse-branch');
+    });
+
+    it('preserves formatting on single child', async () => {
+      const file = join(TEST_DIR, 'splice-single.ss');
+      writeFileSync(file, '(begin\n  (+ 1 2))\n');
+      const result = await client.callTool('gerbil_splice_form', {
+        file_path: file,
+        line: 1,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('(+ 1 2)');
+      expect(result.text).toContain('Balance: OK');
+    });
+
+    it('applies splice when dry_run is false', async () => {
+      const file = join(TEST_DIR, 'splice-apply.ss');
+      writeFileSync(file, '(begin\n  (do-x)\n  (do-y))\n');
+      const result = await client.callTool('gerbil_splice_form', {
+        file_path: file,
+        line: 1,
+        dry_run: false,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Spliced form');
+      const { readFileSync } = require('node:fs');
+      const content = readFileSync(file, 'utf-8');
+      expect(content).toContain('(do-x)');
+      expect(content).toContain('(do-y)');
+      expect(content).not.toContain('(begin');
+    });
+
+    it('reports error when no form found', async () => {
+      const file = join(TEST_DIR, 'splice-empty.ss');
+      writeFileSync(file, '; just a comment\n');
+      const result = await client.callTool('gerbil_splice_form', {
+        file_path: file,
+        line: 1,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('No form found');
     });
   });
 });

@@ -97,5 +97,21 @@
     "use_case": "When implementing C-to-Scheme callbacks (e.g., for comparators, event handlers), diagnose why the callback hangs or crashes instead of guessing through trial and error.",
     "example_scenario": "User implements a LevelDB comparator using c-define callbacks. When LevelDB calls the compare callback, the process hangs. The diagnostic tool would show: 'c-define scm_comparator_compare_cb exists but calling it blocks - Scheme runtime may not be in correct state for callbacks from this C context'.",
     "estimated_token_reduction": "~1000 tokens per callback debugging session. Eliminates trial-and-error approach to diagnosing why callbacks don't work."
+  },
+  {
+    "id": "compile-safe-howto-recipes",
+    "title": "Flag cookbook recipes that use REPL-only patterns",
+    "description": "Several existing cookbook recipes show patterns that work in the REPL (gxi) but fail when compiled with gxc. For example, the 'iterate-hash' recipe shows (for ((k v) (in-hash ht)) ...) and the 'for-collect' recipe shows (for/collect ((x i) (in-indexed ...)) ...) — both use destructuring in for bindings that causes 'Reference to unbound identifier' errors during compilation. The howto_verify tool only checks syntax expansion, not gxc compilation, so these recipes pass verification despite being broken for compiled code. Either: (1) Add a 'compile_check: true' flag to recipes and verify them with gxc instead of just the expander, or (2) Add a 'repl_only: true' metadata field to flag patterns that only work interactively.",
+    "impact": "high",
+    "tags": [
+      "cookbook",
+      "compile",
+      "repl",
+      "gxc",
+      "verification"
+    ],
+    "use_case": "When generating code that will be compiled (e.g., code generators, project scaffolding), cookbook recipes are used as reference patterns. If the recipe uses a REPL-only pattern, the generated code will fail to compile, requiring debugging and workarounds.",
+    "example_scenario": "Code generator emits (for ((k v) (in-hash data)) ...) based on the iterate-hash cookbook recipe. The generated project fails to build with 'unbound identifier: v'. Developer spends 500+ tokens debugging before discovering the REPL-vs-compiler divergence and rewriting with (for (kv (in-hash data)) (let ((k (car kv)) (v (cdr kv))) ...)).",
+    "estimated_token_reduction": "~500-1000 tokens per incident. Prevents debugging sessions caused by copying REPL-only patterns into compiled code."
   }
 ]

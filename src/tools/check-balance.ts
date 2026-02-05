@@ -9,13 +9,13 @@ interface StackEntry {
   context: string;
 }
 
-interface BalanceResult {
+export interface BalanceResult {
   ok: boolean;
   topLevelForms: number;
   errors: BalanceError[];
 }
 
-interface BalanceError {
+export interface BalanceError {
   kind: 'unclosed' | 'unexpected' | 'mismatch';
   line: number;
   col: number;

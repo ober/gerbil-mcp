@@ -80,6 +80,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures.
 - **`gerbil_generate_module`**: Create new modules by applying word-boundary-aware substitutions to a template file. Useful for mechanical variations of an existing module pattern.
 - **`gerbil_scaffold_test`**: Generate a `:std/test` skeleton from a module's exports.
+- **`gerbil_balanced_replace`**: Like Edit/string-replace but validates delimiter balance before and after. Rejects edits that would break balance. Dry-run by default.
+- **`gerbil_wrap_form`**: Wrap lines in a new Scheme form (e.g. `when`, `let`, `begin`) with guaranteed matching parentheses. Auto-detects form boundaries when `end_line` is omitted. Dry-run by default.
+- **`gerbil_splice_form`**: Remove a wrapper form while keeping selected children (inverse of wrap). Child indices are 1-based. Default: keep all children except the head. Dry-run by default.
 
 ### For Project Context
 
