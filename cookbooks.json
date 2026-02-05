@@ -1651,5 +1651,24 @@
       "hash-table-operations",
       "dotted-pair-syntax-in-brackets"
     ]
+  },
+  {
+    "id": "resolve-all-refs-preserve-ref-name",
+    "title": "Preserve $ref names after JSON $ref resolution",
+    "tags": [
+      "json",
+      "ref",
+      "resolve",
+      "openapi",
+      "swagger",
+      "schema",
+      "reference"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When resolving JSON $ref pointers (e.g. for OpenAPI specs),\n;; you replace {\"$ref\": \"#/components/schemas/Pet\"} with the actual Pet\n;; schema object. But downstream code needs the original ref name to know\n;; WHICH schema was referenced (e.g. for display formatters, type dispatch).\n;;\n;; After resolution, the $ref string is gone — replaced by the target hash.\n;;\n;; SOLUTION: Store the original $ref path as \"$resolved-ref\" on the resolved hash.\n\n(def (resolve-all-refs node root (seen '()))\n  (cond\n   ((hash-table? node)\n    (let ((ref (hash-get node \"$ref\")))\n      (if (and ref (string? ref))\n        ;; $ref node — resolve it\n        (if (member ref seen)\n          (hash (\"$circular-ref\" ref))  ;; cycle detection\n          (let* ((resolved (resolve-json-pointer root ref))\n                 (result (resolve-all-refs resolved root (cons ref seen))))\n            ;; KEY: preserve original $ref path on the resolved hash\n            (when (hash-table? result)\n              (hash-put! result \"$resolved-ref\" ref))\n            result))\n        ;; Regular object — resolve all values recursively\n        (let ((result (make-hash-table)))\n          (hash-for-each\n           (lambda (k v)\n             (hash-put! result k (resolve-all-refs v root seen)))\n           node)\n          result))))\n   ((list? node)\n    (map (lambda (item) (resolve-all-refs item root seen)) node))\n   (else node)))\n\n;; Then downstream code checks both:\n(def (get-schema-ref schema)\n  (or (hash-get schema \"$ref\")           ;; unresolved\n      (hash-get schema \"$resolved-ref\"))) ;; resolved — still has the name",
+    "notes": "After resolve-all-refs runs, (hash-get resolved-schema \"$resolved-ref\") returns e.g. \"#/components/schemas/Pet\". You can extract the name with (extract-ref-name ref) which takes the last path segment. This is critical for code generators that need to know schema names for type dispatch, formatter selection, or struct name generation.",
+    "related": [
+      "hash-table-operations"
+    ]
   }
 ]
