@@ -959,5 +959,170 @@
       "error-message-returns-false",
       "error-handling"
     ]
+  },
+  {
+    "id": "hash-list-to-json-consumer-gotcha",
+    "title": "After converting alist pairs to hashes for JSON, consumers must use hget not car/cdr",
+    "tags": [
+      "hash",
+      "json",
+      "car",
+      "cdr",
+      "hget",
+      "alist",
+      "pair",
+      "write-json",
+      "read-json",
+      "consume",
+      "iterate"
+    ],
+    "imports": [
+      ":std/text/json",
+      ":std/sort"
+    ],
+    "code": ";; SCENARIO: You have hash->list pairs that you convert to hashes for JSON\n;; serialization (as required by write-json), but the code that reads\n;; them back still uses car/cdr — causing \"PAIR expected\" errors.\n\n;; === DATA PRODUCTION (correct) ===\n;; Convert alist pairs to hashes for write-json compatibility:\n(def service-totals (hash (\"EC2\" 5000) (\"S3\" 2000) (\"RDS\" 1500)))\n(def sorted (sort (hash->list service-totals)\n                  (lambda (a b) (> (cdr a) (cdr b)))))\n;; sorted = ((\"EC2\" . 5000) (\"S3\" . 2000) (\"RDS\" . 1500))\n\n;; Convert for JSON:\n(def top-services\n  (map (lambda (p) (hash (\"service\" (car p)) (\"cost\" (cdr p))))\n       sorted))\n;; top-services = list of hash tables\n\n;; === DATA CONSUMPTION (the gotcha) ===\n\n;; WRONG — crashes with \"PAIR expected\" because items are hash tables:\n;; (for (item top-services)\n;;   (let ((svc (car item)) (cost (cdr item)))  ;; ERROR!\n;;     (displayln svc \": \" cost)))\n\n;; CORRECT — use hget to access hash table fields:\n(for (item top-services)\n  (let ((svc (hash-ref item \"service\" \"Unknown\"))\n        (cost (hash-ref item \"cost\" 0)))\n    (displayln svc \": \" cost)))\n;; EC2: 5000\n;; S3: 2000\n;; RDS: 1500",
+    "notes": "This is the follow-on bug from the \"write-json cannot serialize cons pairs\" recipe. After you fix JSON serialization by converting (hash->list) pairs to hash tables, ALL consumer code must be updated from car/cdr to hget/hash-ref. The error message is: \"PAIR expected (car '#&lt;HashTable #N&gt;)\". The backtrace will show car being called on a hash table. Common in report/display code that was written when data was still alist pairs.",
+    "related": [
+      "write-json-cons-pair-error",
+      "gerbil-json-arrays-are-lists-not-vectors",
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "debounce-thread-pattern",
+    "title": "Debounce pattern with thread-sleep! and thread-terminate!",
+    "tags": [
+      "debounce",
+      "thread",
+      "timer",
+      "cancel",
+      "sleep",
+      "spawn"
+    ],
+    "imports": [],
+    "code": ";; Debounce pattern: cancel previous timer, start new one.\n;; Useful for running expensive operations after a quiet period.\n\n(def *debounce-thread* #f)\n(def *debounce-mutex* (make-mutex 'debounce))\n\n(def (schedule-debounced! delay-ms action)\n  (mutex-lock! *debounce-mutex*)\n  ;; Cancel previous debounce thread if running\n  (let ((prev *debounce-thread*))\n    (when prev\n      (with-catch (lambda (e) (void))\n        (lambda () (thread-terminate! prev)))))\n  ;; Spawn new timer thread\n  (let ((t (spawn\n              (lambda ()\n                (with-catch\n                  (lambda (e) (void))  ;; silently handle termination\n                  (lambda ()\n                    (thread-sleep! (/ delay-ms 1000.0))\n                    (action)))))))\n    (set! *debounce-thread* t))\n  (mutex-unlock! *debounce-mutex*))\n\n(def (cancel-debounce!)\n  (mutex-lock! *debounce-mutex*)\n  (let ((prev *debounce-thread*))\n    (when prev\n      (with-catch (lambda (e) (void))\n        (lambda () (thread-terminate! prev)))\n      (set! *debounce-thread* #f)))\n  (mutex-unlock! *debounce-mutex*))\n\n;; Usage:\n;; (schedule-debounced! 1500 (lambda () (run-expensive-task)))\n;; (cancel-debounce!)  ;; cancels if still pending",
+    "notes": "thread-terminate! on a thread that already exited throws an exception, so always wrap in with-catch. The debounce thread gets terminated when a new event arrives before the delay expires. thread-sleep! accepts seconds as a real number, so divide milliseconds by 1000.0.",
+    "related": [
+      "mutex-unwind-protect"
+    ]
+  },
+  {
+    "id": "open-process-capture-output",
+    "title": "Run external process and capture stdout+stderr with exit status",
+    "tags": [
+      "process",
+      "open-process",
+      "spawn",
+      "capture",
+      "stdout",
+      "stderr",
+      "exit-status"
+    ],
+    "imports": [
+      ":std/misc/ports"
+    ],
+    "code": "(import :std/misc/ports)\n\n;; Use open-process (not run-process) when you need to read output\n;; from a command that may exit non-zero. run-process throws on\n;; non-zero exit, but open-process lets you read output first.\n\n(let* ((proc (open-process\n               (list path: \"gerbil\"\n                     arguments: (list \"test\" \"myfile.ss\")\n                     stderr-redirection: #t    ;; merge stderr into stdout\n                     stdout-redirection: #t)))\n       (output (read-all-as-string proc))\n       (status (process-status proc)))\n  ;; status is raw waitpid value: 0 = success, non-zero = failure\n  (if (= status 0)\n    (displayln \"Success: \" output)\n    (displayln \"Failed with status \" status \": \" output)))",
+    "notes": "process-status returns the raw waitpid status. Normal exit code N gives N*256 for Gambit's open-process, but in practice checking (= status 0) vs non-zero works. stderr-redirection: #t merges stderr into stdout so read-all-as-string captures both. Use run-process from :std/misc/process when you want automatic exception on failure.",
+    "related": [
+      "spawn-threads"
+    ]
+  },
+  {
+    "id": "u8vector-character-classifier",
+    "title": "Classify string characters into categories using u8vector",
+    "tags": [
+      "u8vector",
+      "classify",
+      "string",
+      "character",
+      "scanner",
+      "lexer",
+      "parser"
+    ],
+    "imports": [],
+    "code": ";; Pattern: Use a u8vector parallel to a string to classify each\n;; character position (e.g., code=0, string=1, comment=2).\n;; Much faster than re-scanning for each query.\n\n(def (classify-chars text)\n  (let* ((len (string-length text))\n         (regions (make-u8vector len 0)))  ;; default: 0 = code\n    ;; Walk through text, setting classification\n    (let loop ((i 0))\n      (when (< i len)\n        (let ((c (string-ref text i)))\n          (cond\n            ;; String literal: mark all chars as 1\n            ((char=? c #\\\")\n             (u8vector-set! regions i 1)\n             (let str-loop ((j (+ i 1)))\n               (if (>= j len) (loop j)\n                 (let ((sc (string-ref text j)))\n                   (u8vector-set! regions j 1)\n                   (cond\n                     ((char=? sc #\\\\)  ;; skip escape\n                      (when (< (+ j 1) len)\n                        (u8vector-set! regions (+ j 1) 1))\n                      (str-loop (+ j 2)))\n                     ((char=? sc #\\\") (loop (+ j 1)))\n                     (else (str-loop (+ j 1))))))))\n            ;; Line comment: mark rest of line as 2\n            ((char=? c #\\;)\n             (let cmt-loop ((j i))\n               (if (or (>= j len)\n                       (char=? (string-ref text j) #\\newline))\n                 (loop j)\n                 (begin (u8vector-set! regions j 2)\n                        (cmt-loop (+ j 1))))))\n            (else (loop (+ i 1)))))))\n    regions))\n\n;; Query: check if offset is in a non-code region\n(def (in-non-code? regions offset)\n  (and (< offset (u8vector-length regions))\n       (> (u8vector-ref regions offset) 0)))\n\n;; Example:\n;; (def r (classify-chars \"(def x \\\"hi\\\") ; comment\"))\n;; (in-non-code? r 7)  ;; #t — inside string\n;; (in-non-code? r 13) ;; #t — inside comment\n;; (in-non-code? r 0)  ;; #f — code",
+    "notes": "u8vector is ideal for per-character classification because it uses 1 byte per position (vs 8 bytes for a vector of fixnums). make-u8vector accepts an initial fill value. This scan-once-query-many pattern avoids O(n*m) cost when checking multiple positions against string/comment boundaries. Extend the cond for block comments (#| ... |#) with a depth counter for nesting."
+  },
+  {
+    "id": "defstruct-positional-constructor",
+    "title": "Defstruct constructors use positional args, not keywords",
+    "tags": [
+      "defstruct",
+      "make-struct",
+      "constructor",
+      "positional",
+      "arity",
+      "keyword"
+    ],
+    "imports": [],
+    "code": ";; WRONG: defstruct constructor does NOT accept keyword arguments\n(defstruct point (x y z) transparent: #t)\n;; (make-point x: 1 y: 2 z: 3)  ;; ERROR: arguments don't match object size\n\n;; CORRECT: use positional arguments in field order\n(make-point 1 2 3)  ;; => #<point x: 1 y: 2 z: 3>\n\n;; For structs with many fields, document the order:\n(defstruct config (host port timeout ssl debug) transparent: #t)\n;; Constructor: (make-config host port timeout ssl debug)\n(make-config \"localhost\" 8080 30 #f #t)\n\n;; If you need keyword args, use a wrapper:\n(def (make-config* host: (host \"localhost\")\n                   port: (port 80)\n                   timeout: (timeout 30)\n                   ssl: (ssl #f)\n                   debug: (debug #f))\n  (make-config host port timeout ssl debug))",
+    "notes": "Gerbil's defstruct generates a make-NAME constructor that takes positional arguments in the same order as the field declaration. Keyword arguments are NOT supported. This often causes \"arguments don't match object size\" errors when trying to use keyword syntax. The wrapper pattern using def with keyword args provides a convenient alternative when needed.",
+    "related": [
+      "define-structs",
+      "typed-struct-field-access"
+    ]
+  },
+  {
+    "id": "open-process-environment",
+    "title": "Run subprocess with custom environment variables",
+    "tags": [
+      "open-process",
+      "environment",
+      "subprocess",
+      "gxc",
+      "GERBIL_LOADPATH",
+      "spawn"
+    ],
+    "imports": [
+      ":std/misc/ports"
+    ],
+    "code": ";; open-process with custom environment variables for subprocess\n(let* ((proc (open-process\n               (list path: \"gxc\"\n                     arguments: (list \"-S\" \"myfile.ss\")\n                     ;; Set environment for the subprocess\n                     environment: (list \"GERBIL_LOADPATH=/path/to/libs\"\n                                        \"HOME=/home/user\")\n                     stderr-redirection: #t\n                     stdout-redirection: #t)))\n       (output (read-all-as-string proc))\n       (status (process-status proc)))\n  (if (= status 0)\n    output\n    (error \"gxc failed\" output)))\n\n;; Common use: pass GERBIL_LOADPATH to gxc for project-local modules\n(def (run-gxc-with-loadpath file-path loadpaths)\n  (let* ((env (if (pair? loadpaths)\n                (list (string-append \"GERBIL_LOADPATH=\"\n                        (string-join loadpaths \":\")))\n                #f))\n         (proc (open-process\n                 (list path: \"gxc\"\n                       arguments: (list \"-S\" file-path)\n                       environment: env\n                       stderr-redirection: #t\n                       stdout-redirection: #t)))\n         (output (read-all-as-string proc))\n         (status (process-status proc)))\n    (values status output)))",
+    "notes": "The environment: parameter takes a list of \"KEY=VALUE\" strings. If #f (default), the subprocess inherits the parent's environment. This is essential for running gxc with custom GERBIL_LOADPATH for project-local module resolution. Note: :std/misc/ports is needed for read-all-as-string.",
+    "related": [
+      "run-external-process",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "atomic-json-file-cache",
+    "title": "Atomic JSON file writes for caching",
+    "tags": [
+      "json",
+      "cache",
+      "atomic",
+      "write",
+      "persist",
+      "file",
+      "mtime"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": ";; Persist data to JSON file atomically (write to temp, then rename)\n(import :std/text/json)\n\n(def (save-json-atomically! file-path data)\n  (let ((temp-path (string-append file-path \".tmp\")))\n    ;; Write to temporary file\n    (call-with-output-file temp-path\n      (lambda (port)\n        (write-json data port)))\n    ;; Atomic rename\n    (rename-file temp-path file-path)))\n\n;; Load JSON with error handling\n(def (load-json-safely file-path default)\n  (if (file-exists? file-path)\n    (with-catch\n      (lambda (e) default)\n      (lambda ()\n        (call-with-input-file file-path read-json)))\n    default))\n\n;; Example: cache with modification time tracking\n(def (save-cache! cache-path items get-mtime-fn)\n  (let ((cache-data (make-hash-table)))\n    (hash-for-each\n      (lambda (key value)\n        (hash-put! cache-data key\n          (hash (\"mtime\" (get-mtime-fn key))\n                (\"data\" value))))\n      items)\n    (save-json-atomically! cache-path\n      (hash (\"version\" 1)\n            (\"items\" cache-data)))))",
+    "notes": "Atomic writes prevent data corruption if the process crashes mid-write. The pattern is: write to temp file, then rename. rename-file is atomic on POSIX systems. For caches, storing modification timestamps allows detecting stale entries on reload.",
+    "related": [
+      "read-json-file",
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "current-second-time",
+    "title": "Get current time in seconds",
+    "tags": [
+      "time",
+      "seconds",
+      "current-second",
+      "current-time",
+      "timestamp",
+      "elapsed",
+      "mtime"
+    ],
+    "imports": [],
+    "code": ";; Get current time in seconds (floating point)\n\n;; Method 1: Gambit's current-second (simplest)\n(current-second)  ;; => 1738713852.1234567\n\n;; Method 2: Via time->seconds (more explicit)\n(time->seconds (current-time))  ;; => 1738713852.1234567\n\n;; Method 3: If SRFI-19 is imported, use ##current-time to get Gambit's version\n(import :std/srfi/19)\n(time->seconds (##current-time))  ;; => works (bypasses SRFI-19 shadow)\n\n;; WRONG: Without ##, SRFI-19 shadows current-time with incompatible type\n;; (time->seconds (current-time))  ;; ERROR after importing :std/srfi/19\n\n;; Get file modification time as seconds:\n(def (file-mtime path)\n  (time->seconds\n    (file-info-last-modification-time\n      (file-info path))))\n\n;; Measure elapsed time:\n(let ((start (current-second)))\n  (do-work)\n  (let ((elapsed (- (current-second) start)))\n    (displayln \"Took \" elapsed \" seconds\")))",
+    "notes": "current-second is Gambit's built-in (no import needed). Note: it's current-second (singular), NOT current-seconds. If you import :std/srfi/19, it shadows current-time — use ##current-time to access the Gambit version. For file mtimes, use file-info + file-info-last-modification-time + time->seconds.",
+    "related": [
+      "srfi-19-current-time-shadows-gambit",
+      "date-time-formatting-srfi-19"
+    ]
   }
 ]

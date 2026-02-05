@@ -50,5 +50,53 @@
     "use_case": "When a compiled Gerbil binary crashes with SIGSEGV or #!unbound errors that don't reproduce in the gxi REPL, and gerbil clean + rebuild doesn't fix it, the cause is often stale artifacts in the global $HOME/.gerbil/lib/static/ path shadowing the project-local build. This tool would catch the problem immediately instead of requiring manual investigation of build output paths and file timestamps.",
     "example_scenario": "User rebuilds a project after adding new exports to a module. The project-local .scm grows from 45KB to 53KB, but a stale 45KB copy in $HOME/.gerbil/lib/static/ gets linked into the exe instead. The binary segfaults when calling newly-added functions. Running this tool would immediately flag: 'aws-billing__aws.scm: global copy (45751 bytes, 2025-01-05) shadows project copy (53574 bytes, 2025-01-05) — STALE'.",
     "estimated_token_reduction": "~2000-5000 tokens per debugging session. The root cause investigation in this session took ~50 tool calls and extensive strace/file comparison work that this tool would replace with a single call."
+  },
+  {
+    "id": "test-affected-by-signature-change",
+    "title": "Detect test files affected by function signature changes",
+    "description": "A tool that, given a function name and its module path, finds all test files that directly call that function and reports whether their call sites match the current arity. When a function's parameter list changes (e.g., adding a new required parameter), all test call sites break silently — they compile fine but fail at runtime with \"Wrong number of arguments\". This tool would scan test/*.ss files for calls to the function and compare call-site arity against the module's current exported signature.",
+    "impact": "medium",
+    "tags": [
+      "test",
+      "arity",
+      "signature",
+      "refactor",
+      "breaking-change"
+    ],
+    "use_case": "After modifying a function signature (adding/removing parameters), quickly find which test files need updating before running the full test suite.",
+    "example_scenario": "User adds a 'regions' parameter to find-edits-in-line. The function compiles fine, but test/rename-test.ss calls it with the old 7-arg signature. Running all tests fails at runtime with 'Wrong number of arguments'. This tool would immediately flag: 'test/rename-test.ss:15 calls find-edits-in-line with 7 args, expected 8'.",
+    "estimated_token_reduction": "~300-500 tokens per refactoring. Eliminates the round-trip of running tests, reading error output, finding the test file, reading it, and updating call sites."
+  },
+  {
+    "id": "run-tests-project-path",
+    "title": "gerbil_run_tests should support project_path for automatic loadpath",
+    "description": "When running tests for a project with `gerbil_run_tests` using file_path mode, the tool fails with \"cannot find library module\" for project-local imports (e.g., `:lsp/lsp/analysis/document`). The tool needs to set GERBIL_LOADPATH to include the project's `.gerbil/lib` directory, similar to how `gerbil test` handles this automatically. Adding a `project_path` parameter (like gerbil_eval and gerbil_compile_check already have) would let the tool auto-configure the loadpath from the project's `.gerbil/lib` directory.",
+    "impact": "high",
+    "tags": [
+      "test",
+      "loadpath",
+      "project",
+      "run-tests",
+      "module-resolution"
+    ],
+    "use_case": "Running individual test files for a project where test files import project-local modules via the package prefix (e.g., `:lsp/lsp/state`).",
+    "example_scenario": "User calls gerbil_run_tests with file_path=\"/home/user/project/test/state-test.ss\". The test imports `:lsp/lsp/analysis/document`. The tool fails with \"cannot find library module\" because GERBIL_LOADPATH is not set. The user must fall back to running `gerbil test test/state-test.ss` via Bash instead, losing the structured test result output.",
+    "estimated_token_reduction": "~200-400 tokens per test run. Eliminates the fallback to Bash and manual parsing of test output."
+  },
+  {
+    "id": "lsp-message-validator",
+    "title": "Validate LSP JSON-RPC messages against protocol spec",
+    "description": "A tool that parses LSP JSON-RPC messages and validates them against the Language Server Protocol specification. Would check: required fields present, correct types for each field, valid method names, proper Content-Length framing. Could work on raw message strings or hash tables representing messages. Would report specific violations with the LSP spec reference.",
+    "impact": "medium",
+    "tags": [
+      "lsp",
+      "json-rpc",
+      "validation",
+      "protocol",
+      "debug"
+    ],
+    "use_case": "When implementing or debugging an LSP server, validating that generated responses conform to the protocol spec without needing to test with a real editor client.",
+    "example_scenario": "User implements a new LSP handler and wants to verify the response structure is correct. Currently they must manually compare against the LSP spec or wait for editor errors. This tool would immediately flag: 'textDocument/completion response missing required field: isIncomplete'.",
+    "estimated_token_reduction": "~300-500 tokens per handler implementation. Eliminates back-and-forth with editor clients to debug protocol issues."
   }
 ]
