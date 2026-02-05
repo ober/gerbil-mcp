@@ -16,42 +16,6 @@
     "estimated_token_reduction": "~500-1000 tokens per debugging session. Eliminates multi-step diagnosis: eval call → inspect response → trace through strip-ns → identify namespace issue."
   },
   {
-    "id": "gambit-symbol-demangler",
-    "title": "Decode Gambit-mangled C symbol names back to Gerbil module/function paths",
-    "description": "A tool that takes a Gambit-mangled symbol name from GDB or a core dump (e.g., `___H_aws_2d_billing____cost_2d_explorer`) and decodes it back to the readable Gerbil module path and function name (e.g., `aws-billing/cost-explorer` module init). Gambit's name mangling encodes hyphens as `_2d_`, underscores as `_5f_`, and uses `____` as module path separators. This tool would parse these conventions and present the human-readable form, helping debug crashes and core dumps.",
-    "impact": "medium",
-    "tags": [
-      "gambit",
-      "demangle",
-      "GDB",
-      "debug",
-      "crash",
-      "symbol"
-    ],
-    "use_case": "When debugging a SIGSEGV or crash from GDB/core dump output, the user sees mangled Gambit C symbols and needs to map them back to Gerbil source modules and functions.",
-    "example_scenario": "GDB reports `0x0000555555af01cc in ___H_aws_2d_billing____cost_2d_explorer ()`. User needs to know this is the `aws-billing/cost-explorer` module. Without the tool, they must manually decode `2d` → `-`, `____` → `/`, etc.",
-    "estimated_token_reduction": "~200-400 tokens per debugging session. Eliminates manual decoding and the back-and-forth of explaining the mangling scheme."
-  },
-  {
-    "id": "detect-stale-global-static-files",
-    "title": "Detect stale global static files shadowing project-local builds",
-    "description": "A tool that compares compiled artifacts (.scm, .c, .o) in $HOME/.gerbil/lib/static/ against project-local .gerbil/lib/static/ to detect when a stale global copy would shadow the current project build during exe linking. Reports mismatched timestamps, file sizes, and which copy the linker would pick based on GERBIL_LOADPATH order. Could also detect orphaned global artifacts for packages that are only built locally.",
-    "impact": "high",
-    "tags": [
-      "build",
-      "static",
-      "stale",
-      "global",
-      "shadow",
-      "linker",
-      "segfault",
-      "debug"
-    ],
-    "use_case": "When a compiled Gerbil binary crashes with SIGSEGV or #!unbound errors that don't reproduce in the gxi REPL, and gerbil clean + rebuild doesn't fix it, the cause is often stale artifacts in the global $HOME/.gerbil/lib/static/ path shadowing the project-local build. This tool would catch the problem immediately instead of requiring manual investigation of build output paths and file timestamps.",
-    "example_scenario": "User rebuilds a project after adding new exports to a module. The project-local .scm grows from 45KB to 53KB, but a stale 45KB copy in $HOME/.gerbil/lib/static/ gets linked into the exe instead. The binary segfaults when calling newly-added functions. Running this tool would immediately flag: 'aws-billing__aws.scm: global copy (45751 bytes, 2025-01-05) shadows project copy (53574 bytes, 2025-01-05) — STALE'.",
-    "estimated_token_reduction": "~2000-5000 tokens per debugging session. The root cause investigation in this session took ~50 tool calls and extensive strace/file comparison work that this tool would replace with a single call."
-  },
-  {
     "id": "test-affected-by-signature-change",
     "title": "Detect test files affected by function signature changes",
     "description": "A tool that, given a function name and its module path, finds all test files that directly call that function and reports whether their call sites match the current arity. When a function's parameter list changes (e.g., adding a new required parameter), all test call sites break silently — they compile fine but fail at runtime with \"Wrong number of arguments\". This tool would scan test/*.ss files for calls to the function and compare call-site arity against the module's current exported signature.",
@@ -68,22 +32,6 @@
     "estimated_token_reduction": "~300-500 tokens per refactoring. Eliminates the round-trip of running tests, reading error output, finding the test file, reading it, and updating call sites."
   },
   {
-    "id": "run-tests-project-path",
-    "title": "gerbil_run_tests should support project_path for automatic loadpath",
-    "description": "When running tests for a project with `gerbil_run_tests` using file_path mode, the tool fails with \"cannot find library module\" for project-local imports (e.g., `:lsp/lsp/analysis/document`). The tool needs to set GERBIL_LOADPATH to include the project's `.gerbil/lib` directory, similar to how `gerbil test` handles this automatically. Adding a `project_path` parameter (like gerbil_eval and gerbil_compile_check already have) would let the tool auto-configure the loadpath from the project's `.gerbil/lib` directory.",
-    "impact": "high",
-    "tags": [
-      "test",
-      "loadpath",
-      "project",
-      "run-tests",
-      "module-resolution"
-    ],
-    "use_case": "Running individual test files for a project where test files import project-local modules via the package prefix (e.g., `:lsp/lsp/state`).",
-    "example_scenario": "User calls gerbil_run_tests with file_path=\"/home/user/project/test/state-test.ss\". The test imports `:lsp/lsp/analysis/document`. The tool fails with \"cannot find library module\" because GERBIL_LOADPATH is not set. The user must fall back to running `gerbil test test/state-test.ss` via Bash instead, losing the structured test result output.",
-    "estimated_token_reduction": "~200-400 tokens per test run. Eliminates the fallback to Bash and manual parsing of test output."
-  },
-  {
     "id": "lsp-message-validator",
     "title": "Validate LSP JSON-RPC messages against protocol spec",
     "description": "A tool that parses LSP JSON-RPC messages and validates them against the Language Server Protocol specification. Would check: required fields present, correct types for each field, valid method names, proper Content-Length framing. Could work on raw message strings or hash tables representing messages. Would report specific violations with the LSP spec reference.",
@@ -98,5 +46,39 @@
     "use_case": "When implementing or debugging an LSP server, validating that generated responses conform to the protocol spec without needing to test with a real editor client.",
     "example_scenario": "User implements a new LSP handler and wants to verify the response structure is correct. Currently they must manually compare against the LSP spec or wait for editor errors. This tool would immediately flag: 'textDocument/completion response missing required field: isIncomplete'.",
     "estimated_token_reduction": "~300-500 tokens per handler implementation. Eliminates back-and-forth with editor clients to debug protocol issues."
+  },
+  {
+    "id": "module-exports-declare-workaround",
+    "title": "gerbil_module_exports should handle modules with (declare ...) forms",
+    "description": "gerbil_module_exports fails on modules that use Gambit's (declare (block) (standard-bindings) (extended-bindings) ...) form. The error is a Syntax Error: \"Bad syntax; illegal expression\" during expansion. This affects modules like :ober/oberlib and likely other packages that use Gambit performance declarations. The tool should either handle these declarations gracefully or fall back to scanning the compiled .scm files for exported symbols.",
+    "impact": "medium",
+    "tags": [
+      "module",
+      "exports",
+      "declare",
+      "gambit",
+      "introspection"
+    ],
+    "use_case": "When trying to introspect third-party modules (like oberlib) that use Gambit-specific (declare ...) forms to check what functions they export.",
+    "example_scenario": "User calls gerbil_module_exports with module_path ':ober/oberlib'. The tool fails with: Syntax Error: Bad syntax; illegal expression — (declare (block) (standard-bindings) (extended-bindings) (inlining-limit 200)). The user must fall back to manually grepping compiled .scm files in .gerbil/lib/static/ to find exported symbols, which is tedious and error-prone.",
+    "estimated_token_reduction": "~500-1000 tokens per session where a (declare)-using module needs introspection. Eliminates manual grep + read of compiled artifacts."
+  },
+  {
+    "id": "swagger-to-gerbil-scaffold",
+    "title": "Generate Gerbil REST API client from Swagger/OpenAPI spec",
+    "description": "A tool that reads a Swagger/OpenAPI JSON spec and generates Gerbil Scheme source code for a REST API client. For each endpoint, it would generate a function with the correct path, HTTP method, path parameters, query parameters, and request body structure. This would dramatically accelerate building API clients like gerbil-jira, where the Jira API has 597 endpoints across 97 groups. Currently, each endpoint must be manually translated from the spec to Scheme code, which is tedious and error-prone.",
+    "impact": "high",
+    "tags": [
+      "swagger",
+      "openapi",
+      "api",
+      "client",
+      "scaffold",
+      "generate",
+      "rest"
+    ],
+    "use_case": "When building a Gerbil REST API client for a service that publishes a Swagger/OpenAPI spec (Jira, GitHub, AWS, etc.), generate the boilerplate API functions automatically instead of hand-coding each endpoint.",
+    "example_scenario": "User has a swagger-v3.json with 597 Jira endpoints. They call gerbil_swagger_scaffold with the spec path and output directory. The tool generates Gerbil source files grouped by API tag (issues.ss, projects.ss, etc.) with a function per endpoint, correct parameter names, and proper HTTP method calls. The user then just needs to add formatting/CLI logic on top.",
+    "estimated_token_reduction": "~10000+ tokens per API client project. Eliminates manually reading the spec and translating hundreds of endpoints to Scheme functions."
   }
 ]

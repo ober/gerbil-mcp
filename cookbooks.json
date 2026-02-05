@@ -67,23 +67,23 @@
     "id": "cli-getopt-subcommands",
     "title": "Build CLI with getopt (v0.19+ API)",
     "tags": [
-      "cli",
       "getopt",
+      "CLI",
       "command",
-      "flag",
       "option",
+      "flag",
       "argument",
-      "command-line",
-      "program"
+      "subcommand"
     ],
     "imports": [
       ":std/cli/getopt",
       ":std/sugar"
     ],
-    "code": "(import :std/cli/getopt :std/sugar)\n\n;; Simple CLI with options (no subcommands)\n(def (main . args)\n  (call-with-getopt\n    (lambda (opt)\n      (let-hash opt\n        (when .?verbose (displayln \"verbose mode\"))\n        (displayln \"output: \" (or .?output \"default.txt\"))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    (flag 'verbose \"--verbose\" \"-v\"\n      help: \"Verbose output\")\n    (option 'output \"--output\" \"-o\"\n      help: \"Output file\"\n      value: identity)))\n\n;; CLI with subcommands\n(def list-cmd\n  (command 'list\n    help: \"List items\"\n    (option 'filter \"--filter\" \"-f\" default: #f help: \"Filter\")))\n\n(def create-cmd\n  (command 'create\n    help: \"Create an item\"\n    (argument 'name help: \"Item name\")))\n\n(def (main . args)\n  (call-with-getopt\n    (lambda (opt)\n      (let-hash opt\n        (case .command\n          ((list) (displayln \"listing with filter: \" .?filter))\n          ((create) (displayln \"creating: \" .name)))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    list-cmd create-cmd))",
-    "notes": "IMPORTANT: In Gerbil v0.19+, call-with-getopt signature is: (call-with-getopt handler args program: \"name\" help: \"...\" options...). The handler lambda comes FIRST, args SECOND, then program: keyword. Older examples showing (call-with-getopt \"name\" args handler ...) are WRONG for v0.19+. For exe builds, the main module MUST have (export main). Use identity instead of string->string for option value converters.",
+    "code": "(import :std/cli/getopt :std/sugar)\n\n;; Simple CLI with options (no subcommands) — handler takes ONE arg:\n(def (main . args)\n  (call-with-getopt\n    (lambda (opt)\n      (let-hash opt\n        (when .?verbose (displayln \"verbose mode\"))\n        (displayln \"output: \" (or .?output \"default.txt\"))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    (flag 'verbose \"--verbose\" \"-v\"\n      help: \"Verbose output\")\n    (option 'output \"--output\" \"-o\"\n      help: \"Output file\"\n      default: #f)))\n\n;; CLI with subcommands — handler takes TWO args (cmd opt):\n(def list-cmd\n  (command 'list\n    help: \"List items\"\n    (option 'filter \"--filter\" \"-f\" default: #f help: \"Filter\")))\n\n(def create-cmd\n  (command 'create\n    help: \"Create an item\"\n    (argument 'name help: \"Item name\")))\n\n(def (main . args)\n  (call-with-getopt\n    (lambda (cmd opt)\n      (case cmd\n        ((list)\n         (let-hash opt\n           (displayln \"listing with filter: \" .?filter)))\n        ((create)\n         (let-hash opt\n           (displayln \"creating: \" .name)))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    list-cmd create-cmd))",
+    "notes": "IMPORTANT: In Gerbil v0.19+, call-with-getopt handler signature DIFFERS based on whether subcommands are used. WITHOUT subcommands: handler takes ONE arg (lambda (opt) ...). WITH subcommands (command forms): handler takes TWO args (lambda (cmd opt) ...) where cmd is the command symbol and opt is the options hash. Using (lambda (opt) ...) with subcommands causes \"Wrong number of arguments\" error. For exe builds, the main module MUST have (export main).",
     "related": [
-      "let-hash-destructure"
+      "let-hash-destructure",
+      "getopt-subcommand-handler-two-args"
     ]
   },
   {
@@ -1145,6 +1145,308 @@
     "related": [
       "read-file-to-string",
       "read-file-lines"
+    ]
+  },
+  {
+    "id": "http-multipart-file-upload",
+    "title": "HTTP multipart/form-data file upload",
+    "tags": [
+      "http",
+      "multipart",
+      "upload",
+      "file",
+      "form-data",
+      "post",
+      "binary",
+      "attachment"
+    ],
+    "imports": [
+      ":std/net/request",
+      ":std/misc/ports",
+      ":std/format"
+    ],
+    "code": "(import :std/net/request :std/misc/ports :std/format)\\n\\n;; Gerbil's http-post does NOT have built-in multipart support.\\n;; You must manually construct the multipart/form-data body.\\n\\n(def (http-upload-file url file-path\\n       headers: (extra-headers '())\\n       field-name: (field-name \\\"file\\\"))\\n  (let* ((boundary (format \\\"----GerbilBoundary~a\\\" (random-integer 999999999)))\\n         (filename (path-strip-directory file-path))\\n         (file-bytes (call-with-input-file file-path read-all-as-u8vector))\\n         ;; Build multipart body as string prefix + binary + string suffix\\n         (prefix (string-append\\n                   \\\"--\\\" boundary \\\"\\\\r\\\\n\\\"\\n                   (format \\\"Content-Disposition: form-data; name=\\\\\\\"~a\\\\\\\"; filename=\\\\\\\"~a\\\\\\\"\\\\r\\\\n\\\" field-name filename)\\n                   \\\"Content-Type: application/octet-stream\\\\r\\\\n\\\"\\n                   \\\"\\\\r\\\\n\\\"))\\n         (suffix (string-append \\\"\\\\r\\\\n--\\\" boundary \\\"--\\\\r\\\\n\\\"))\\n         ;; Combine into single u8vector\\n         (prefix-bytes (string->bytes prefix))\\n         (suffix-bytes (string->bytes suffix))\\n         (body (u8vector-append prefix-bytes file-bytes suffix-bytes))\\n         (content-type (format \\\"multipart/form-data; boundary=~a\\\" boundary))\\n         (all-headers (cons (cons \\\"Content-Type\\\" content-type) extra-headers)))\\n    (http-post url data: body headers: all-headers)))\\n\\n;; Example: Upload attachment to Jira\\n;; (def resp (http-upload-file\\n;;   \\\"https://your-jira.atlassian.net/rest/api/3/issue/PROJ-123/attachments\\\"\\n;;   \\\"/path/to/file.pdf\\\"\\n;;   headers: '((\\\"Authorization\\\" . \\\"Basic ...\\\") (\\\"X-Atlassian-Token\\\" . \\\"no-check\\\"))))\\n;; (request-status resp)  ;; => 200",
+    "notes": "Gerbil's :std/net/request does NOT support multipart/form-data natively. You must manually construct the body with boundary delimiters, Content-Disposition headers, and binary content. The data: keyword accepts u8vector for binary data. Use u8vector-append to combine the text prefix, binary file content, and text suffix into a single body. For APIs requiring multipart upload (like Jira attachments), you may also need extra headers like X-Atlassian-Token: no-check. Alternative approach: use open-process to call curl for complex multipart needs.",
+    "related": [
+      "http-get",
+      "http-post-json"
+    ]
+  },
+  {
+    "id": "csv-write-output",
+    "title": "Write CSV output with :std/text/csv",
+    "tags": [
+      "csv",
+      "write",
+      "output",
+      "table",
+      "export",
+      "file",
+      "text"
+    ],
+    "imports": [
+      ":std/text/csv"
+    ],
+    "code": "(import :std/text/csv)\\n\\n;; Write CSV to file\\n(write-csv-file \\\"output.csv\\\"\\n  '((\\\"Name\\\" \\\"Age\\\" \\\"City\\\")\\n    (\\\"Alice\\\" \\\"30\\\" \\\"NYC\\\")\\n    (\\\"Bob\\\" \\\"25\\\" \\\"LA\\\")))\\n\\n;; Write CSV to stdout\\n(write-csv-lines\\n  '((\\\"Key\\\" \\\"Summary\\\" \\\"Status\\\")\\n    (\\\"PROJ-1\\\" \\\"Fix bug\\\" \\\"Open\\\")\\n    (\\\"PROJ-2\\\" \\\"Add feature\\\" \\\"Done\\\"))\\n  (current-output-port))\\n\\n;; Write single line\\n(write-csv-line '(\\\"field1\\\" \\\"field2\\\" \\\"field3\\\") (current-output-port))\\n\\n;; All values must be strings, numbers, symbols, or #f (empty).\\n;; Fields with commas or quotes are automatically escaped.",
+    "notes": "write-csv-file takes a path (or path+settings) and a list of rows. write-csv-lines and write-csv-line take a port. Default format is RFC 4180 (comma-separated, LF line endings). Fields containing commas, quotes, or newlines are automatically quoted and escaped. Non-string values should be converted with format or number->string before passing.",
+    "related": [
+      "read-json-file",
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "plain-text-aligned-table",
+    "title": "Print aligned plain text table to stdout",
+    "tags": [
+      "table",
+      "output",
+      "align",
+      "columns",
+      "format",
+      "display",
+      "print",
+      "cli"
+    ],
+    "imports": [
+      ":std/iter",
+      ":std/format",
+      ":std/srfi/13"
+    ],
+    "code": "(import :std/iter :std/format :std/srfi/13)\\n\\n(def (print-table headers rows)\\n  \\\"Print aligned columns with header separator line.\\\"\\n  (let* ((all-rows (cons headers rows))\\n         ;; Calculate max width for each column\\n         (widths (map (lambda (col-idx)\\n                        (apply max\\n                          (map (lambda (row)\\n                                 (string-length\\n                                   (if (< col-idx (length row))\\n                                     (format \\\"~a\\\" (list-ref row col-idx))\\n                                     \\\"\\\")))\\n                               all-rows)))\\n                      (iota (length headers)))))\\n         ;; Format one row with padding\\n         (fmt-row (lambda (row)\\n                    (string-join\\n                      (map (lambda (val width)\\n                             (string-pad-right (format \\\"~a\\\" val) width))\\n                           row widths)\\n                      \\\"  \\\"))))\\n    ;; Print header\\n    (displayln (fmt-row headers))\\n    ;; Print separator\\n    (displayln (string-join (map (lambda (w) (make-string w #\\\\-)) widths) \\\"  \\\"))\\n    ;; Print rows\\n    (for (row rows)\\n      (displayln (fmt-row row)))))\\n\\n;; Example:\\n;; (print-table\\n;;   [\\\"Key\\\" \\\"Summary\\\" \\\"Status\\\"]\\n;;   [[\\\"PROJ-1\\\" \\\"Fix login bug\\\" \\\"Open\\\"]\\n;;    [\\\"PROJ-2\\\" \\\"Add search\\\" \\\"Done\\\"]])\\n;;\\n;; Output:\\n;; Key     Summary         Status\\n;; ------  --------------  ------\\n;; PROJ-1  Fix login bug   Open\\n;; PROJ-2  Add search      Done",
+    "notes": "Uses string-pad-right from :std/srfi/13 for column alignment. iota from :std/srfi/1 can also be used but (iota n) works with :std/iter's for. All values are coerced to strings via (format \\\"~a\\\" val). For wide tables, consider adding a truncate-string helper: (def (trunc s n) (if (> (string-length s) n) (string-append (substring s 0 (- n 3)) \\\"...\\\") s)).",
+    "related": [
+      "csv-write-output"
+    ]
+  },
+  {
+    "id": "rest-api-client-pattern",
+    "title": "REST API client with JSON, auth, error handling, and pagination",
+    "tags": [
+      "rest",
+      "api",
+      "client",
+      "http",
+      "json",
+      "pagination",
+      "auth",
+      "basic-auth",
+      "request"
+    ],
+    "imports": [
+      ":std/net/request",
+      ":std/net/uri",
+      ":std/text/json",
+      ":std/text/base64",
+      ":std/format"
+    ],
+    "code": "(import :std/net/request :std/net/uri :std/text/json :std/text/base64 :std/format)\\n\\n;; Basic auth header\\n(def (make-basic-auth user password)\\n  (format \\\"Basic ~a\\\" (base64-encode (string->bytes (format \\\"~a:~a\\\" user password)))))\\n\\n;; Core request function - returns parsed JSON body, throws on error\\n(def (api-request method url\\n       auth: (auth #f)\\n       data: (data #f)\\n       headers: (extra-headers '()))\\n  (let* ((hdrs (append\\n                 `((\\\"Accept\\\" . \\\"application/json\\\")\\n                   (\\\"Content-Type\\\" . \\\"application/json\\\"))\\n                 (if auth `((\\\"Authorization\\\" . ,auth)) '())\\n                 extra-headers))\\n         (body (and data (if (string? data) data (json-object->string data))))\\n         (resp (case method\\n                 ((GET)    (http-get url headers: hdrs))\\n                 ((POST)   (http-post url headers: hdrs data: body))\\n                 ((PUT)    (http-put url headers: hdrs data: body))\\n                 ((DELETE) (http-delete url headers: hdrs)))))\\n    (let ((status (request-status resp)))\\n      (if (and (>= status 200) (< status 300))\\n        (if (= status 204) (void) (request-json resp))\\n        (error (format \\\"HTTP ~a: ~a\\\" status (request-text resp)))))))\\n\\n;; Auto-paginated GET - collects all pages into a single list\\n(def (api-get-all url auth\\n       results-key: (results-key 'values)\\n       max-per-page: (max-per-page 100))\\n  (let loop ((offset 0) (acc '()))\\n    (let* ((sep (if (string-contains url \\\"?\\\") \\\"&\\\" \\\"?\\\"))\\n           (page-url (format \\\"~a~astartAt=~a&maxResults=~a\\\" url sep offset max-per-page))\\n           (body (api-request 'GET page-url auth: auth))\\n           (items (if (hash-table? body) (hash-ref body results-key '()) body))\\n           (total (if (hash-table? body) (hash-ref body 'total 0) 0))\\n           (all (append acc (if (list? items) items '()))))\\n      (if (and (hash-table? body) (< (+ offset (length items)) total) (> (length items) 0))\\n        (loop (+ offset (length items)) all)\\n        all))))",
+    "notes": "This pattern provides a complete REST API client foundation for CLI tools. Key details: (1) request-json parses the response body as JSON automatically. (2) HTTP 204 (No Content) returns void since there's no body. (3) The pagination helper handles Jira-style startAt/maxResults but the pattern works for any offset-based API. (4) data: can be a hash table (auto-serialized) or pre-serialized string. (5) Use uri-encode from :std/net/uri for query parameter values.",
+    "related": [
+      "http-get",
+      "http-post-json",
+      "http-multipart-file-upload"
+    ]
+  },
+  {
+    "id": "request-json-symbol-keys",
+    "title": "Force request-json to return symbol keys for let-hash",
+    "tags": [
+      "request-json",
+      "symbol",
+      "keys",
+      "let-hash",
+      "parameterize",
+      "read-json-key-as-symbol"
+    ],
+    "imports": [
+      ":std/net/request",
+      ":std/text/json",
+      ":std/sugar"
+    ],
+    "code": "(import :std/net/request :std/text/json :std/sugar)\n\n;; PROBLEM: request-json returns hash tables with STRING keys by default.\n;; But let-hash (.field, .?field) expects SYMBOL keys.\n;;\n;; WRONG — keys are strings, let-hash accessors silently return #f:\n;; (let ((body (request-json resp)))\n;;   (let-hash body\n;;     .?name))        ;; => #f (looking for symbol 'name, but key is string \"name\")\n\n;; CORRECT — wrap in parameterize to get symbol keys:\n(def (check-response resp)\n  (let ((status (request-status resp)))\n    (if (and (>= status 200) (< status 300))\n      (let ((text (request-text resp)))\n        (if (and text (> (string-length text) 0))\n          (parameterize ((read-json-key-as-symbol? #t))\n            (with-input-from-string text read-json))\n          #t))\n      (error (format \"HTTP ~a: ~a\" status (request-text resp))))))\n\n;; Usage:\n(let* ((resp (http-get \"https://api.example.com/data\"\n               headers: '((\"Accept\" . \"application/json\"))))\n       (body (check-response resp)))\n  (let-hash body\n    (displayln .?name)     ;; works — symbol key\n    (displayln .?status))) ;; works — symbol key\n\n;; WHY: request-json calls read-json internally, which defaults to\n;; string keys. Using request-text + read-json with parameterize\n;; gives you control over the key type. This is essential when using\n;; let-hash to destructure API responses.",
+    "notes": "request-json uses read-json internally which defaults to string keys. The parameterize approach uses request-text first to get the raw string, then parses it with read-json inside a parameterize block that sets read-json-key-as-symbol? to #t. This gives symbol keys that work with let-hash's .field and .?field syntax. Without this, let-hash silently returns #f for all lookups because it looks for symbol keys but finds string keys.",
+    "related": [
+      "http-get",
+      "let-hash-destructure",
+      "rest-api-client-json-auth-pagination"
+    ]
+  },
+  {
+    "id": "getopt-subcommand-handler-two-args",
+    "title": "getopt subcommand handler receives (cmd opt), not (opt) with .command",
+    "tags": [
+      "getopt",
+      "subcommand",
+      "command",
+      "handler",
+      "call-with-getopt",
+      "cli"
+    ],
+    "imports": [
+      ":std/cli/getopt",
+      ":std/sugar"
+    ],
+    "code": "(import :std/cli/getopt :std/sugar)\n\n;; CRITICAL: With subcommands, the handler takes TWO arguments: (cmd opt)\n;; NOT one argument with .command in the hash.\n\n;; Define commands\n(def list-cmd\n  (command 'list\n    help: \"List items\"\n    (option 'filter \"--filter\" \"-f\" default: #f help: \"Filter\")))\n\n(def create-cmd\n  (command 'create\n    help: \"Create an item\"\n    (argument 'name help: \"Item name\")))\n\n;; CORRECT — handler takes (cmd opt):\n(def (main . args)\n  (call-with-getopt\n    (lambda (cmd opt)\n      (case cmd\n        ((list)\n         (let-hash opt\n           (displayln \"listing with filter: \" .?filter)))\n        ((create)\n         (let-hash opt\n           (displayln \"creating: \" .name)))))\n    args\n    program: \"my-tool\"\n    help: \"My CLI tool\"\n    list-cmd create-cmd))\n\n;; WRONG — this crashes with \"Wrong number of arguments\":\n;; (lambda (opt)\n;;   (let-hash opt\n;;     (case .command ...)))  ;; ERROR: handler called with 2 args, not 1",
+    "notes": "This contradicts the existing cookbook recipe which shows (lambda (opt) ... (case .command ...)). In Gerbil v0.19+, when using subcommands (command forms), call-with-getopt calls the handler with TWO arguments: the command symbol and the options hash. Without subcommands (just flags/options), the handler takes ONE argument (the options hash). The error message is: \"Wrong number of arguments passed to procedure (#<procedure> 'command-name #<HashTable>)\".",
+    "related": [
+      "cli-getopt-subcommands",
+      "let-hash-destructure"
+    ]
+  },
+  {
+    "id": "string-subst-arg-order",
+    "title": "string-subst takes (str old new), not (old new str)",
+    "tags": [
+      "string-subst",
+      "string",
+      "replace",
+      "substitute",
+      "misc/string",
+      "argument-order"
+    ],
+    "imports": [
+      ":std/misc/string"
+    ],
+    "code": "(import :std/misc/string)\n\n;; string-subst argument order: (string-subst str old new)\n;; The string to modify comes FIRST, then old, then new.\n\n(string-subst \"hello world\" \"world\" \"gerbil\")\n;; => \"hello gerbil\"\n\n(string-subst \"/pets/{petId}\" \"{\" \"\")\n;; => \"/pets/petId}\"\n\n;; Chaining substitutions with let*:\n(let* ((s \"/pets/{petId}/toys\")\n       (s (string-subst s \"{\" \"\"))\n       (s (string-subst s \"}\" \"\"))\n       (s (string-subst s \"/\" \"-\")))\n  s)\n;; => \"-pets-petId-toys\"\n\n;; Optional count: keyword limits replacements\n(string-subst \"aaa\" \"a\" \"b\" count: 2)\n;; => \"bba\"",
+    "notes": "Easy to confuse with other languages where replace(old, new, str) is common. In Gerbil's :std/misc/string, it's (string-subst str old new). The optional count: keyword limits the number of replacements.",
+    "related": [
+      "string-trim-prefix"
+    ]
+  },
+  {
+    "id": "camelcase-to-kebab-case",
+    "title": "Convert camelCase/PascalCase to kebab-case with pregexp",
+    "tags": [
+      "camelCase",
+      "kebab-case",
+      "convert",
+      "pregexp",
+      "naming",
+      "identifier"
+    ],
+    "imports": [
+      ":std/pregexp",
+      ":std/srfi/13"
+    ],
+    "code": "(import :std/pregexp :std/srfi/13)\n\n;; Convert camelCase or PascalCase to kebab-case.\n;; Handles consecutive uppercase letters correctly:\n;;   \"getAPIKey\" -> \"get-api-key\" (not \"get-a-p-i-key\")\n;;   \"XMLParser\" -> \"xml-parser\"\n(def (camel-case->kebab-case s)\n  (let* (;; Step 1: Insert hyphen between consecutive uppercase run and next word\n         ;; \"getAPIKey\" -> \"getAPI-Key\"\n         (s1 (pregexp-replace* \"([A-Z]+)([A-Z][a-z])\" s \"\\\\1-\\\\2\"))\n         ;; Step 2: Insert hyphen between lowercase/digit and uppercase\n         ;; \"getAPI-Key\" -> \"get-API-Key\"\n         (s2 (pregexp-replace* \"([a-z0-9])([A-Z])\" s1 \"\\\\1-\\\\2\")))\n    (string-downcase s2)))\n\n(camel-case->kebab-case \"getUserById\")    ;; => \"get-user-by-id\"\n(camel-case->kebab-case \"listPets\")       ;; => \"list-pets\"\n(camel-case->kebab-case \"createHTTPServer\") ;; => \"create-http-server\"\n(camel-case->kebab-case \"getAPIKey\")      ;; => \"get-api-key\"\n(camel-case->kebab-case \"XMLParser\")      ;; => \"xml-parser\"\n(camel-case->kebab-case \"Pet\")            ;; => \"pet\"\n(camel-case->kebab-case \"simple\")         ;; => \"simple\"",
+    "notes": "Two-pass regex approach handles the tricky case of consecutive uppercase letters (like HTTP, API, XML). The first pass handles \"APIKey\" -> \"API-Key\" and the second handles \"getAPI\" -> \"get-API\". Then string-downcase normalizes everything. string-downcase is from :std/srfi/13. pregexp-replace* replaces ALL matches (not just the first).",
+    "related": [
+      "regular-expressions"
+    ]
+  },
+  {
+    "id": "pretty-print-code-generation",
+    "title": "Use pretty-print for Scheme code generation / emission",
+    "tags": [
+      "pretty-print",
+      "code-generation",
+      "emit",
+      "s-expression",
+      "codegen",
+      "format"
+    ],
+    "imports": [],
+    "code": ";; pretty-print is a Gambit builtin — no import needed.\n;; It formats s-expressions with proper indentation.\n\n;; Emit a single form as a string:\n(def (emit-form form)\n  (call-with-output-string\n    (lambda (p) (pretty-print form p))))\n\n(emit-form '(def (add x y) (+ x y)))\n;; => \"(def (add x y) (+ x y))\\n\"\n\n;; Emit multiple forms with blank lines between:\n(def (emit-forms forms)\n  (call-with-output-string\n    (lambda (p)\n      (for-each (lambda (form)\n                  (pretty-print form p)\n                  (newline p))\n                forms))))\n\n;; Use quasiquote to build forms with computed parts:\n(let ((fn-name 'my-function)\n      (body '(+ x y)))\n  (emit-form `(def (,fn-name x y) ,body)))\n;; => \"(def (my-function x y) (+ x y))\\n\"\n\n;; Useful for code generators that output .ss files:\n(def (generate-module exports definitions)\n  (string-append\n    (emit-form `(export ,@exports))\n    \"\\n\"\n    (emit-forms definitions)))",
+    "notes": "pretty-print is from Gambit (no import needed). It handles long forms by breaking across lines with proper indentation. For code generation, combine with quasiquote (backtick) and unquote (comma) to build s-expressions with dynamic parts, then pretty-print to get properly formatted output. string-append multiple emit-form calls to build complete source files.",
+    "related": [
+      "regular-expressions"
+    ]
+  },
+  {
+    "id": "string-to-keyword-vs-symbol-for-codegen",
+    "title": "Use string->keyword (not string->symbol) for keyword parameter code generation",
+    "tags": [
+      "keyword",
+      "string->keyword",
+      "string->symbol",
+      "pretty-print",
+      "code generation",
+      "codegen"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When generating Gerbil code with pretty-print, keyword\n;; parameters must use actual keywords (created via string->keyword),\n;; NOT symbols with a colon suffix (created via string->symbol).\n;;\n;; WRONG — creates a regular symbol, pretty-prints as |body:| (escaped):\n(string->symbol \"body:\")     ;; => |body:|\n;; (keyword? (string->symbol \"body:\"))  ;; => #f\n;; pretty-print wraps it in vertical bars: |body:|\n;; The reader treats |body:| as a NON-keyword symbol\n;; This causes \"Bad syntax; invalid match target\" in def parameter lists\n\n;; CORRECT — creates an actual keyword, pretty-prints as body: (unescaped):\n(string->keyword \"body\")     ;; => body:\n;; (keyword? (string->keyword \"body\"))  ;; => #t\n;; pretty-print outputs it as: body:\n;; The reader treats body: as a keyword — works correctly in def\n\n;; Example in code generation context:\n(import :std/format)\n(let ((kw (string->keyword \"body\"))\n      (param-list `(def (my-fn ,kw (body #f)) body)))\n  (call-with-output-string (lambda (p) (pretty-print param-list p))))\n;; => \"(def (my-fn body: (body #f)) body)\\n\"\n\n;; Note: string->keyword takes the name WITHOUT the colon suffix.\n;; The colon is added automatically by the keyword representation.",
+    "notes": "Key gotcha for code generation: string->symbol with a colon suffix creates a regular symbol that pretty-print escapes with vertical bars (|body:|). The reader treats |body:| differently from body: — it's NOT a keyword. Use string->keyword (without the colon) to create actual keywords that pretty-print correctly. Also applies to write and display.",
+    "related": [
+      "optional-keyword-arguments",
+      "pretty-print-code-generation"
+    ]
+  },
+  {
+    "id": "void-is-truthy-use-hash-get-not-hash-ref",
+    "title": "hash-ref returns #!void for missing keys (truthy!); use hash-get for conditional checks",
+    "tags": [
+      "void",
+      "truthy",
+      "hash-ref",
+      "hash-get",
+      "when",
+      "conditional",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: #!void is TRUTHY in Gerbil. Only #f is falsy.\n;;\n;; hash-ref without a default returns #!void for missing keys (not #f).\n;; This means conditional checks like (if value ...) will be wrong.\n\n(def ht (hash (\"a\" 1)))\n\n;; WRONG — hash-ref returns #!void for missing key, which is truthy:\n(let ((val (hash-ref ht \"missing\")))\n  (if val \"found\" \"not-found\"))\n;; => \"found\" — WRONG! #!void is truthy\n\n;; ALSO WRONG — (when ...) returns #!void when condition is false:\n(def (maybe-get key)\n  (when (hash-key? ht key)\n    (hash-ref ht key)))\n(if (maybe-get \"missing\") \"found\" \"not-found\")\n;; => \"found\" — WRONG! (when ...) returned #!void which is truthy\n\n;; CORRECT — use hash-get which returns #f for missing keys:\n(let ((val (hash-get ht \"missing\")))\n  (if val \"found\" \"not-found\"))\n;; => \"not-found\" — correct\n\n;; CORRECT — use if instead of when, with explicit #f:\n(def (maybe-get-v2 key)\n  (if (hash-key? ht key)\n    (hash-ref ht key)\n    #f))\n(if (maybe-get-v2 \"missing\") \"found\" \"not-found\")\n;; => \"not-found\" — correct",
+    "notes": "This is a common source of bugs in Gerbil. The (when ...) form returns #!void when the condition is false, and #!void is truthy. So if you store the result of (when ...) and later test it, it will appear to be a valid value. Always use (if ... ... #f) when you need to return #f for the false case, or use hash-get instead of hash-ref for lookups that might miss.",
+    "related": [
+      "hash-table-operations"
+    ]
+  },
+  {
+    "id": "deduplicate-names-hash-counter",
+    "title": "Deduplicate names with hash table counter",
+    "tags": [
+      "deduplicate",
+      "unique",
+      "names",
+      "collision",
+      "hash",
+      "counter",
+      "codegen"
+    ],
+    "imports": [],
+    "code": ";; Pattern: Make names unique by appending numeric suffix on collision\n;; Useful for code generation when input may have duplicate identifiers\n\n(def (deduplicate-names items get-name set-name!)\n  (let ((seen (make-hash-table)))\n    (for-each\n     (lambda (item)\n       (let* ((base-name (get-name item))\n              (count (hash-ref seen base-name 0))\n              (unique-name (if (= count 0)\n                             base-name\n                             (string-append base-name \"-\" (number->string count)))))\n         (hash-put! seen base-name (+ count 1))\n         (set-name! item unique-name)))\n     items)\n    items))\n\n;; Example: deduplicate field names in a list of field hashes\n(def fields (list (hash (\"name\" \"id\") (\"type\" \"int\"))\n                  (hash (\"name\" \"id\") (\"type\" \"string\"))\n                  (hash (\"name\" \"name\") (\"type\" \"string\"))))\n\n(deduplicate-names fields\n  (lambda (f) (hash-ref f \"name\"))\n  (lambda (f new) (hash-put! f \"name\" new)))\n\n;; Verify: first \"id\" kept as-is, second becomes \"id-1\"\n(and (equal? (hash-ref (list-ref fields 0) \"name\") \"id\")\n     (equal? (hash-ref (list-ref fields 1) \"name\") \"id-1\")\n     (equal? (hash-ref (list-ref fields 2) \"name\") \"name\"))",
+    "notes": "This pattern is essential for code generators that produce Scheme identifiers from external sources (like OpenAPI/Swagger specs) where name collisions can occur. The counter-based approach ensures stable, deterministic naming when applied to sorted input. Sort items first for reproducible output.",
+    "related": [
+      "hash-table-operations"
+    ]
+  },
+  {
+    "id": "defstruct-naming-avoid-accessor-collision",
+    "title": "Avoid defstruct accessor name collisions with -t suffix",
+    "tags": [
+      "defstruct",
+      "struct",
+      "accessor",
+      "collision",
+      "naming",
+      "codegen",
+      "type"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: defstruct creates accessors named struct-name-field-name.\n;; If you have:\n;;   (defstruct foo (bar) ...)        ;; creates accessor foo-bar\n;;   (defstruct foo-bar (x) ...)      ;; tries to create struct foo-bar\n;; This causes a \"rebind conflict\" because foo-bar is already the accessor.\n\n;; SOLUTION: Use a -t suffix for type/struct names to avoid collisions.\n;; This is a common convention in Scheme/Lisp for type names.\n\n;; Example defstructs after applying this convention:\n(defstruct dashboard-gadget-t (id title position) transparent: #t)\n(defstruct dashboard-gadget-position-t (row column) transparent: #t)\n\n;; Create instances to verify both structs work\n(def gadget (make-dashboard-gadget-t 1 \"My Gadget\" (make-dashboard-gadget-position-t 0 1)))\n\n;; Accessors are now distinct:\n(and (dashboard-gadget-t? gadget)\n     (= (dashboard-gadget-t-id gadget) 1)\n     (dashboard-gadget-position-t? (dashboard-gadget-t-position gadget))\n     (= (dashboard-gadget-position-t-column (dashboard-gadget-t-position gadget)) 1))",
+    "notes": "This pattern is essential when generating structs from external schemas (OpenAPI, JSON Schema, etc.) where schema names like \"Foo\" and \"FooBar\" would create accessor collisions. The -t suffix is a Lisp/Scheme convention indicating a type name. Alternative suffixes like -type or -struct also work.",
+    "related": [
+      "define-structs"
+    ]
+  },
+  {
+    "id": "sanitize-string-to-scheme-identifier",
+    "title": "Sanitize arbitrary strings to valid Scheme identifiers",
+    "tags": [
+      "sanitize",
+      "identifier",
+      "string",
+      "scheme-id",
+      "codegen",
+      "pregexp"
+    ],
+    "imports": [
+      ":std/pregexp",
+      ":std/srfi/13"
+    ],
+    "code": "(import :std/pregexp :std/srfi/13)\n\n;; Convert any string to a valid Scheme identifier\n;; Handles: spaces, punctuation, unicode, empty strings\n(def (string->scheme-id s)\n  (let* ((s (pregexp-replace* \"[^a-zA-Z0-9]+\" s \"-\"))  ;; non-alphanum -> hyphen\n         (s (string-trim-prefix \"-\" s))                ;; trim leading hyphens\n         (s (string-trim-suffix \"-\" s)))               ;; trim trailing hyphens\n    (if (string=? s \"\") \"unnamed\" (string-downcase s))))\n\n;; Test cases\n(and (equal? (string->scheme-id \"getUserById\") \"getuserbyid\")\n     (equal? (string->scheme-id \"The column position.\") \"the-column-position\")\n     (equal? (string->scheme-id \"foo_bar_baz\") \"foo-bar-baz\")\n     (equal? (string->scheme-id \"  spaces  \") \"spaces\")\n     (equal? (string->scheme-id \"\") \"unnamed\")\n     (equal? (string->scheme-id \"!!!@@@###\") \"unnamed\"))",
+    "notes": "Use string->scheme-id for arbitrary external strings (JSON property names, user input). For camelCase identifiers like \"getUserById\", a separate camel-case->kebab-case function that inserts hyphens at case boundaries gives better results (\"get-user-by-id\").",
+    "related": [
+      "pregexp-replace"
     ]
   }
 ]

@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { runGxiFile, runGerbilCmd } from '../gxi.js';
+import { join } from 'node:path';
+import { runGxiFile, runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 
 export function registerRunTestsTool(server: McpServer): void {
   server.registerTool(
@@ -46,9 +47,21 @@ export function registerRunTestsTool(server: McpServer): void {
           .describe(
             'Timeout in milliseconds for test execution (default: 30000 for file, 120000 for directory)',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution (file_path mode only)',
+          ),
+        project_path: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib (file_path mode only)',
+          ),
       },
     },
-    async ({ file_path, directory, filter, quiet, timeout }) => {
+    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path }) => {
       // Validate: exactly one of file_path or directory
       if (file_path && directory) {
         return {
@@ -78,14 +91,21 @@ export function registerRunTestsTool(server: McpServer): void {
         return await runDirectoryTests(directory, { filter, quiet, timeout });
       }
 
-      return await runSingleFileTest(file_path!, timeout);
+      // Build effective loadpath from loadpath array and project_path
+      const effectiveLoadpath: string[] = [...(loadpath ?? [])];
+      if (project_path) {
+        effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
+      }
+
+      return await runSingleFileTest(file_path!, timeout, effectiveLoadpath);
     },
   );
 }
 
-async function runSingleFileTest(filePath: string, timeout?: number) {
+async function runSingleFileTest(filePath: string, timeout?: number, loadpath?: string[]) {
   const effectiveTimeout = timeout ?? 30_000;
-  const testResult = await runGxiFile(filePath, { timeout: effectiveTimeout });
+  const env = loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
+  const testResult = await runGxiFile(filePath, { timeout: effectiveTimeout, env });
 
   if (testResult.timedOut) {
     return {
