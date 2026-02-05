@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
 
@@ -16,7 +17,9 @@ export function registerBuildAndReportTool(server: McpServer): void {
         'On success, reports a summary. On failure, if a Makefile with a build target ' +
         'is detected, automatically retries with `make`. Parses compiler errors into ' +
         'structured file:line:column diagnostics. ' +
-        'Uses the modern `gerbil` CLI (not gxpkg).',
+        'Uses the modern `gerbil` CLI (not gxpkg). ' +
+        'Auto-detects external dependencies from gerbil.pkg depend: entries and ' +
+        'adds ~/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided.',
       inputSchema: {
         project_path: z
           .string()
@@ -50,8 +53,11 @@ export function registerBuildAndReportTool(server: McpServer): void {
         ? `Note: This project has a Makefile with targets: ${makefileTargets.join(', ')}. Use gerbil_make to run them.`
         : null;
 
+      // Auto-detect loadpath from gerbil.pkg depend: entries when not explicitly provided
+      const effectiveLoadpath = loadpath ?? await autoDetectLoadpath(project_path);
+
       const args = ['build', ...(flags ?? [])];
-      const loadpathEnv = loadpath ? buildLoadpathEnv(loadpath) : undefined;
+      const loadpathEnv = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
 
       const result = await runGerbilCmd(args, {
         cwd: project_path,
@@ -267,6 +273,27 @@ function parseMakeTargets(content: string): string[] {
   // Only return if at least one is a "build-related" target
   const hasBuildTarget = targets.some((t) => BUILD_TARGETS.has(t));
   return hasBuildTarget ? targets : [];
+}
+
+/**
+ * Auto-detect loadpath from gerbil.pkg depend: entries.
+ * If the project has external dependencies, add ~/.gerbil/lib to loadpath.
+ */
+async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
+  try {
+    const content = await readFile(join(projectPath, 'gerbil.pkg'), 'utf-8');
+    // Look for depend: followed by a list of package names
+    if (/\bdepend:/.test(content)) {
+      const gerbilLib = join(
+        process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'),
+        'lib',
+      );
+      return [gerbilLib];
+    }
+  } catch {
+    // No gerbil.pkg or can't read it — no auto-detection
+  }
+  return [];
 }
 
 const MAKE_MAX_BUFFER = 1024 * 1024;

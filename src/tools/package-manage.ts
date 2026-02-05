@@ -1,5 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { access } from 'node:fs/promises';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { runGxpkg } from '../gxi.js';
 
 export function registerPackageManageTool(server: McpServer): void {
@@ -10,7 +13,11 @@ export function registerPackageManageTool(server: McpServer): void {
       description:
         'Install, update, or uninstall Gerbil packages. ' +
         'Package names can include @tag for version pinning (e.g. "github.com/user/repo@v1.0"). ' +
-        'Use "all" with the update action to update all installed packages.',
+        'Use "all" with the update action to update all installed packages. ' +
+        'Safety: when the server is running in a project directory (with gerbil.pkg), ' +
+        'the tool automatically defaults to HOME as the working directory to prevent ' +
+        'gxpkg from operating on the local package context. Use the cwd parameter ' +
+        'to override, or global_env to force global environment.',
       inputSchema: {
         action: z
           .enum(['install', 'update', 'uninstall'])
@@ -37,6 +44,21 @@ export function registerPackageManageTool(server: McpServer): void {
       },
     },
     async ({ action, package: pkg, global_env, force, cwd }) => {
+      // Safety: if no explicit cwd is provided, check if the server's working
+      // directory contains a gerbil.pkg. If so, default to HOME to prevent
+      // gxpkg from operating on the local package context (which can destroy
+      // project files during clean/uninstall operations).
+      let effectiveCwd = cwd;
+      if (!effectiveCwd && !global_env) {
+        try {
+          await access(join(process.cwd(), 'gerbil.pkg'));
+          // We're in a project directory — use HOME as safe default
+          effectiveCwd = homedir();
+        } catch {
+          // No gerbil.pkg — safe to use default cwd
+        }
+      }
+
       // Validate: "all" only works with update
       if (pkg === 'all' && action !== 'update') {
         return {
@@ -69,7 +91,7 @@ export function registerPackageManageTool(server: McpServer): void {
       args.push(pkg);
 
       const result = await runGxpkg(args, {
-        cwd,
+        cwd: effectiveCwd,
         timeout: 120_000,
       });
 
