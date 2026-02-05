@@ -1670,5 +1670,25 @@
     "related": [
       "hash-table-operations"
     ]
+  },
+  {
+    "id": "quasiquote-splice-empty-list-when-body",
+    "title": "Quasiquote splicing empty list into when/begin produces invalid syntax",
+    "tags": [
+      "quasiquote",
+      "splice",
+      "when",
+      "empty",
+      "codegen",
+      "generate",
+      "syntax"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When generating Gerbil code with quasiquote + unquote-splicing,\n;; if the spliced list is empty, forms like (when ...) and (begin ...) end up\n;; with no body — which is a syntax error.\n;;\n;; This commonly happens in code generators that build per-schema formatters\n;; where some schemas have no displayable properties.\n\n;; WRONG — empty field-entries produces (when (hash-table? data)) with no body:\n;; (def field-entries '())  ;; e.g. schema with no properties\n;; `(def (display-foo data)\n;;    (when (hash-table? data)\n;;      ,@(map (lambda (e) `(display-field ,(car e) ,(cadr e)))\n;;             field-entries)))\n;; => (def (display-foo data) (when (hash-table? data)))\n;; => Syntax Error: Bad syntax; invalid match target\n\n;; CORRECT — guard against empty splice:\n(def (generate-object-formatter name field-entries)\n  (if (null? field-entries)\n    ;; No fields: generate a simple fallback\n    `(def (,(string->symbol (string-append \"display-\" name)) data)\n       (display-human data))\n    ;; Has fields: generate when + field displays\n    `(def (,(string->symbol (string-append \"display-\" name)) data)\n       (when (hash-table? data)\n         ,@(map (lambda (e) `(display-field ,(car e) ,(cadr e)))\n                field-entries)))))\n\n;; GENERAL RULE: Before splicing into forms that require a body\n;; (when, unless, begin, lambda, let, etc.), always check if the\n;; list is empty and provide an alternative form.",
+    "notes": "This is a code generation gotcha. Forms like (when test body ...), (unless test body ...), and (begin body ...) require at least one body expression. When using ,@(map ...) to generate the body, an empty input list produces zero body forms, which is a syntax error. Always guard with (if (null? items) fallback-form normal-form) before constructing the quasiquote. The error message \"Bad syntax; invalid match target\" is misleading — the real issue is empty body.",
+    "related": [
+      "let-star-nested-hash-invalid-match-target",
+      "pretty-print-code-generation"
+    ]
   }
 ]
