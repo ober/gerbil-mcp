@@ -80,5 +80,70 @@
     "use_case": "When building a Gerbil REST API client for a service that publishes a Swagger/OpenAPI spec (Jira, GitHub, AWS, etc.), generate the boilerplate API functions automatically instead of hand-coding each endpoint.",
     "example_scenario": "User has a swagger-v3.json with 597 Jira endpoints. They call gerbil_swagger_scaffold with the spec path and output directory. The tool generates Gerbil source files grouped by API tag (issues.ss, projects.ss, etc.) with a function per endpoint, correct parameter names, and proper HTTP method calls. The user then just needs to add formatting/CLI logic on top.",
     "estimated_token_reduction": "~10000+ tokens per API client project. Eliminates manually reading the spec and translating hundreds of endpoints to Scheme functions."
+  },
+  {
+    "id": "ffi-binding-scaffold",
+    "title": "Generate FFI bindings from C header files",
+    "description": "A tool that parses a C header file and generates Gambit FFI binding code (.scm file with c-declare, c-define-type, c-lambda declarations). It would recognize common patterns: opaque pointer types, create/destroy function pairs (for automatic cleanup), and simple function signatures. This would dramatically accelerate creating Gerbil bindings for C libraries like LevelDB, SQLite, etc.",
+    "impact": "high",
+    "tags": [
+      "ffi",
+      "c-header",
+      "scaffold",
+      "generate",
+      "binding",
+      "gambit"
+    ],
+    "use_case": "When creating Gerbil FFI bindings for a C library, generate the boilerplate c-define-type and c-lambda declarations from the header file instead of manually translating each typedef and function signature.",
+    "example_scenario": "User wants to bind libleveldb. They point the tool at leveldb/c.h. It generates: c-define-type declarations for all opaque types (leveldb_t, leveldb_options_t, etc.), c-lambda bindings for all functions, and cleanup functions for types that have corresponding _destroy functions. User then just needs to add the Gerbil wrapper layer.",
+    "estimated_token_reduction": "~5000+ tokens per FFI project. Eliminates manually reading C headers, figuring out type mappings, and writing repetitive c-lambda declarations."
+  },
+  {
+    "id": "ffi-callback-debugger",
+    "title": "Debug FFI callback linkage issues",
+    "description": "A diagnostic tool that checks whether c-define callbacks are correctly linked and callable from C code. It would verify: (1) the c-define generates a properly named C function, (2) extern declarations match c-define signatures, (3) the Scheme runtime is properly initialized before callbacks can fire. Currently, c-define callbacks that fail just hang or crash with no useful error message.",
+    "impact": "medium",
+    "tags": [
+      "ffi",
+      "c-define",
+      "callback",
+      "debug",
+      "diagnostic"
+    ],
+    "use_case": "When implementing C-to-Scheme callbacks (e.g., for comparators, event handlers), diagnose why the callback hangs or crashes instead of guessing through trial and error.",
+    "example_scenario": "User implements a LevelDB comparator using c-define callbacks. When LevelDB calls the compare callback, the process hangs. The diagnostic tool would show: 'c-define scm_comparator_compare_cb exists but calling it blocks - Scheme runtime may not be in correct state for callbacks from this C context'.",
+    "estimated_token_reduction": "~1000 tokens per callback debugging session. Eliminates trial-and-error approach to diagnosing why callbacks don't work."
+  },
+  {
+    "id": "safe-package-manage-cwd",
+    "title": "gerbil_package_manage should default to safe CWD to prevent project destruction",
+    "description": "The gerbil_package_manage tool currently inherits the working directory of the MCP server process. When the user is working in a project directory that has gerbil.pkg + .gerbil/, gxpkg's setup-local-pkg-env! sets GERBIL_PATH to the local .gerbil/, causing install/uninstall operations to operate on the local package context. This can result in the entire project directory being wiped (rm -rf during clean/uninstall). The tool should default its CWD to $HOME (or a temp directory) unless the user explicitly provides a cwd parameter, to prevent this destructive behavior. Alternatively, it could detect when CWD contains gerbil.pkg and warn/refuse unless --global-env is explicitly requested.",
+    "impact": "high",
+    "tags": [
+      "package",
+      "install",
+      "safety",
+      "cwd",
+      "destructive"
+    ],
+    "use_case": "Any time gerbil_package_manage is called while working in a project directory. This is the common case since MCP tools inherit the project's working directory.",
+    "example_scenario": "User is working in /home/user/project/ which has gerbil.pkg and .gerbil/. They call gerbil_package_manage to install a dependency. The tool runs `gerbil pkg install` from /home/user/project/, which triggers setup-local-pkg-env! setting GERBIL_PATH=./.gerbil. The subsequent clean/build/uninstall operations destroy project files including source code and .git directory.",
+    "estimated_token_reduction": "Prevents catastrophic data loss. Saves ~5000+ tokens recovering from the disaster (re-cloning, re-reading files, re-applying changes)."
+  },
+  {
+    "id": "build-and-report-auto-loadpath",
+    "title": "gerbil_build_and_report should auto-detect and set GERBIL_LOADPATH from gerbil.pkg depend:",
+    "description": "When gerbil_build_and_report is used on a project that has external dependencies declared in gerbil.pkg depend:, the build fails with 'cannot find library module' unless GERBIL_LOADPATH is manually passed. The tool could auto-detect gerbil.pkg depend: entries, check that packages are installed in ~/.gerbil/pkg/, and automatically add ~/.gerbil/lib to GERBIL_LOADPATH. This would eliminate the most common build failure mode when using the tool on real projects.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "loadpath",
+      "gerbil.pkg",
+      "depend",
+      "auto-detect"
+    ],
+    "use_case": "Any project that imports third-party packages installed via gerbil pkg. The build tool should work out-of-the-box without requiring the user to know about GERBIL_LOADPATH.",
+    "example_scenario": "Project has gerbil.pkg with depend: (\\\"github.com/ober/gerbil-leveldb\\\"). User calls gerbil_build_and_report without loadpath. Build fails with 'cannot find library module :clan/db/leveldb'. User must realize they need loadpath: [\\\"~/.gerbil/lib\\\"] and retry. Auto-detection would eliminate this round-trip.",
+    "estimated_token_reduction": "~300-500 tokens per failed build + retry. Eliminates 1 tool call round-trip and error diagnosis."
   }
 ]

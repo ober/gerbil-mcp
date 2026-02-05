@@ -1448,5 +1448,137 @@
     "related": [
       "pregexp-replace"
     ]
+  },
+  {
+    "id": "gambit-ffi-pointer-types",
+    "title": "Define FFI pointer types with automatic cleanup",
+    "tags": [
+      "ffi",
+      "c-define-type",
+      "pointer",
+      "gambit",
+      "cleanup",
+      "gc",
+      "foreign"
+    ],
+    "imports": [],
+    "code": ";; In a .scm file (Gambit FFI), define pointer types with automatic GC cleanup.\n;; The pattern is: (c-define-type TypeName* (pointer CType (TagName) \"cleanup_function\"))\n;;\n;; The cleanup function is called when the Scheme object is garbage collected.\n\n;; Example from LevelDB FFI:\n(c-declare #<<END-C\n#include <leveldb/c.h>\n\n;; Cleanup function - called when GC collects the Scheme wrapper\n___SCMOBJ ffi_free_leveldb_options (void *ptr)\n{\n  leveldb_options_destroy ((leveldb_options_t*)ptr);\n  return ___FIX (___NO_ERR);\n}\nEND-C\n)\n\n;; Define the pointer type with automatic cleanup\n(c-define-type leveldb_options_t \"leveldb_options_t\")\n(c-define-type leveldb_options_t*\n  (pointer leveldb_options_t (leveldb_options_t*) \"ffi_free_leveldb_options\"))\n\n;; Now when you create a pointer:\n(define-c-lambda leveldb_options_create () leveldb_options_t*)\n\n;; The returned pointer is automatically wrapped in a Scheme object.\n;; When that object is garbage collected, ffi_free_leveldb_options is called.\n\n;; For pointers that should NOT be auto-freed (borrowed pointers):\n(c-define-type leveldb_snapshot_t \"leveldb_snapshot_t\")\n(c-define-type leveldb_snapshot_t*\n  (pointer leveldb_snapshot_t (leveldb_snapshot_t*)))  ;; no cleanup function\n\n;; For char* that needs free():\n(c-declare #<<END-C\n___SCMOBJ ffi_free (void *ptr)\n{\n  free (ptr);\n  return ___FIX (___NO_ERR);\n}\nEND-C\n)\n\n(c-define-type char*\n  (pointer char (char*) \"ffi_free\"))",
+    "notes": "The three-element form (pointer CType (TagName) \"cleanup\") enables automatic memory management. The tag (e.g., leveldb_options_t*) is used for type checking. The cleanup function MUST return ___FIX(___NO_ERR). For types where Scheme doesn't own the memory (like iterator keys that point into LevelDB internal buffers), omit the cleanup function. Common pattern: define a base type for the C struct, then a pointer type with cleanup for the Scheme wrapper.",
+    "related": [
+      "gambit-ffi-c-lambda",
+      "gambit-ffi-scheme-object"
+    ]
+  },
+  {
+    "id": "gambit-ffi-u8vector-to-c",
+    "title": "Pass u8vector to C functions efficiently",
+    "tags": [
+      "ffi",
+      "u8vector",
+      "bytes",
+      "c-lambda",
+      "gambit",
+      "string"
+    ],
+    "imports": [],
+    "code": ";; Pass Scheme u8vectors (byte arrays) to C functions without copying.\n;; Use scheme-object as the parameter type, then access via macros.\n\n(c-declare #<<END-C\n;; Define macros to access u8vector data and length\n#ifndef ___HAVE_FFI_U8VECTOR\n#define ___HAVE_FFI_U8VECTOR\n#define U8_DATA(obj) ___CAST (___U8*, ___BODY_AS (obj, ___tSUBTYPED))\n#define U8_LEN(obj) ___HD_BYTES (___HEADER (obj))\n#endif\n\n;; Example: wrapper that takes key and value as u8vectors\nvoid ffi_leveldb_put(leveldb_t* db, leveldb_writeoptions_t* opts,\n                     ___SCMOBJ key, ___SCMOBJ val, char** errptr)\n{\n  leveldb_put(db, opts,\n    (char*)U8_DATA(key), U8_LEN(key),\n    (char*)U8_DATA(val), U8_LEN(val),\n    errptr);\n}\nEND-C\n)\n\n;; Bind the wrapper - note scheme-object for the u8vector parameters\n(define-c-lambda leveldb_put\n  (leveldb_t* leveldb_writeoptions_t* scheme-object scheme-object leveldb_errptr)\n  void\n  \"ffi_leveldb_put\")\n\n;; In Gerbil, convert strings to bytes before calling:\n;; (def (value-bytes v)\n;;   (if (string? v) (string->bytes v) v))\n;; (leveldb_put db opts (value-bytes key) (value-bytes val) errptr)",
+    "notes": "The scheme-object type passes the raw Scheme object pointer to C. U8_DATA extracts the data pointer, U8_LEN gets the byte length. This avoids copying - the C code accesses the Scheme heap directly. IMPORTANT: Don't store the pointer beyond the C call - GC could move the object. For returned data, allocate with malloc and wrap in a Scheme object with cleanup. The ___CAST, ___BODY_AS, ___tSUBTYPED, ___HD_BYTES, ___HEADER macros are from Gambit's internal API.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "string-to-bytes"
+    ]
+  },
+  {
+    "id": "gambit-ffi-c-define-limitation",
+    "title": "c-define callback limitation - complex C-to-Scheme callbacks are fragile",
+    "tags": [
+      "ffi",
+      "c-define",
+      "callback",
+      "gambit",
+      "limitation",
+      "workaround"
+    ],
+    "imports": [],
+    "code": ";; LIMITATION: Gambit's c-define creates C functions that call Scheme,\n;; but using them as callbacks passed to C libraries is complex and fragile.\n;;\n;; c-define syntax:\n;; (c-define (scheme-name args...) (c-types...) return-type \"c_name\" \"\"\n;;   body...)\n;;\n;; This creates a C function \"c_name\" that invokes the Scheme body.\n;; The problem: you can't easily pass this as a function pointer to C APIs\n;; that expect callbacks (like leveldb_comparator_create).\n\n;; WHAT WORKS: Simple one-shot callbacks where you control the C wrapper\n(c-define (my_callback x)\n          (int) int\n          \"my_callback\" \"\"\n  (* x 2))\n\n;; Then in C you can call: my_callback(5) → 10\n\n;; WHAT'S FRAGILE: Callbacks stored by C libraries for later use\n;; Examples: comparators, iterators, custom allocators\n;;\n;; Issues:\n;; 1. The Scheme runtime must be initialized when callback fires\n;; 2. Callbacks during GC can cause crashes\n;; 3. Callbacks from C threads not created by Gambit fail\n;; 4. Type mismatches between extern declaration and c-define cause errors\n\n;; WORKAROUND: For complex callbacks, implement in pure C\n;; For comparators: use the default byte-ordering comparator\n;; For iterators: use Gerbil-level iteration, not C callbacks\n\n;; Example of what DOESN'T work reliably:\n;; Trying to pass Scheme function as LevelDB comparator callback\n;; The c-define callback can hang or crash when LevelDB invokes it",
+    "notes": "The c-define mechanism works for callbacks that you invoke from Scheme-controlled C code. It's fragile for callbacks stored by C libraries and invoked at arbitrary times (comparators, event handlers, custom allocators). The safest approach is to implement callback-heavy functionality in pure C. For LevelDB specifically: use the default byte-ordering comparator (design keys to sort correctly), avoid writebatch_iterate (use normal iteration instead), and avoid custom filter policies (use bloom filters).",
+    "related": [
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "gxpkg-install-destroys-cwd",
+    "title": "DANGER: gxpkg install/uninstall can destroy working directory",
+    "tags": [
+      "gxpkg",
+      "install",
+      "uninstall",
+      "package",
+      "danger",
+      "working-directory",
+      "destroy"
+    ],
+    "imports": [],
+    "code": ";; CRITICAL WARNING: Running `gerbil pkg install` or `gerbil pkg uninstall`\n;; from within a project directory that has its own `.gerbil/` subdirectory\n;; can DESTROY the entire project directory contents.\n;;\n;; The gxpkg tool treats the CWD's `.gerbil/` as a package context.\n;; During install/uninstall, the `clean` step may remove project files.\n;;\n;; SAFE PATTERN — always cd to HOME or another directory first:\n;;\n;;   cd ~ && gerbil pkg install github.com/user/package\n;;   cd ~ && gerbil pkg uninstall github.com/user/package\n;;\n;; DANGEROUS — DO NOT do this from your project directory:\n;;\n;;   cd /path/to/my-project  # has .gerbil/ subdir\n;;   gerbil pkg install github.com/user/package  # MAY WIPE PROJECT FILES\n;;\n;; When using MCP tools (gerbil_package_manage), ensure the CWD\n;; is not a project directory with .gerbil/, or use the `cwd` parameter\n;; to explicitly set a safe working directory.\n;;\n;; RECOVERY: If this happens, use `git checkout` or restore from backup.\n;; The .git directory may also be deleted, requiring re-cloning.",
+    "notes": "This was discovered when running `gerbil pkg install github.com/ober/gerbil-leveldb` from within the kunabi project directory. The entire project was wiped including .git, all source files, and build artifacts. Only .claude/ survived because it was created after the wipe. The gxpkg clean step is the culprit — it removes files from the local .gerbil/ context which cascades to removing the project structure."
+  },
+  {
+    "id": "leveldb-snapshot-consistent-reads",
+    "title": "LevelDB snapshot for consistent reads across multiple queries",
+    "tags": [
+      "leveldb",
+      "snapshot",
+      "read-options",
+      "consistent",
+      "iterator",
+      "clan/db/leveldb"
+    ],
+    "imports": [
+      ":clan/db/leveldb"
+    ],
+    "code": "(import :clan/db/leveldb)\n\n;; Create a snapshot for point-in-time consistent reads.\n;; Requires the ober/gerbil-leveldb fork (github.com/ober/gerbil-leveldb).\n;; The mighty-gerbils fork does NOT have snapshot support.\n\n;; Step 1: Create snapshot from open db\n(def snap (leveldb-snapshot db))\n\n;; Step 2: Create read-options with snapshot\n(def snap-opts (leveldb-read-options snapshot: snap))\n\n;; Step 3: Use snap-opts as optional 2nd/3rd arg to leveldb-get / leveldb-iterator\n(def val (leveldb-get db \"mykey\" snap-opts))      ;; 3rd arg = read-options\n(def itor (leveldb-iterator db snap-opts))          ;; 2nd arg = read-options\n\n;; Step 4: ALWAYS release the snapshot when done\n(leveldb-snapshot-release db snap)\n\n;; --- Recommended pattern: defrule macro for safe cleanup ---\n;; (defrule (with-snapshot db (snap-var opts-var) body ...)\n;;   (let* ((snap-var (leveldb-snapshot db))\n;;          (opts-var (leveldb-read-options snapshot: snap-var)))\n;;     (try (begin body ...)\n;;       (finally (leveldb-snapshot-release db snap-var)))))\n;;\n;; Usage:\n;; (with-snapshot my-db (snap snap-opts)\n;;   (let ((itor (leveldb-iterator my-db snap-opts)))\n;;     (leveldb-iterator-seek itor \"prefix:\")\n;;     ;; ... iterate consistently even if writes happen concurrently ...\n;;     (leveldb-iterator-close itor))\n;;   (leveldb-get my-db \"other-key\" snap-opts))",
+    "notes": "Key API details from ober/gerbil-leveldb source: (1) leveldb-snapshot takes 1 arg (db), returns an opaque pointer. (2) leveldb-snapshot-release takes 2 args (db, snapshot). (3) leveldb-read-options accepts keyword snapshot: with the snapshot pointer. (4) leveldb-get signature is (ldb key (opts default-read-options)) — the read-options is a positional optional arg, not keyword. (5) leveldb-iterator signature is (ldb (opts default-read-options)) — same pattern. (6) Snapshots are lightweight in LevelDB but MUST be released to avoid blocking compaction. Always use try/finally or a macro wrapper.",
+    "related": [
+      "gxpkg-install-destroys-cwd"
+    ]
+  },
+  {
+    "id": "leveldb-local-pkg-manifest-setup",
+    "title": "Fix 'gerbil build' when local .gerbil/pkg/ is missing manifests",
+    "tags": [
+      "leveldb",
+      "gerbil-build",
+      "manifest",
+      "pkg",
+      "gerbil.pkg",
+      "depend"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: `gerbil build` fails with:\n;;   No such file or directory\n;;   (call-with-input-file \".gerbil/pkg/github.com/user/package.manifest\" ...)\n;;\n;; This happens when your gerbil.pkg has depend: entries but the local\n;; .gerbil/pkg/ directory is missing the manifest files (e.g., after\n;; a clean checkout or after .gerbil/ was wiped).\n;;\n;; The manifests exist globally in ~/.gerbil/pkg/ but gerbil build\n;; looks for them locally when gerbil.pkg has depend: declarations.\n;;\n;; FIX: Copy manifest files from global to local:\n;;\n;;   # For each dependency in gerbil.pkg depend: list:\n;;   mkdir -p .gerbil/pkg/github.com/user/\n;;   cp ~/.gerbil/pkg/github.com/user/package.manifest \\\n;;      .gerbil/pkg/github.com/user/\n;;\n;; Then also copy the TAGS file:\n;;   cp ~/.gerbil/pkg/TAGS .gerbil/pkg/\n;;\n;; Example for a project depending on gerbil-leveldb and gerbil-libyaml:\n;;   mkdir -p .gerbil/pkg/github.com/ober\n;;   mkdir -p .gerbil/pkg/github.com/mighty-gerbils\n;;   cp ~/.gerbil/pkg/github.com/ober/gerbil-leveldb.manifest \\\n;;      .gerbil/pkg/github.com/ober/\n;;   cp ~/.gerbil/pkg/github.com/mighty-gerbils/gerbil-libyaml.manifest \\\n;;      .gerbil/pkg/github.com/mighty-gerbils/\n;;   cp ~/.gerbil/pkg/TAGS .gerbil/pkg/\n;;\n;; After this, run with GERBIL_LOADPATH:\n;;   GERBIL_LOADPATH=~/.gerbil/lib gerbil build",
+    "notes": "This commonly happens after .gerbil/ is wiped (see gxpkg-install-destroys-cwd recipe) or on a fresh git clone. The gerbil build process reads manifests from the local .gerbil/pkg/ when gerbil.pkg declares dependencies via depend:. Even though the actual compiled modules are in ~/.gerbil/lib/, the manifest metadata must exist locally. An alternative is to run the full `gerbil pkg install` for each dependency, but that's slower and riskier (see the gxpkg destruction bug).",
+    "related": [
+      "gxpkg-install-destroys-cwd",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "leveldb-iterator-close-not-destroy",
+    "title": "LevelDB iterator cleanup: use leveldb-iterator-close, NOT leveldb-iterator-destroy",
+    "tags": [
+      "leveldb",
+      "iterator",
+      "close",
+      "destroy",
+      "cleanup",
+      "unbound identifier"
+    ],
+    "imports": [
+      ":clan/db/leveldb"
+    ],
+    "code": "(import :clan/db/leveldb)\n\n;; GOTCHA: The C LevelDB API uses leveldb_iter_destroy() to clean up iterators,\n;; but the Gerbil wrapper names it leveldb-iterator-close (NOT leveldb-iterator-destroy).\n;; Using leveldb-iterator-destroy causes: \"Reference to unbound identifier\"\n\n;; WRONG — unbound identifier:\n;; (leveldb-iterator-destroy iter)\n\n;; CORRECT:\n(def db (leveldb-open \"/tmp/testdb\"))\n(def iter (leveldb-iterator db))\n(leveldb-iterator-seek-first iter)\n(let loop ()\n  (when (leveldb-iterator-valid? iter)\n    (let ((key (leveldb-iterator-key iter))\n          (val (leveldb-iterator-value iter)))\n      (displayln \"key=\" key \" val=\" val))\n    (leveldb-iterator-next iter)\n    (loop)))\n(leveldb-iterator-close iter)  ;; <-- correct function name\n(leveldb-close db)\n\n;; Full iterator API (all exported from :clan/db/leveldb):\n;;   leveldb-iterator          — create iterator (optionally with read-options)\n;;   leveldb-iterator-close    — destroy/cleanup iterator\n;;   leveldb-iterator-valid?   — check if current position is valid\n;;   leveldb-iterator-seek-first — move to first key\n;;   leveldb-iterator-seek-last  — move to last key\n;;   leveldb-iterator-seek     — seek to specific key\n;;   leveldb-iterator-next     — advance to next entry\n;;   leveldb-iterator-prev     — move to previous entry\n;;   leveldb-iterator-key      — get current key (u8vector)\n;;   leveldb-iterator-value    — get current value (u8vector)\n;;   leveldb-iterator-error    — check for iterator errors\n;;\n;; Also: in-leveldb, in-leveldb-keys — for :std/iter protocol integration",
+    "notes": "The naming mismatch comes from the C API (leveldb_iter_destroy) vs the Gerbil wrapper (leveldb-iterator-close). Iterators also have automatic finalization via Gambit's \"will\" mechanism, so they're cleaned up on GC even without explicit close — but explicit cleanup is good practice to release resources promptly. Note: key and value are returned as u8vectors; use (bytes->string key) to convert to strings.",
+    "related": [
+      "leveldb-snapshot"
+    ]
   }
 ]
