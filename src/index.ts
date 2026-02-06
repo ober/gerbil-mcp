@@ -119,7 +119,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
 - To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.
-- To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe.
+- To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe. Use compile_check: true to also run gxc compilation, which catches unbound identifiers and REPL-only patterns.
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
 - To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration.
 - To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones.

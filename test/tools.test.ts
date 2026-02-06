@@ -1964,6 +1964,7 @@ test:
       });
       expect(result.text).toContain('1 recipe(s) checked');
       expect(result.text).toContain('json-parse');
+      expect(result.text).toContain('PASS');
     });
 
     it('gerbil_howto_verify returns error for unknown recipe_id', async () => {
@@ -1973,6 +1974,45 @@ test:
       expect(result.isError).toBe(true);
       expect(result.text).toContain('not found');
     });
+
+    it('gerbil_howto_verify with compile_check runs gxc on recipes', async () => {
+      // Verify a single known-good recipe with compile_check enabled
+      const result = await client.callTool('gerbil_howto_verify', {
+        recipe_id: 'json-parse',
+        compile_check: true,
+      });
+      expect(result.text).toContain('syntax + compile');
+      expect(result.text).toContain('1 recipe(s) checked');
+      expect(result.text).toContain('json-parse');
+    }, 60000);
+
+    it('gerbil_howto_verify compile_check detects REPL-only patterns', async () => {
+      // Create a cookbook with a recipe that uses a REPL-only pattern:
+      // (for ((k v) (in-hash ht)) ...) passes expander but fails gxc with unbound 'v'
+      const cookbookPath = join(TEST_DIR, 'repl-only-cookbook.json');
+      writeFileSync(
+        cookbookPath,
+        JSON.stringify([
+          {
+            id: 'repl-only-test',
+            title: 'REPL-only pattern',
+            tags: ['test'],
+            imports: [':std/iter'],
+            code: '(def (test-fn ht)\n  (for ((k v) (in-hash ht)) (displayln k v)))',
+            notes: 'This uses destructuring in for bindings — works in REPL but not compiled.',
+          },
+        ]),
+      );
+
+      const result = await client.callTool('gerbil_howto_verify', {
+        cookbook_path: cookbookPath,
+        recipe_id: 'repl-only-test',
+        compile_check: true,
+      });
+      // Should report a compile failure
+      expect(result.text).toContain('COMPILE-FAIL');
+      expect(result.text).toContain('repl-only-test');
+    }, 60000);
   });
 
   // ── Resolve imports tool ─────────────────────────────────────────────

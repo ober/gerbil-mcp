@@ -1,6 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { runGxi, escapeSchemeString } from '../gxi.js';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { runGxi, runGxc, escapeSchemeString } from '../gxi.js';
 import { RECIPES, loadCookbook, REPO_COOKBOOK_PATH, type Recipe } from './howto.js';
 
 const PASS_MARKER = 'GERBIL-MCP-VERIFY-PASS:';
@@ -15,7 +18,9 @@ export function registerHowtoVerifyTool(server: McpServer): void {
       description:
         'Verify that cookbook recipes have valid syntax by checking their imports and code ' +
         'against the Gerbil expander. Does not execute recipes — only checks that they parse ' +
-        'and expand correctly. Reports pass/fail for each recipe.',
+        'and expand correctly. Reports pass/fail for each recipe. ' +
+        'Use compile_check: true to also run gxc compilation, which catches unbound identifiers ' +
+        'and other issues that the expander alone misses (e.g. REPL-only patterns).',
       inputSchema: {
         cookbook_path: z
           .string()
@@ -27,9 +32,17 @@ export function registerHowtoVerifyTool(server: McpServer): void {
           .string()
           .optional()
           .describe('Single recipe ID to verify. If omitted, verifies all recipes.'),
+        compile_check: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, also compile-check recipes with gxc (not just syntax expansion). ' +
+            'This catches unbound identifiers and REPL-only patterns that fail during compilation. ' +
+            'Slower but more thorough. Default: false.',
+          ),
       },
     },
-    async ({ cookbook_path, recipe_id }) => {
+    async ({ cookbook_path, recipe_id, compile_check }) => {
       // Load and merge recipes
       let recipes: Recipe[] = [...RECIPES];
       const sources = [REPO_COOKBOOK_PATH];
@@ -59,8 +72,8 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         }
       }
 
-      // Verify in batches
-      const results: Array<{ id: string; passed: boolean; error?: string }> = [];
+      // Verify in batches (syntax expansion)
+      const results: Array<{ id: string; passed: boolean; error?: string; compileError?: string }> = [];
 
       for (let i = 0; i < recipes.length; i += BATCH_SIZE) {
         const batch = recipes.slice(i, i + BATCH_SIZE);
@@ -68,29 +81,58 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         results.push(...batchResults);
       }
 
+      // Compile-check if requested (only for recipes that passed syntax check)
+      if (compile_check) {
+        const passedRecipes = results
+          .filter((r) => r.passed)
+          .map((r) => recipes.find((rec) => rec.id === r.id)!)
+          .filter(Boolean);
+
+        if (passedRecipes.length > 0) {
+          const compileResults = await compileCheckRecipes(passedRecipes);
+          for (const cr of compileResults) {
+            const existing = results.find((r) => r.id === cr.id);
+            if (existing && !cr.passed) {
+              existing.compileError = cr.error;
+            }
+          }
+        }
+      }
+
       // Format output
-      const passed = results.filter((r) => r.passed);
-      const failed = results.filter((r) => !r.passed);
+      const mode = compile_check ? 'syntax + compile' : 'syntax';
+      const syntaxPassed = results.filter((r) => r.passed);
+      const syntaxFailed = results.filter((r) => !r.passed);
+      const compileFailed = compile_check
+        ? results.filter((r) => r.passed && r.compileError)
+        : [];
 
       const sections: string[] = [
-        `Cookbook verification: ${results.length} recipe(s) checked`,
+        `Cookbook verification (${mode}): ${results.length} recipe(s) checked`,
         '',
       ];
 
       for (const r of results) {
-        if (r.passed) {
-          sections.push(`  PASS  ${r.id}`);
+        if (!r.passed) {
+          sections.push(`  FAIL  ${r.id} — ${r.error || 'unknown error'}`);
+        } else if (r.compileError) {
+          sections.push(`  COMPILE-FAIL  ${r.id} — ${r.compileError} (repl_only?)`);
         } else {
-          sections.push(`  FAIL  ${r.id} \u2014 ${r.error || 'unknown error'}`);
+          sections.push(`  PASS  ${r.id}`);
         }
       }
 
       sections.push('');
-      sections.push(`Summary: ${passed.length} passed, ${failed.length} failed`);
+      const summaryParts = [`${syntaxPassed.length} syntax passed`, `${syntaxFailed.length} syntax failed`];
+      if (compile_check) {
+        summaryParts.push(`${compileFailed.length} compile failed`);
+      }
+      sections.push(`Summary: ${summaryParts.join(', ')}`);
 
+      const hasFailures = syntaxFailed.length > 0 || compileFailed.length > 0;
       return {
         content: [{ type: 'text' as const, text: sections.join('\n') }],
-        isError: failed.length > 0,
+        isError: hasFailures,
       };
     },
   );
@@ -99,11 +141,18 @@ export function registerHowtoVerifyTool(server: McpServer): void {
 async function verifyBatch(
   recipes: Recipe[],
 ): Promise<Array<{ id: string; passed: boolean; error?: string }>> {
-  // Build a single gxi expression that checks each recipe
+  // Collect all unique imports across the batch — these must be at top level,
+  // not inside a lambda (import is an expansion-time form, not a runtime form).
+  const allImports = new Set<string>();
+  for (const recipe of recipes) {
+    for (const imp of recipe.imports) {
+      allImports.add(imp);
+    }
+  }
+  const topLevelImports = [...allImports].map((imp) => `(import ${imp})`).join(' ');
+
+  // Build a check expression per recipe (imports are already at top level)
   const checks = recipes.map((recipe) => {
-    const importExprs = recipe.imports
-      .map((imp) => `(import ${imp})`)
-      .join(' ');
     const escapedId = escapeSchemeString(recipe.id);
     const escapedCode = escapeSchemeString(recipe.code);
 
@@ -113,21 +162,26 @@ async function verifyBatch(
       `    (display "${FAIL_MARKER}${escapedId}\\t")`,
       '    (display-exception e (current-output-port)))',
       '  (lambda ()',
-      importExprs ? `    ${importExprs}` : '',
       `    (let ((p (open-input-string "${escapedCode}")))`,
       '      (let loop ((form (read p)))',
       '        (unless (eof-object? form)',
-      '          (core-expand form)',
+      // Skip import forms — they are handled at top level and
+      // core-expand cannot process them inside eval context
+      '          (unless (and (pair? form) (memq (car form) (quote (import export))))',
+      '            (core-expand form))',
       '          (loop (read p)))))',
       `    (display "${PASS_MARKER}${escapedId}\\n")))`,
     ]
-      .filter(Boolean)
       .join(' ');
   });
 
-  const fullExpr = `(import :gerbil/expander) ${checks.join(' ')}`;
+  // Pass imports and checks as separate -e arguments.
+  // (import :gerbil/expander) combined with other forms in a single -e
+  // causes gxi to swallow all output from subsequent expressions.
+  const importExpr = `(import :gerbil/expander) ${topLevelImports}`;
+  const checksExpr = checks.join(' ');
 
-  const result = await runGxi([fullExpr], { timeout: 60_000 });
+  const result = await runGxi([importExpr, checksExpr], { timeout: 60_000 });
 
   // Parse results
   const output = result.stdout;
@@ -170,4 +224,82 @@ async function verifyBatch(
     }
     return { id: recipe.id, passed: false, error: 'no result (batch crash?)' };
   });
+}
+
+/**
+ * Compile-check recipes by writing each to a temp .ss file and running gxc -S.
+ * This catches unbound identifiers and patterns that work in the REPL but fail
+ * when compiled (e.g. destructuring in for bindings).
+ */
+async function compileCheckRecipes(
+  recipes: Recipe[],
+): Promise<Array<{ id: string; passed: boolean; error?: string }>> {
+  const tempDir = join(tmpdir(), 'gerbil-mcp-verify');
+  await mkdir(tempDir, { recursive: true });
+
+  const results: Array<{ id: string; passed: boolean; error?: string }> = [];
+
+  for (const recipe of recipes) {
+    const importLines = recipe.imports
+      .map((imp) => `(import ${imp})`)
+      .join('\n');
+    const content = `${importLines}\n${recipe.code}\n`;
+    const filePath = join(tempDir, `verify-${recipe.id}.ss`);
+
+    try {
+      await writeFile(filePath, content, 'utf-8');
+      const result = await runGxc(filePath, { timeout: 30_000 });
+
+      if (result.exitCode === 0) {
+        results.push({ id: recipe.id, passed: true });
+      } else {
+        const combined = [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join('\n')
+          .trim();
+        // Extract the most relevant error line
+        const errorLine = extractCompileError(combined);
+        results.push({
+          id: recipe.id,
+          passed: false,
+          error: errorLine || 'compilation failed',
+        });
+      }
+    } catch (e) {
+      results.push({
+        id: recipe.id,
+        passed: false,
+        error: `exception: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      try {
+        await unlink(filePath);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Extract a concise error message from gxc output.
+ */
+function extractCompileError(output: string): string {
+  // Look for "Reference to unbound identifier" or similar
+  for (const line of output.split('\n')) {
+    if (/unbound identifier/i.test(line)) {
+      return line.trim();
+    }
+    if (/Syntax Error/i.test(line)) {
+      return line.trim();
+    }
+    if (/error/i.test(line) && line.trim().length > 5) {
+      return line.trim();
+    }
+  }
+  // Return first non-empty line as fallback
+  const firstLine = output.split('\n').find((l) => l.trim().length > 0);
+  return firstLine?.trim() || output.slice(0, 200);
 }
