@@ -1690,5 +1690,441 @@
       "let-star-nested-hash-invalid-match-target",
       "pretty-print-code-generation"
     ]
+  },
+  {
+    "id": "write-xml-generate-sxml",
+    "title": "Generate XML/SVG output from SXML using write-xml",
+    "tags": [
+      "write-xml",
+      "sxml",
+      "svg",
+      "xml",
+      "generate",
+      "output",
+      "serialize"
+    ],
+    "imports": [
+      ":std/xml"
+    ],
+    "code": "(import :std/xml)\n\n;; write-xml serializes an SXML tree to XML text.\n;; SXML format: (tag (@ (attr \"val\") ...) children...)\n;; All attribute values MUST be strings.\n\n;; Write to a port (default: current-output-port)\n(write-xml '(svg (@ (xmlns \"http://www.w3.org/2000/svg\")\n                    (width \"200\") (height \"200\"))\n                 (rect (@ (x \"10\") (y \"10\")\n                          (width \"180\") (height \"180\")\n                          (fill \"steelblue\")))\n                 (circle (@ (cx \"100\") (cy \"100\") (r \"50\")\n                            (fill \"white\")))\n                 (text (@ (x \"100\") (y \"108\")\n                          (text-anchor \"middle\")\n                          (font-size \"16\") (fill \"steelblue\"))\n                       \"Hello\"))\n           (current-output-port))\n;; Output: <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"200\">\n;;           <rect x=\"10\" y=\"10\" width=\"180\" height=\"180\" fill=\"steelblue\"></rect>\n;;           <circle cx=\"100\" cy=\"100\" r=\"50\" fill=\"white\"></circle>\n;;           <text x=\"100\" y=\"108\" text-anchor=\"middle\" ...>Hello</text>\n;;         </svg>\n\n;; Capture XML as a string\n(def xml-string\n  (call-with-output-string\n    (lambda (p)\n      (write-xml '(root (@ (id \"1\")) (item \"hello\") (item \"world\")) p))))\n;; => \"<root id=\\\"1\\\"><item>hello</item><item>world</item></root>\"\n\n;; Write to a file\n(call-with-output-file \"/tmp/output.svg\"\n  (lambda (p)\n    (write-xml '(svg (@ (xmlns \"http://www.w3.org/2000/svg\")\n                        (width \"100\") (height \"100\"))\n                     (rect (@ (width \"100\") (height \"100\") (fill \"red\"))))\n               p)))\n\n;; GOTCHAS:\n;; 1. write-xml does NOT add <?xml?> declaration — add manually if needed\n;; 2. Self-closing tags like <rect/> are written as <rect></rect> (valid XML)\n;; 3. All attribute values must be strings — use number->string for numbers\n;; 4. For SVG: the xmlns attribute is REQUIRED for browsers to render it\n;; 5. print-sxml->xml is an alternative that also accepts a port argument",
+    "notes": "write-xml takes (sxml [port]). Without a port arg, it writes to current-output-port. The output is NOT pretty-printed (no indentation). Self-closing tags become open+close pairs which is valid XML/SVG. The xmlns attribute on the root SVG element is critical for browser rendering. print-sxml->xml is equivalent. For reading XML back, use read-xml which returns SXML wrapped in (*TOP* ...).",
+    "related": [
+      "parse-xml-to-sxml",
+      "sxml-skip-pi-nodes"
+    ]
+  },
+  {
+    "id": "build-ffi-module-with-pkg-config",
+    "title": "Build FFI module with pkg-config cc-options and ld-options",
+    "tags": [
+      "build",
+      "ffi",
+      "pkg-config",
+      "cc-options",
+      "ld-options",
+      "defbuild-script",
+      "gxc",
+      "compile"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": "#!/usr/bin/env gxi\n;; build.ss — building an FFI module that links to a C library\n;; Uses :std/make helpers for pkg-config integration.\n(import :std/build-script\n        :std/make)\n\n;; defbuild-script with gxc: directive for FFI modules.\n;; gxc: passes -cc-options and -ld-options to the Gambit C compiler/linker.\n;; Plain strings are regular Gerbil modules (no special compile flags).\n(defbuild-script\n  `(;; FFI module — needs C compiler and linker flags\n    (gxc: \"libmylib\"\n          \"-cc-options\" ,(cppflags \"mylib\" \"\")\n          \"-ld-options\" ,(ldflags \"mylib\" \"-lmylib\"))\n    ;; High-level Gerbil wrapper — no special flags needed\n    \"mylib\"))\n\n;; --- How the :std/make helpers work ---\n;;\n;; (cppflags \"pkg-name\" \"fallback\")\n;;   Runs: pkg-config --cflags pkg-name\n;;   Falls back to \"fallback\" string if pkg-config fails\n;;   Returns: \"-I/path/to/include ...\" string\n;;\n;; (ldflags \"pkg-name\" \"fallback\")\n;;   Runs: pkg-config --libs pkg-name\n;;   Falls back to \"fallback\" string if pkg-config fails\n;;   Returns: \"-L/path/to/lib -lname\" string\n;;\n;; (append-options str1 str2 ...)\n;;   Joins non-empty strings with spaces\n;;   Useful for combining multiple flag sources\n\n;; --- Example: Cairo library with SVG+PNG support ---\n;; (defbuild-script\n;;   `((gxc: \"libcairo\"\n;;           \"-cc-options\" ,(cppflags \"cairo\" \"\")\n;;           \"-ld-options\" ,(append-options\n;;                            (ldflags \"cairo\" \"-lcairo\")\n;;                            (ldflags \"cairo-png\" \"-lpng16\")))\n;;     \"cairo\"))\n\n;; --- Example: OpenSSL with warning suppression ---\n;; (gxc: \"crypto/libcrypto\"\n;;       \"-cc-options\" ,(append-options\n;;                        (cppflags \"libcrypto\" \"\")\n;;                        \"-Wno-deprecated-declarations\")\n;;       \"-ld-options\" ,(ldflags \"libcrypto\" \"-lcrypto\")\n;;       ,@(include-gambit-sharp))",
+    "notes": "The gxc: directive in defbuild-script tells the build system this module needs special compiler/linker flags (unlike plain string module names). The :std/make module provides cppflags, ldflags, append-options, pkg-config-cflags, pkg-config-libs helpers. Build order in the list matters — FFI modules must come before modules that import them. The (include-gambit-sharp) call adds Gambit's internal headers for advanced FFI (##vector-ref etc). Fallback strings in cppflags/ldflags are used when pkg-config is not available (e.g., manual installs). Use backtick (quasiquote) for the build spec since the ,() calls need evaluation.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "static-exe-with-deps",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "ffi-c-struct-field-accessors",
+    "title": "Access C struct fields via wrapper functions in FFI",
+    "tags": [
+      "ffi",
+      "struct",
+      "accessor",
+      "wrapper",
+      "c-lambda",
+      "text-extents",
+      "cairo"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": "(import :std/foreign)\n\n;; PROBLEM: C functions that fill a struct by pointer (like cairo_text_extents)\n;; are awkward to bind directly — Gambit FFI doesn't easily expose struct fields.\n;;\n;; SOLUTION: Write thin C wrapper functions that call the C API and return\n;; individual fields. Each wrapper calls the original function and extracts\n;; one field from the result struct.\n\n(begin-ffi (text_width text_height)\n\n  (declare (not safe))\n\n  (c-declare #<<END-C\n#include <cairo/cairo.h>\n\n/* Wrapper: call cairo_text_extents, return just the width field */\nstatic double ffi_text_width(cairo_t *cr, const char *text)\n{\n  cairo_text_extents_t extents;\n  cairo_text_extents(cr, text, &extents);\n  return extents.width;\n}\n\n/* Wrapper: call cairo_text_extents, return just the height field */\nstatic double ffi_text_height(cairo_t *cr, const char *text)\n{\n  cairo_text_extents_t extents;\n  cairo_text_extents(cr, text, &extents);\n  return extents.height;\n}\nEND-C\n  )\n\n  ;; Bind the wrapper functions — note the C name string at the end\n  (define-c-lambda text_width (cairo_t* char-string) double \"ffi_text_width\")\n  (define-c-lambda text_height (cairo_t* char-string) double \"ffi_text_height\")\n)\n\n;; PATTERN SUMMARY:\n;; 1. C function fills struct by pointer: void some_fn(ctx*, result_struct*)\n;; 2. Write C wrappers that call fn and return one field each\n;; 3. Bind wrappers with define-c-lambda pointing to the C wrapper name\n;;\n;; This is cleaner than trying to define the struct in Gambit FFI\n;; and works for any C struct you need to read individual fields from.\n;; The trade-off is one C call per field — acceptable for non-hot-path code.",
+    "notes": "This pattern is used in Gerbil's own libcrypto.ss for OpenSSL struct access. The alternative — defining the struct layout with c-define-type and field accessors — is more complex and fragile (struct layout must match exactly). For structs with many fields you need, consider a single C wrapper that returns values via multiple output parameters or packs them into a Scheme vector. The overhead of calling the C function multiple times (once per field) is negligible for non-hot-path code like text measurement.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "gambit-ffi-scheme-object"
+    ]
+  },
+  {
+    "id": "sxml-optional-attrs-from-keywords",
+    "title": "Build SXML attribute list from keyword args, filtering #f values",
+    "tags": [
+      "sxml",
+      "attributes",
+      "keyword",
+      "optional",
+      "filter",
+      "xml",
+      "svg"
+    ],
+    "imports": [
+      ":std/srfi/13"
+    ],
+    "code": ";; Pattern for building SXML (@ ...) attribute lists from keyword arguments,\\n;; filtering out #f (unset) values. Useful for SVG/XML element constructors.\\n\\n(def (n->s v)\\n  (if (string? v) v (number->string v)))\\n\\n;; Convert keyword args to SXML attribute pairs, skipping #f values.\\n;; keyword->string strips the trailing colon automatically.\\n(def (opt-attrs . kvs)\\n  (let loop ((kvs kvs) (acc '()))\\n    (if (null? kvs)\\n      (reverse acc)\\n      (let ((k (car kvs))\\n            (v (cadr kvs)))\\n        (if v\\n          (loop (cddr kvs)\\n                (cons (list (string->symbol (keyword->string k)) (n->s v)) acc))\\n          (loop (cddr kvs) acc))))))\\n\\n;; Usage in an SVG element constructor:\\n(def (svg-rect x y width height\\n               fill: (fill #f)\\n               stroke: (stroke #f)\\n               rx: (rx #f))\\n  `(rect (@ (x ,(n->s x)) (y ,(n->s y))\\n            (width ,(n->s width)) (height ,(n->s height))\\n            ,@(opt-attrs fill: fill stroke: stroke rx: rx))))\\n\\n;; Examples:\\n(svg-rect 10 20 100 50)\\n;; => (rect (@ (x \\\"10\\\") (y \\\"20\\\") (width \\\"100\\\") (height \\\"50\\\")))\\n\\n(svg-rect 10 20 100 50 fill: \\\"red\\\" stroke: \\\"black\\\")\\n;; => (rect (@ (x \\\"10\\\") (y \\\"20\\\") (width \\\"100\\\") (height \\\"50\\\")\\n;;            (fill \\\"red\\\") (stroke \\\"black\\\")))",
+    "notes": "keyword->string automatically strips the trailing colon: (keyword->string 'fill:) => \"fill\". All attribute values must be strings in SXML, hence n->s conversion. The ,@(opt-attrs ...) splice inserts only non-#f attributes. This pattern is the foundation of the gerbil-svg library's element constructors.",
+    "related": [
+      "generate-xml-svg-output",
+      "defstruct-positional-args"
+    ]
+  },
+  {
+    "id": "defstruct-internal-constructor-pattern",
+    "title": "Use internal helper to avoid defstruct make-NAME rebind conflict",
+    "tags": [
+      "defstruct",
+      "constructor",
+      "rebind",
+      "conflict",
+      "make",
+      "pattern"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: defstruct generates make-NAME. If you also define (def (make-NAME ...)),\\n;; you get \\\"Bad binding; rebind conflict\\\".\\n;;\\n;; This happens when you want a zero-arg convenience constructor but\\n;; defstruct's auto-generated one requires all fields.\\n\\n;; WRONG — rebind conflict:\\n;; (defstruct path-builder (commands) transparent: #t)\\n;; (def (make-path-builder (commands []))   ;; ERROR: rebinds make-path-builder\\n;;   (##structure path-builder::t commands))\\n\\n;; CORRECT — use an internal helper name:\\n(defstruct path-builder (commands) transparent: #t)\\n\\n(def (new-pb commands)\\n  (##structure path-builder::t commands))\\n\\n;; Use new-pb inside module functions:\\n(def (path-move-to pb x y)\\n  (new-pb (cons (string-append \\\"M\\\" (number->string x) \\\" \\\" (number->string y))\\n                (path-builder-commands pb))))\\n\\n;; Export make-path-builder (from defstruct) for external callers:\\n;; (make-path-builder [])  ;; create empty builder\\n;; (make-path-builder '(\\\"M0 0\\\"))  ;; create with initial commands",
+    "notes": "defstruct creates make-NAME, NAME?, and NAME-field accessors. You CANNOT redefine make-NAME with def — it causes a compile-time rebind conflict. The workaround is to use an internal helper (e.g., new-pb) for constructing instances inside the module, and let callers use the defstruct-generated make-NAME directly. Use ##structure to construct directly when you know the type descriptor.",
+    "related": [
+      "defstruct-positional-args",
+      "defstruct-accessor-collision"
+    ]
+  },
+  {
+    "id": "write-xml-arity-one-parameterize",
+    "title": "write-xml is arity 1 — use parameterize for port redirection",
+    "tags": [
+      "write-xml",
+      "xml",
+      "port",
+      "parameterize",
+      "arity",
+      "output"
+    ],
+    "imports": [
+      ":std/xml"
+    ],
+    "code": "(import :std/xml)\\n\\n;; write-xml reports as arity:1 — it takes ONLY the SXML tree.\\n;; It writes to current-output-port.\\n;;\\n;; To redirect output to a specific port, use parameterize:\\n\\n;; Capture as string:\\n(def (sxml->string sxml)\\n  (call-with-output-string\\n    (lambda (p)\\n      (parameterize ((current-output-port p))\\n        (write-xml sxml)))))\\n\\n(sxml->string '(root (@ (id \\\"1\\\")) (item \\\"hello\\\")))\\n;; => \\\"<root id=\\\\\\\"1\\\\\\\"><item>hello</item></root>\\\"\\n\\n;; Write to file:\\n(def (sxml->file sxml filename)\\n  (call-with-output-file filename\\n    (lambda (p)\\n      (parameterize ((current-output-port p))\\n        (write-xml sxml)))))\\n\\n;; NOTE: Some cookbook entries show (write-xml sxml port) with 2 args.\\n;; The function signature tool reports arity:1. In practice, the\\n;; parameterize approach always works reliably.",
+    "notes": "Despite some documentation suggesting write-xml accepts an optional port argument, gerbil_function_signature reports arity:1. The parameterize approach is the safe, verified way to redirect write-xml output. print-sxml->xml is an alternative that does accept a port argument, but its output is pretty-printed with newlines which may not be desired.",
+    "related": [
+      "generate-xml-svg-output"
+    ]
+  },
+  {
+    "id": "make-temporary-file-name",
+    "title": "Create a temporary file name with prefix",
+    "tags": [
+      "temporary",
+      "file",
+      "temp",
+      "tmp",
+      "tmpfile",
+      "temporaries"
+    ],
+    "imports": [
+      ":std/os/temporaries"
+    ],
+    "code": "(import :std/os/temporaries)\n\n;; make-temporary-file-name takes exactly 1 argument: a prefix string\n;; Returns a unique path in /tmp like: /tmp/myprefix.eghagFpE.1770327980.9162219\n(def tmpfile (make-temporary-file-name \"myprefix\"))\n;; => \"/tmp/myprefix.eghagFpE.1770327980.9162219\"\n\n;; Common pattern: append an extension\n(def png-file (string-append (make-temporary-file-name \"cairo\") \".png\"))\n;; => \"/tmp/cairo.xxxxx.yyyy.zzzz.png\"",
+    "notes": "Arity is 1 — requires a prefix string argument. Calling with no arguments causes \"Wrong number of arguments\" error. The prefix is used as the first component of the generated filename."
+  },
+  {
+    "id": "ffi-type-predicate",
+    "title": "Define FFI type predicate for foreign pointer types",
+    "tags": [
+      "ffi",
+      "foreign",
+      "type",
+      "predicate",
+      "pointer",
+      "check",
+      "define-c-type-predicate"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Inside a (begin-ffi (...) ...) block, define type predicates\n;; for foreign pointer types. This lets you check at runtime whether\n;; a Scheme object wraps a specific C pointer type.\n\n;; First, define the macro (must be inside begin-ffi):\n(define-macro (define-c-type-predicate pred tag)\n  `(define (,pred x)\n     (and (##foreign? x)\n          (##memq ',tag (foreign-tags x)))))\n\n;; Then use it with the tag from your c-define-type pointer declaration:\n;; Given:  (c-define-type cairo_t* (pointer cairo_t (cairo_t*) \\\"ffi_cairo_destroy\\\"))\n;;                                                   ^^^^^^^^^ this is the tag\n\n(define-c-type-predicate cairo_t? cairo_t*)\n(define-c-type-predicate cairo_surface_t? cairo_surface_t*)\n\n;; Usage in Gerbil code:\n;; (cairo_t? my-context)       ;; => #t if it's a cairo context pointer\n;; (cairo_surface_t? surface)  ;; => #t if it's a cairo surface pointer\n;; (cairo_t? 42)               ;; => #f (not a foreign object)",
+    "notes": "The tag in define-c-type-predicate must match the tag in the c-define-type pointer declaration (the symbol in the tag list). ##foreign? and foreign-tags are Gambit internals — this must be inside a (declare (not safe)) block. This pattern is used in Gerbil's own libcrypto.ss. The macro must be defined inside begin-ffi, not at the module level.",
+    "related": [
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "gxi-e-import-suppresses-output",
+    "title": "gxi -e with import suppresses output — use script files instead",
+    "tags": [
+      "gxi",
+      "import",
+      "output",
+      "suppress",
+      "script",
+      "eval",
+      "displayln"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When using `gxi -e` with an import statement followed by\n;; other expressions, output from displayln/display is suppressed:\n;;\n;;   $ gxi -e '(import :my-module) (displayln \"hello\")'\n;;   (no output!)\n;;\n;; But without the import, output works fine:\n;;   $ gxi -e '(displayln \"hello\")'\n;;   hello\n;;\n;; SOLUTION: Write a script file and run it with gxi instead.\n\n;; smoke-test.ss:\n;; (import :my-project/my-module)\n;; (def (main . args)\n;;   (do-something)\n;;   (displayln \"Done!\"))\n\n;; Run with:\n;;   GERBIL_LOADPATH=.gerbil/lib gxi smoke-test.ss\n;;\n;; This reliably produces output and handles imports correctly.",
+    "notes": "This appears to be a Gambit/Gerbil quirk where `gxi -e` with an import expression suppresses subsequent expression output. The workaround is trivial — use a script file. For quick one-liners that don't need imports, `gxi -e` works fine."
+  },
+  {
+    "id": "interface-method-dispatch",
+    "title": "Define and use Gerbil interfaces for polymorphic method dispatch",
+    "tags": [
+      "interface",
+      "defmethod",
+      "polymorphism",
+      "method",
+      "dispatch",
+      "canvas",
+      "abstraction"
+    ],
+    "imports": [],
+    "code": ";; Define an interface with method signatures\n(interface Drawable\n  (draw! canvas)\n  (bounds))\n\n;; Implement on a class using defmethod\n(defclass circle-shape (cx cy radius color)\n  constructor: :init!)\n\n(defmethod {:init! circle-shape}\n  (lambda (self cx cy radius color)\n    (set! self.cx cx)\n    (set! self.cy cy)\n    (set! self.radius radius)\n    (set! self.color color)))\n\n;; NOTE: self.field dot syntax ONLY works inside defmethod lambda bodies\n;; It does NOT work in standalone def functions\n(defmethod {draw! circle-shape}\n  (lambda (self canvas)\n    (displayln \"Drawing circle at \" self.cx \",\" self.cy)))\n\n(defmethod {bounds circle-shape}\n  (lambda (self)\n    (list (- self.cx self.radius) (- self.cy self.radius)\n          (* 2 self.radius) (* 2 self.radius))))\n\n;; The interface exports: Drawable, is-Drawable?, make-Drawable, try-Drawable\n;; Method dispatch uses {obj.method args} syntax\n(let ((c (make-circle-shape 100 200 50 \"red\")))\n  {c.draw! \"my-canvas\"}   ;; dispatches to circle-shape's draw!\n  {c.bounds})              ;; => (50 150 100 100)\n\n;; IMPORTANT: interface does NOT generate standalone canvas-width etc.\n;; It generates Drawable-draw!, &Drawable-draw! (checked/unchecked)\n;; For {obj.method} dispatch, just define defmethod on each class",
+    "notes": "Gerbil interfaces define a protocol but method dispatch via {obj.method args} works through defmethod on the class, not through the interface directly. The interface adds type predicates (is-Drawable?, Drawable?) and cast constructors (make-Drawable). The self.field dot syntax only works in defmethod lambda bodies, NOT in standalone def functions. Export only the interface name and predicates, not method names.",
+    "related": [
+      "defstruct-positional-args",
+      "typed-struct-field-access"
+    ]
+  },
+  {
+    "id": "defclass-constructor-init-factory",
+    "title": "defclass with constructor: :init! — auto-generated make-NAME forwards args to :init!",
+    "tags": [
+      "defclass",
+      "constructor",
+      "init",
+      "make",
+      "factory",
+      "rebind"
+    ],
+    "imports": [],
+    "code": ";; defclass with constructor: :init! generates make-NAME that forwards args to :init!\n(defclass my-widget (name value items)\n  constructor: :init!)\n\n(defmethod {:init! my-widget}\n  (lambda (self name (value 0))\n    (set! self.name name)\n    (set! self.value value)\n    (set! self.items [])))\n\n;; make-my-widget is auto-generated — DO NOT redefine with def!\n;; (def (make-my-widget name) ...)  ;; BAD: rebind conflict!\n\n;; The auto-generated make-my-widget forwards all args to :init!\n(make-my-widget \"foo\")        ;; calls :init! with self, \"foo\"\n(make-my-widget \"foo\" 42)     ;; calls :init! with self, \"foo\", 42\n\n;; If you need a convenience factory with a DIFFERENT name:\n(def (create-widget name)\n  (make-my-widget name 0))",
+    "notes": "When using `constructor: :init!`, defclass generates a `make-NAME` function that allocates the object and calls its `:init!` method with all provided arguments. Do NOT define a function with the same `make-NAME` name — this causes a compile-time rebind conflict. If you need a convenience constructor, use a different name.",
+    "related": [
+      "use-internal-helper-rebind-conflict",
+      "defstruct-positional-args"
+    ]
+  },
+  {
+    "id": "indexed-iteration-without-in-indexed",
+    "title": "Iterate with index using named let (in-indexed does not exist)",
+    "tags": [
+      "iterate",
+      "index",
+      "loop",
+      "in-indexed",
+      "for",
+      "counter",
+      "enumerate"
+    ],
+    "imports": [],
+    "code": ";; in-indexed does NOT exist in :std/iter\n;; Use a named let loop for indexed iteration:\n\n(def (process-items items)\n  (let loop ((rest items) (i 0))\n    (when (pair? rest)\n      (let ((item (car rest)))\n        (displayln i \": \" item)\n        (loop (cdr rest) (+ i 1))))))\n\n;; Example: draw indexed series in a chart legend\n(def (draw-legend series-list)\n  (let loop ((rest series-list) (i 0))\n    (when (pair? rest)\n      (let ((s (car rest))\n            (y (* i 18)))\n        (displayln \"Series \" i \" at y=\" y \": \" s)\n        (loop (cdr rest) (+ i 1))))))",
+    "notes": "The function `in-indexed` referenced in some Gerbil documentation does NOT exist in `:std/iter`. For indexed iteration, use a named let loop with a counter variable. This is the standard Scheme pattern and always works."
+  },
+  {
+    "id": "gerbil-pkg-depend-local-deps",
+    "title": "Use GERBIL_LOADPATH for local project dependencies (not gerbil.pkg depend:)",
+    "tags": [
+      "gerbil.pkg",
+      "depend",
+      "GERBIL_LOADPATH",
+      "local",
+      "dependency",
+      "contract",
+      "string-split"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: gerbil.pkg depend: expects installable package strings\n;; (like GitHub URLs), NOT bare symbols or local project names.\n;;\n;; WRONG — causes string-split contract violation at build time:\n;; ;; gerbil.pkg\n;; (package: my-charts)\n;; (depend: (gerbil-svg gerbil-cairo))\n;;\n;; Error: \"contract violation; expected: string given: gerbil-svg\"\n;; This happens because depend: entries are processed with string-split\n;; to extract package URLs for resolution.\n;;\n;; WRONG — local paths don't work either:\n;; (depend: (\"../gerbil-svg\" \"../gerbil-cairo\"))\n;;\n;; depend: is for installable packages like:\n;; (depend: (\"github.com/user/gerbil-svg\" \"github.com/user/gerbil-cairo\"))\n\n;; CORRECT — for LOCAL (non-published) dependencies, use GERBIL_LOADPATH:\n;;\n;; gerbil.pkg — keep it simple, no depend:\n;; (package: my-charts)\n;;\n;; Makefile — set GERBIL_LOADPATH to point at local dependency builds:\n;; GERBIL_SVG_LIB ?= $(HOME)/mine/gerbil-svg/.gerbil/lib\n;; GERBIL_CAIRO_LIB ?= $(HOME)/mine/gerbil-cairo/.gerbil/lib\n;; export GERBIL_LOADPATH := $(GERBIL_SVG_LIB):$(GERBIL_CAIRO_LIB)\n;;\n;; build:\n;; \tgerbil build\n;;\n;; test:\n;; \tgerbil test ./...\n\n;; SUMMARY:\n;; - depend: is for published packages installable via `gerbil pkg install`\n;; - GERBIL_LOADPATH is for local project dependencies built from source\n;; - Each entry in GERBIL_LOADPATH points to the dep's .gerbil/lib/ dir\n;; - Build deps first: cd ~/mine/gerbil-svg && gerbil build",
+    "notes": "The contract violation error \"expected: string given: gerbil-svg\" is misleading — it comes from internal string processing of depend: entries, not from a type check on user code. The real issue is that depend: only accepts package URL strings that can be resolved by the package manager. For local development dependencies, GERBIL_LOADPATH is the correct mechanism. Set it in a Makefile to keep the workflow simple.",
+    "related": [
+      "gerbil-build-loadpath",
+      "gxpkg-install-destroys-cwd"
+    ]
+  },
+  {
+    "id": "ffi-callback-dispatch-table",
+    "title": "FFI callback dispatch table — map multiple Scheme closures through a single C trampoline",
+    "tags": [
+      "ffi",
+      "callback",
+      "c-define",
+      "trampoline",
+      "dispatch",
+      "user-data",
+      "void-pointer",
+      "closure"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PATTERN: When a C library accepts callbacks with a void* user_data parameter,\n;; you can route multiple distinct Scheme closures through a SINGLE c-define\n;; trampoline by encoding a callback ID in the void* arg.\n;;\n;; This solves the problem that c-define creates one fixed C function,\n;; but you need many different callbacks (one per button, event, etc.).\n\n;; Inside begin-ffi:\n\n;; 1. Global dispatch table (Scheme side)\n(define *handlers* (make-hash-table))\n(define *next-id* 0)\n\n(define (register-handler! proc)\n  (let ((id *next-id*))\n    (set! *next-id* (+ id 1))\n    (hash-put! *handlers* id proc)\n    id))\n\n(define (unregister-handler! id)\n  (hash-remove! *handlers* id))\n\n;; 2. c-define trampoline — single C function that dispatches to Scheme\n(c-define (ffi_dispatch_callback callback-id arg1 arg2)\n          (long char-string char-string) void\n          \"ffi_dispatch_callback\" \"\"\n  (let ((handler (hash-ref *handlers* callback-id #f)))\n    (when handler (handler arg1 arg2))))\n\n;; 3. C wrapper that passes the callback ID as void* user_data\n(c-declare #<<END-C\n/* Example: C library has api_register(name, callback, user_data) */\n/* We wrap it to pass the integer ID as the void* arg */\n\nstatic void trampoline(const char *a1, const char *a2, void *arg) {\n    long callback_id = (long)arg;\n    ffi_dispatch_callback(callback_id, a1, a2);\n}\n\nstatic int ffi_register(void *handle, const char *name, long callback_id) {\n    return api_register(handle, name, trampoline, (void*)callback_id);\n}\nEND-C\n)\n\n;; 4. Bind the wrapper (NOT the original C function)\n(define-c-lambda raw_register ((pointer void) char-string long) int \"ffi_register\")\n\n;; === Usage from Gerbil ===\n;; (def id (register-handler! (lambda (a1 a2) (displayln \"got: \" a1 \" \" a2))))\n;; (raw_register handle \"my-event\" id)\n;; ;; When C library fires the callback, it calls trampoline → ffi_dispatch_callback\n;; ;; → looks up handler by ID → calls the Scheme closure\n;;\n;; (unregister-handler! id)  ;; cleanup when done",
+    "notes": "This pattern works when: (1) the C API passes a void* user_data through to the callback, (2) callbacks fire on a thread where the Gambit runtime is active (e.g., the same thread that called the C function, or the event loop thread). It does NOT work for callbacks invoked from arbitrary C threads not created by Gambit. Closures stored in the hash table are safe from GC. For one-shot callbacks (like dispatch/schedule), remove the handler after it fires to avoid leaking entries. For persistent callbacks (like event handlers), remove on unbind/cleanup. The long↔void* cast is safe on both 32-bit and 64-bit platforms for small integer IDs.",
+    "related": [
+      "c-define-callback-limitation",
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "vendor-cpp-shared-library",
+    "title": "Vendor and build a C++ library as shared .so for Gerbil FFI linking",
+    "tags": [
+      "ffi",
+      "vendor",
+      "shared-library",
+      "c++",
+      "build",
+      "makefile",
+      "ld-options",
+      "rpath"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": "#!/usr/bin/env gxi\n;; build.ss — link FFI module against a vendored shared library\n;;\n;; When a C library is C++ internally but provides a C API (extern \"C\"),\n;; you can't compile it inline with Gambit's c-declare (which compiles as C).\n;; Instead: build the C++ source into a .so, then link the FFI module against it.\n\n(import :std/build-script)\n\n(defbuild-script\n  `((gxc: \"libmylib\"\n          \"-cc-options\" \"-I./vendor\"\n          \"-ld-options\" \"-L./vendor -lmylib -Wl,-rpath,$ORIGIN/vendor\")\n    \"mylib\"))\n\n;; === Makefile to build the vendored .so ===\n;;\n;; # Makefile\n;; CFLAGS := $(shell pkg-config --cflags dependency-lib)\n;; LIBS   := $(shell pkg-config --libs dependency-lib)\n;;\n;; vendor/libmylib.so: vendor/mylib.h\n;; \tg++ -shared -fPIC -o $@ -DMYLIB_BUILD_SHARED \\\n;; \t    -x c++ vendor/mylib.h $(CFLAGS) $(LIBS)\n;;\n;; build: vendor/libmylib.so\n;; \tgerbil build\n;;\n;; clean:\n;; \tgerbil clean\n;; \trm -f vendor/libmylib.so\n\n;; === Key details ===\n;;\n;; -Wl,-rpath,$ORIGIN/vendor\n;;   Embeds a relative rpath so the compiled Gerbil module finds\n;;   libmylib.so at runtime without setting LD_LIBRARY_PATH.\n;;   $ORIGIN expands to the directory containing the .so/.o file.\n;;\n;; -x c++\n;;   Tells g++ to compile the input as C++ even if the extension\n;;   is .h (needed for amalgamated single-header libraries).\n;;\n;; -DMYLIB_BUILD_SHARED\n;;   Many C/C++ libraries use a preprocessor flag to toggle between\n;;   static and shared library builds (controls dllexport/visibility).\n;;\n;; The Gerbil FFI module (.ss) only sees the C API (extern \"C\" functions).\n;; It uses define-c-lambda as normal — the C++ implementation is hidden\n;; behind the shared library boundary.",
+    "notes": "This pattern is needed when: (1) the library source is C++ but provides a stable C API, (2) the library is not commonly available as a system package, (3) you want reproducible builds by vendoring a specific version. The amalgamated header approach (single .h file) is ideal for vendoring — just one file to manage. For libraries available via pkg-config, prefer linking directly with cppflags/ldflags instead. The rpath trick ($ORIGIN) avoids LD_LIBRARY_PATH but may need adjustment for installed packages vs development builds. On macOS, use -Wl,-rpath,@loader_path/vendor instead of $ORIGIN.",
+    "related": [
+      "build-ffi-pkg-config",
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "ffi-foreign-release-prevent-double-free",
+    "title": "Use foreign-release! to prevent double-free with FFI pointer finalizers",
+    "tags": [
+      "ffi",
+      "foreign-release",
+      "finalizer",
+      "double-free",
+      "destroy",
+      "gc",
+      "pointer"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When a c-define-type pointer has a finalizer, calling the\n;; C destroy function explicitly AND letting GC collect the object\n;; causes a double-free (segfault).\n;;\n;; Example setup:\n;; (c-define-type mytype_t* (pointer mytype_t (mytype_t*) \"ffi_mytype_destroy\"))\n;; (define-c-lambda mytype_destroy (mytype_t*) int \"mytype_destroy\")\n;;\n;; WRONG — double free:\n;; (def (my-destroy! obj)\n;;   (mytype_destroy obj))  ;; calls C destroy\n;; ;; Later, GC collects obj → finalizer calls mytype_destroy AGAIN → crash\n;;\n;; CORRECT — use foreign-release! which triggers the finalizer and marks\n;; the object as released so GC won't finalize it again:\n;; (def (my-destroy! obj)\n;;   (foreign-release! obj))\n;;\n;; You can also check if already released:\n;; (foreign-released? obj)  ;; => #t if already released\n\n;; Full pattern for a safe destroy function:\n(def (my-destroy! obj)\n  (unless (foreign-released? obj)\n    (foreign-release! obj)))",
+    "notes": "foreign-release! and foreign-released? are Gambit builtins (no import needed). foreign-release! calls the finalizer registered in c-define-type and marks the object so GC won't finalize it again. Always use this instead of calling the raw C destroy function directly. This is critical for any FFI wrapper that offers explicit resource cleanup alongside GC-based cleanup.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "c-define-callback-limitation"
+    ]
+  },
+  {
+    "id": "c-define-char-string-const-mismatch",
+    "title": "Gambit c-define char-string generates char* not const char* — fix forward declarations",
+    "tags": [
+      "ffi",
+      "c-define",
+      "char-string",
+      "const",
+      "type-mismatch",
+      "forward-declaration",
+      "trampoline"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PROBLEM: When using c-define with char-string parameters, Gambit generates\n;; C functions with (char *) parameters, NOT (const char *).\n;; If your C forward declaration uses const char*, you get:\n;;   \"conflicting types for 'ffi_my_handler'\"\n;;\n;; WRONG — forward declaration uses const:\n;; void ffi_my_handler(long id, const char *name, const char *data);\n;;\n;; But c-define generates: void ffi_my_handler(long id, char *name, char *data);\n;; => COMPILATION ERROR: conflicting types\n\n;; FIX: Use char* (no const) in the forward declaration, and cast\n;; in the trampoline that calls it:\n\n;; In c-declare:\n(c-declare #<<END-C\n/* Forward declaration matches c-define's generated signature */\nvoid ffi_my_handler(long id, char *name, char *data);\n\n/* Trampoline receives const char* from C library, casts for c-define */\nstatic void my_trampoline(const char *name, const char *data, void *arg) {\n    long id = (long)arg;\n    ffi_my_handler(id, (char*)name, (char*)data);\n}\nEND-C\n)\n\n;; The c-define with char-string generates char* parameters:\n(c-define (ffi_my_handler id name data)\n          (long char-string char-string) void\n          \"ffi_my_handler\" \"\"\n  (displayln \"got: \" id \" \" name \" \" data))",
+    "notes": "This is a common gotcha when writing FFI callback trampolines. The C library's callback signature typically uses const char*, but Gambit's c-define for char-string generates char*. The (char*) cast in the trampoline is safe because the c-define function only reads the string (Gambit copies it into a Scheme string). Without the cast, you get -Wdiscarded-qualifiers warnings; without matching the forward declaration, you get a hard compilation error.",
+    "related": [
+      "ffi-callback-dispatch-table",
+      "c-define-callback-limitation"
+    ]
+  },
+  {
+    "id": "build-ss-absolute-path-cc-options",
+    "title": "Use absolute paths in build.ss cc-options — relative paths break because gxc compiles in .gerbil/lib/",
+    "tags": [
+      "build",
+      "build.ss",
+      "cc-options",
+      "absolute-path",
+      "relative-path",
+      "gxc",
+      "include",
+      "vendor"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": "#!/usr/bin/env gxi\n;; build.ss — MUST use absolute paths for -I and -L flags\n;;\n;; PROBLEM: gxc compiles .ss files into .gerbil/lib/pkg/module~0.c,\n;; then runs gcc from that directory. Relative paths like -I./vendor\n;; resolve relative to .gerbil/lib/pkg/, NOT the project root.\n;;\n;; WRONG — relative path breaks:\n;; (gxc: \"libfoo\" \"-cc-options\" \"-I./vendor\" ...)\n;; => fatal error: foo.h: No such file or directory\n\n;; CORRECT — compute absolute path from build.ss location:\n(import :std/build-script\n        :std/make)\n\n(def here (path-directory (this-source-file)))\n(def vendor-dir (path-expand \"vendor\" here))\n\n(defbuild-script\n  `((gxc: \"libfoo\"\n          \"-cc-options\" ,(string-append\n                          \"-I\" vendor-dir \" \"\n                          (cppflags \"some-lib\" \"\"))\n          \"-ld-options\" ,(string-append\n                          \"-L\" vendor-dir \" -lfoo \"\n                          \"-Wl,-rpath,\" vendor-dir \" \"\n                          (ldflags \"some-lib\" \"-lsome-lib\")))\n    \"foo\"))",
+    "notes": "this-source-file returns the path to the currently executing file (build.ss). path-directory extracts the directory. path-expand joins path components. This pattern is essential when vendoring C libraries — the -I and -L flags must be absolute because gxc's working directory during compilation is NOT the project root. The -Wl,-rpath flag should also use the absolute path (or $ORIGIN for installed packages).",
+    "related": [
+      "build-ffi-pkg-config",
+      "vendor-shared-library"
+    ]
+  },
+  {
+    "id": "write-json-arity-one-parameterize",
+    "title": "write-json is arity 1 — uses current-output-port, must parameterize for string output",
+    "tags": [
+      "json",
+      "write-json",
+      "serialize",
+      "arity",
+      "current-output-port",
+      "parameterize",
+      "string"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": "(import :std/text/json)\n\n;; write-json takes ONLY the value — it writes to current-output-port.\n;; It does NOT accept a port argument (arity 1, not 2).\n\n;; WRONG — trying to pass port as second arg:\n;; (write-json data port)  ;; ERROR: wrong number of arguments\n\n;; CORRECT — parameterize current-output-port:\n(def (json-serialize value)\n  (call-with-output-string\n   (lambda (p)\n     (parameterize ((current-output-port p))\n       (write-json value)))))\n\n(json-serialize (hash (\"name\" \"alice\") (\"age\" 30)))\n;; => \"{\\\"name\\\":\\\"alice\\\",\\\"age\\\":30}\"\n\n(json-serialize [1 2 3])\n;; => \"[1,2,3]\"\n\n;; Similarly, read-json takes NO arguments — reads from current-input-port:\n(def (json-parse str)\n  (call-with-input-string str read-json))\n\n(json-parse \"[1, \\\"hello\\\", true, null]\")\n;; => (1 \"hello\" #t #!void)\n\n;; Alternative: json-object->string for quick hash->string:\n(json-object->string (hash (\"key\" \"value\")))\n;; => \"{\\\"key\\\":\\\"value\\\"}\"",
+    "notes": "This differs from many Scheme JSON libraries that accept an optional port argument. In Gerbil's :std/text/json, both write-json and read-json use current-output-port/current-input-port respectively. json-object->string is a convenience wrapper but only works for hash tables (not lists/primitives). For general serialization, use the parameterize pattern shown above. JSON null maps to #!void in Gerbil.",
+    "related": [
+      "json-parse",
+      "json-generate"
+    ]
+  },
+  {
+    "id": "define-c-type-predicate-returns-list-not-bool",
+    "title": "FFI type predicate (##memq) returns sublist not #t — use as truthy, not equal? #t",
+    "tags": [
+      "ffi",
+      "type-predicate",
+      "memq",
+      "foreign",
+      "truthy",
+      "test",
+      "check"
+    ],
+    "imports": [],
+    "code": ";; The standard FFI type predicate pattern uses ##memq:\n;;\n;; (define-macro (define-c-type-predicate pred tag)\n;;   `(define (,pred x)\n;;      (and (##foreign? x)\n;;           (##memq ',tag (foreign-tags x)))))\n;;\n;; ##memq returns the SUBLIST starting at the match, NOT #t.\n;; So (my-type? obj) returns something like (my-type*), which is truthy but not #t.\n\n;; WRONG in tests:\n;; (check (my-type? obj) => #t)  ;; FAILS: actual value is (my-type*)\n\n;; CORRECT — use predicate check:\n;; (check (my-type? obj) ? values)  ;; passes: (my-type*) is truthy\n\n;; Or wrap the predicate to return a proper boolean:\n(define-macro (define-c-type-predicate pred tag)\n  `(define (,pred x)\n     (and (##foreign? x)\n          (##memq ',tag (foreign-tags x))\n          #t)))",
+    "notes": "This bites you in test suites where (check expr => #t) does exact comparison. The ##memq-based predicate returns the sublist (tag ...) which is truthy but not equal? to #t. Either use (check expr ? values) in tests, or add an explicit #t at the end of the predicate definition to coerce to boolean. The standard gerbil-cairo pattern does NOT include the #t coercion.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "ffi-type-predicate"
+    ]
+  },
+  {
+    "id": "ffi-utf8-string-unicode-support",
+    "title": "Use UTF-8-string instead of char-string for Unicode FFI bindings",
+    "tags": [
+      "ffi",
+      "UTF-8-string",
+      "char-string",
+      "unicode",
+      "gambit",
+      "c-define-type",
+      "encoding"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PROBLEM: Gambit's char-string FFI type only handles Latin-1 (ISO 8859-1).\n;; Passing strings with non-Latin-1 characters (e.g., em-dash U+2014, CJK, emoji)\n;; causes: \"Can't convert to C char-string\"\n;;\n;; SOLUTION: Use UTF-8-string instead of char-string in all FFI bindings.\n;; UTF-8-string properly encodes/decodes Unicode strings as UTF-8 C strings.\n\n(begin-ffi (my_set_title my_get_title)\n  (c-declare \"#include \\\"mylib.h\\\"\")\n\n  ;; WRONG — breaks on Unicode:\n  ;; (define-c-lambda my_set_title (void* char-string) int \"set_title\")\n\n  ;; CORRECT — handles all Unicode:\n  (define-c-lambda my_set_title (void* UTF-8-string) int \"set_title\")\n\n  ;; Works for return types too:\n  (define-c-lambda my_get_title (void*) UTF-8-string \"get_title\")\n\n  ;; Also works in c-define callbacks (Scheme functions callable from C):\n  ;; The C forward declaration still uses char* — Gambit generates char*\n  ;; for both char-string and UTF-8-string in c-define signatures.\n  (c-declare \"void my_callback(char *text);\")\n\n  (c-define (my_callback text)\n            (UTF-8-string) void   ;; <-- UTF-8-string here too\n            \"my_callback\" \"\"\n    (displayln \"received: \" text))\n)\n\n;; SUMMARY:\n;; - char-string   → Latin-1 only (ISO 8859-1, first 256 Unicode code points)\n;; - UTF-8-string  → Full Unicode via UTF-8 encoding\n;; - nonnull-UTF-8-string → Same but rejects #f (NULL)\n;; - Always prefer UTF-8-string unless you specifically need Latin-1",
+    "notes": "This is a common gotcha when binding modern C libraries that accept UTF-8 strings (which is most of them). The error \"Can't convert to C char-string\" at runtime means the string contains characters outside Latin-1. The fix is a simple find-and-replace of char-string → UTF-8-string in your FFI bindings. Both types generate char* in the C code, so no C-side changes are needed. The c-define forward declarations use char* for both types.",
+    "related": [
+      "c-define-char-string-const-mismatch",
+      "gambit-ffi-pointer-types"
+    ]
   }
 ]
