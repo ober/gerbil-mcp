@@ -52,6 +52,7 @@ import { registerHowtoAddTool } from './tools/howto-add.js';
 import { registerFileSummaryTool } from './tools/file-summary.js';
 import { registerMakeTool } from './tools/make.js';
 import { registerCheckArityTool } from './tools/check-arity.js';
+import { registerCheckTestArityTool } from './tools/check-test-arity.js';
 import { registerHowtoVerifyTool } from './tools/howto-verify.js';
 import { registerResolveImportsTool } from './tools/resolve-imports.js';
 import { registerTraceEvalTool } from './tools/trace-eval.js';
@@ -119,6 +120,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
 - To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.
+- To find tests affected by signature changes: use gerbil_check_test_arity to scan *-test.ss files for calls to a specific function and compare against its current arity. Quickly identifies which tests need updating after a refactor.
 - To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe. Use compile_check: true to also run gxc compilation, which catches unbound identifiers and REPL-only patterns.
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
 - To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration.
@@ -186,6 +188,7 @@ registerHowtoAddTool(server);
 registerFileSummaryTool(server);
 registerMakeTool(server);
 registerCheckArityTool(server);
+registerCheckTestArityTool(server);
 registerHowtoVerifyTool(server);
 registerResolveImportsTool(server);
 registerTraceEvalTool(server);

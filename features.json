@@ -15,23 +15,7 @@
     "example_scenario": "User creates an STSClient without namespace mappings. Tool warns that STS namespace URI 'https://sts.amazonaws.com/doc/2011-06-15/' is not mapped, and strip-ns will produce broken keys like '//sts.amazonaws.com/doc/2011-06-15/:Account instead of 'Account.",
     "estimated_token_reduction": "~500-1000 tokens per debugging session. Eliminates multi-step diagnosis: eval call → inspect response → trace through strip-ns → identify namespace issue."
   },
-  {
-    "id": "test-affected-by-signature-change",
-    "title": "Detect test files affected by function signature changes",
-    "description": "A tool that, given a function name and its module path, finds all test files that directly call that function and reports whether their call sites match the current arity. When a function's parameter list changes (e.g., adding a new required parameter), all test call sites break silently — they compile fine but fail at runtime with \"Wrong number of arguments\". This tool would scan test/*.ss files for calls to the function and compare call-site arity against the module's current exported signature.",
-    "impact": "medium",
-    "tags": [
-      "test",
-      "arity",
-      "signature",
-      "refactor",
-      "breaking-change"
-    ],
-    "use_case": "After modifying a function signature (adding/removing parameters), quickly find which test files need updating before running the full test suite.",
-    "example_scenario": "User adds a 'regions' parameter to find-edits-in-line. The function compiles fine, but test/rename-test.ss calls it with the old 7-arg signature. Running all tests fails at runtime with 'Wrong number of arguments'. This tool would immediately flag: 'test/rename-test.ss:15 calls find-edits-in-line with 7 args, expected 8'.",
-    "estimated_token_reduction": "~300-500 tokens per refactoring. Eliminates the round-trip of running tests, reading error output, finding the test file, reading it, and updating call sites."
-  },
-  {
+{
     "id": "lsp-message-validator",
     "title": "Validate LSP JSON-RPC messages against protocol spec",
     "description": "A tool that parses LSP JSON-RPC messages and validates them against the Language Server Protocol specification. Would check: required fields present, correct types for each field, valid method names, proper Content-Length framing. Could work on raw message strings or hash tables representing messages. Would report specific violations with the LSP spec reference.",

@@ -1948,6 +1948,55 @@ test:
     });
   });
 
+  // ── Check test arity tool ──────────────────────────────────────────
+
+  describe('Check test arity tool', () => {
+    it('gerbil_check_test_arity finds matching calls in test files', async () => {
+      const testDir = join(TEST_DIR, 'test-arity');
+      mkdirSync(testDir, { recursive: true });
+      // Create a test file that calls read-json with correct arity (1 arg)
+      writeFileSync(
+        join(testDir, 'json-test.ss'),
+        '(import :std/text/json)\n(def (test-read) (read-json (open-input-string "{}")))\n',
+      );
+      const result = await client.callTool('gerbil_check_test_arity', {
+        symbol: 'read-json',
+        module_path: ':std/text/json',
+        directory: testDir,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('read-json');
+      expect(result.text).toContain('match');
+    }, 30000);
+
+    it('gerbil_check_test_arity reports no test files', async () => {
+      const emptyDir = join(TEST_DIR, 'no-tests');
+      mkdirSync(emptyDir, { recursive: true });
+      writeFileSync(join(emptyDir, 'lib.ss'), '(def (foo) 42)\n');
+      const result = await client.callTool('gerbil_check_test_arity', {
+        symbol: 'foo',
+        module_path: ':std/text/json',
+        directory: emptyDir,
+      });
+      expect(result.text).toContain('No *-test.ss files');
+    }, 30000);
+
+    it('gerbil_check_test_arity reports no calls found', async () => {
+      const testDir = join(TEST_DIR, 'test-arity-nocall');
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'empty-test.ss'),
+        '(import :std/test)\n(def my-test (test-suite "empty" (test-case "noop" (check 1 => 1))))\n',
+      );
+      const result = await client.callTool('gerbil_check_test_arity', {
+        symbol: 'read-json',
+        module_path: ':std/text/json',
+        directory: testDir,
+      });
+      expect(result.text).toContain('No calls to read-json');
+    }, 30000);
+  });
+
   // ── Howto verify tool ────────────────────────────────────────────────
 
   describe('Howto verify tool', () => {

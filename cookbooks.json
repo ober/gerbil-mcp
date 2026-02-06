@@ -2126,5 +2126,138 @@
       "c-define-char-string-const-mismatch",
       "gambit-ffi-pointer-types"
     ]
+  },
+  {
+    "id": "gerbil-pkg-install-with-depend",
+    "title": "Install dependencies declared in gerbil.pkg depend: via gerbil pkg install",
+    "tags": [
+      "gerbil",
+      "pkg",
+      "install",
+      "depend",
+      "dependency",
+      "gxpkg",
+      "package"
+    ],
+    "imports": [],
+    "code": ";; To properly install a dependency declared in gerbil.pkg:\n;;\n;; 1. Declare the dependency in gerbil.pkg:\n;;    (package: my-project)\n;;    (depend: (\"github.com/ober/gerbil-svg\"))\n;;\n;; 2. Run `gerbil pkg install` FROM the project directory:\n;;    cd /path/to/my-project\n;;    gerbil pkg install github.com/ober/gerbil-svg\n;;\n;; This installs into the LOCAL project context:\n;;    .gerbil/pkg/github.com/ober/gerbil-svg/   (source, cloned from git)\n;;    .gerbil/lib/gerbil-svg/                    (compiled modules)\n;;\n;; The local context is CORRECT — gerbil build automatically finds\n;; packages in .gerbil/pkg/ when gerbil.pkg has depend: entries.\n;; No GERBIL_LOADPATH needed for build.\n;;\n;; 3. For gxi scripts/demos that import project + dependency modules,\n;;    include the local .gerbil/lib in GERBIL_LOADPATH:\n;;    GERBIL_LOADPATH=.gerbil/lib gxi demo/my-demo.ss\n;;\n;; KEY POINTS:\n;; - `gerbil pkg install` from a project dir → installs to LOCAL .gerbil/\n;; - `gerbil pkg install` from $HOME → installs to GLOBAL ~/.gerbil/\n;; - With depend: declared, local install is preferred (self-contained project)\n;; - `gerbil build` auto-resolves local .gerbil/pkg/ deps (no LOADPATH needed)\n;; - gxi scripts need GERBIL_LOADPATH=.gerbil/lib to find local deps",
+    "notes": "The local vs global install context confused many sessions. When you run `gerbil pkg install` from inside a project (directory with gerbil.pkg), it installs to the project's .gerbil/ directory. This is intentional — it makes the project self-contained. The compiled modules land in .gerbil/lib/ which `gerbil build` searches automatically. For global installs, cd to $HOME first or use the gerbil_package_manage MCP tool with global_env: true.",
+    "related": [
+      "gxpkg-install-destroys-cwd",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "build-ss-setenv-pkg-config-path",
+    "title": "Set PKG_CONFIG_PATH inside build.ss for standalone gerbil pkg install",
+    "tags": [
+      "setenv",
+      "PKG_CONFIG_PATH",
+      "build.ss",
+      "pkg-config",
+      "gerbil pkg install",
+      "linuxbrew",
+      "environment"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make",
+      ":std/misc/process"
+    ],
+    "code": "#!/usr/bin/env gxi\n;; build.ss — self-contained build script that works when invoked by\n;; `gerbil pkg install` (which does NOT inherit Makefile exports).\n;;\n;; PROBLEM: `gerbil pkg install github.com/user/my-ffi-pkg` clones\n;; the repo and runs build.ss directly. If the system uses linuxbrew's\n;; pkg-config (or any non-standard pkg-config), the default search path\n;; won't include system .pc files like gtk+-3.0.pc or libssl.pc.\n;;\n;; The Makefile workaround:\n;;   export PKG_CONFIG_PATH := /usr/lib/x86_64-linux-gnu/pkgconfig:$(PKG_CONFIG_PATH)\n;; does NOT help because `gerbil pkg install` doesn't use the Makefile.\n;;\n;; FIX: Set PKG_CONFIG_PATH inside build.ss using Gambit's setenv:\n\n(import :std/build-script\n        :std/make\n        :std/misc/process)\n\n;; Ensure pkg-config finds system packages\n;; (linuxbrew's pkg-config only searches its own paths)\n(let ((current (getenv \"PKG_CONFIG_PATH\" \"\"))\n      (sysdir \"/usr/lib/x86_64-linux-gnu/pkgconfig\"))\n  (when (and (file-exists? sysdir)\n             (not (string-contains current sysdir)))\n    (setenv \"PKG_CONFIG_PATH\"\n            (if (string-empty? current) sysdir\n                (string-append sysdir \":\" current)))))\n\n;; Now cppflags/ldflags will find system packages\n(def here (path-directory (this-source-file)))\n(def vendor-dir (path-expand \"vendor\" here))\n\n(defbuild-script\n  `((gxc: \"libfoo\"\n          \"-cc-options\" ,(string-append \"-I\" vendor-dir \" \" (cppflags \"gtk+-3.0\" \"\"))\n          \"-ld-options\" ,(string-append \"-L\" vendor-dir \" -lfoo \" (ldflags \"gtk+-3.0\" \"-lgtk-3\")))\n    \"foo\"))",
+    "notes": "This is essential for FFI packages that use pkg-config and will be installed via `gerbil pkg install`. Without this, `cppflags`/`ldflags` from :std/make silently fall back to their default values (often empty strings), causing g++ compilation to fail with missing headers. The `file-exists?` guard makes it safe on non-Debian systems. `setenv` and `getenv` are Gambit builtins — no import needed. `string-contains` and `string-empty?` are also Gambit builtins. The path `/usr/lib/x86_64-linux-gnu/pkgconfig` is the Debian/Ubuntu multiarch location — on RHEL/Fedora it would be `/usr/lib64/pkgconfig`.",
+    "related": [
+      "build-ss-absolute-path-cc-options",
+      "build-ffi-pkg-config",
+      "vendor-shared-library"
+    ]
+  },
+  {
+    "id": "char-literal-parens-brackets",
+    "title": "Avoid #\\\\( #\\\\) #\\\\[ #\\\\] character literals in code",
+    "tags": [
+      "character",
+      "literal",
+      "paren",
+      "bracket",
+      "reader",
+      "workaround",
+      "char->integer"
+    ],
+    "imports": [],
+    "code": ";; Problem: #\\( #\\) #\\[ #\\] character literals confuse the Gerbil reader\n;; when used inside list expressions. The reader sees [ as list syntax\n;; and ) as a closer, causing \"Datum or EOF expected\" errors.\n;;\n;; WRONG — causes reader errors:\n;; (or (char=? ch #\\()\n;;     (char=? ch #\\))\n;;     (char=? ch #\\[)\n;;     (char=? ch #\\]))\n;;\n;; CORRECT — use integer comparison:\n(def (is-bracket-char? ch)\n  (let ((c (char->integer ch)))\n    (or (= c 40)    ;; (\n        (= c 41)    ;; )\n        (= c 91)    ;; [\n        (= c 93)    ;; ]\n        (= c 123)   ;; {\n        (= c 125))));; }\n\n;; Test:\n;; (is-bracket-char? (string-ref \"(\" 0))  ;; => #t\n;; (is-bracket-char? (string-ref \"a\" 0))  ;; => #f",
+    "notes": "ASCII codes: ( = 40, ) = 41, [ = 91, ] = 93, { = 123, } = 125. The #\\{ and #\\} may also cause issues since { } is method dispatch syntax. Always use char->integer comparison for delimiter characters. #\\/ #\\\\ #\\. etc. are fine.",
+    "related": [
+      "dotted-pair-in-brackets"
+    ]
+  },
+  {
+    "id": "defrules-macro-ambiguity-fix",
+    "title": "Fix defrules macro ambiguity with optional pattern argument",
+    "tags": [
+      "defrules",
+      "macro",
+      "ambiguity",
+      "pattern",
+      "optional",
+      "ellipsis"
+    ],
+    "imports": [],
+    "code": ";; Problem: When a defrules macro has two clauses — one with a pattern\n;; argument and one without — calls with a single expression always\n;; match the first clause, treating the expression as the pattern.\n;;\n;; WRONG — (my-macro (some-expr)) matches first clause,\n;; pattern = (some-expr), body ... = () (empty), producing (lambda () )\n;;\n;; (defrules my-macro ()\n;;   ((_ pattern body ...)\n;;    (do-with-pattern pattern (lambda () body ...)))\n;;   ((_ body ...)\n;;    (do-without-pattern (lambda () body ...))))\n;;\n;; CORRECT — require at least one body form when pattern is present:\n(defrules my-macro ()\n  ((_ pattern body0 body ...)\n   (do-with-pattern pattern (lambda () body0 body ...)))\n  ((_ body ...)\n   (do-without-pattern (lambda () body ...))))\n\n;; Now:\n;; (my-macro (expr))         => matches second clause (no pattern)\n;; (my-macro \"/path\" (expr)) => matches first clause (with pattern)",
+    "notes": "The key insight is that body ... (with ellipsis) matches ZERO or more items. So ((_ pattern body ...) always matches any call with 1+ args, even when body ... is empty. Using body0 body ... requires at least one body form, forcing single-arg calls to fall through to the patternless clause."
+  },
+  {
+    "id": "path-normalize-missing-dir",
+    "title": "path-normalize throws on non-existent directories",
+    "tags": [
+      "path-normalize",
+      "file",
+      "directory",
+      "error",
+      "with-catch",
+      "exists"
+    ],
+    "imports": [],
+    "code": ";; Problem: (path-normalize \"./some/path\") throws an error if the\n;; directory doesn't exist, instead of returning a normalized string.\n;;\n;; WRONG — crashes if ./public doesn't exist:\n;; (path-normalize \"./public/./file.txt\")\n;; => \"No such file or directory\" error\n;;\n;; CORRECT — wrap in with-catch:\n(def (safe-path-normalize path)\n  (with-catch\n    (lambda (e) #f)\n    (lambda () (path-normalize path))))\n\n;; Or when used in a function that should return #f on failure:\n(def (try-resolve-file base-dir rel-path)\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let* ((full (path-expand rel-path base-dir))\n             (normalized (path-normalize full)))\n        (and (file-exists? normalized) normalized)))))",
+    "notes": "This commonly bites in web frameworks when checking for static files in a public/ directory that may not exist. Always guard path-normalize with with-catch when the directory is user-configurable or optional."
+  },
+  {
+    "id": "http-request-method-returns-symbol",
+    "title": "http-request-method returns a symbol, not a string",
+    "tags": [
+      "httpd",
+      "http-request-method",
+      "symbol",
+      "string",
+      "net",
+      "server",
+      "request"
+    ],
+    "imports": [
+      ":std/net/httpd"
+    ],
+    "code": "(import :std/net/httpd)\n\n;; http-request-method returns a SYMBOL like 'GET, 'POST, etc.\n;; NOT a string like \"GET\".\n\n;; WRONG — crashes or always returns \"GET\":\n;; (def method (string->symbol (http-request-method req)))\n;; This calls string->symbol on a symbol, which errors.\n\n;; CORRECT — guard against both types:\n(def (get-method req)\n  (let ((m (http-request-method req)))\n    (if (symbol? m) m (string->symbol m))))\n\n;; Or just use it directly as a symbol:\n(def (handle-request req res)\n  (case (http-request-method req)\n    ((GET)  (handle-get req res))\n    ((POST) (handle-post req res))\n    (else   (method-not-allowed res))))",
+    "notes": "This is a common gotcha when wrapping httpd requests. The method is already a symbol, so you can compare with eq? or use in case forms directly. If you need a string, use (symbol->string (http-request-method req))."
+  },
+  {
+    "id": "makefile-local-install-rsync",
+    "title": "Makefile for installing a local Gerbil library globally with gerbil pkg",
+    "tags": [
+      "makefile",
+      "install",
+      "gerbil",
+      "pkg",
+      "link",
+      "build",
+      "global",
+      "library"
+    ],
+    "imports": [],
+    "code": ";; Standard Makefile for a Gerbil library with build/test/install/uninstall.\n;; Uses `gerbil pkg link -g` + `gerbil pkg build -g` for proper global install.\n;;\n;; CRITICAL: gerbil pkg commands MUST run from OUTSIDE the project directory\n;; (e.g. `cd /tmp &&`) to avoid the local .gerbil/ context interfering.\n;; Running from within the project dir silently fails or worse.\n;;\n;; ---- Makefile ----\n;; export GERBIL_LOADPATH := $(HOME)/.gerbil/lib\n;;\n;; .PHONY: build test clean install uninstall\n;;\n;; build:\n;; \tgerbil build\n;;\n;; test: build\n;; \tgerbil test ./...\n;;\n;; clean:\n;; \tgerbil clean\n;;\n;; install: build\n;; \tcd /tmp && gerbil pkg link -g mypackage $(CURDIR)\n;; \tcd /tmp && gerbil pkg build -g mypackage\n;;\n;; uninstall:\n;; \tcd /tmp && gerbil pkg unlink -g mypackage\n;; ---- end ----\n;;\n;; The package name (\"mypackage\") must match (package: mypackage) in gerbil.pkg.\n;;\n;; How it works:\n;; - `gerbil pkg link -g NAME PATH` creates a symlink at ~/.gerbil/pkg/NAME -> PATH\n;; - `gerbil pkg build -g NAME` compiles and installs artifacts to ~/.gerbil/lib/NAME/\n;; - `gerbil pkg unlink -g NAME` removes the symlink and cleans installed artifacts\n;;\n;; After `make install`, import with:\n;;   (import :mypackage/module-name)",
+    "notes": "The `cd /tmp &&` prefix is essential — without it, gxpkg sees the local .gerbil/ directory and operates in local package context instead of global, causing the link to silently fail. The -g flag alone is NOT sufficient when CWD has a .gerbil/ subdirectory. This replaces the previous rsync-based recipe which bypassed Gerbil's package manager.",
+    "related": [
+      "gxpkg-install-destroys-cwd",
+      "gerbil-build-loadpath"
+    ]
   }
 ]
