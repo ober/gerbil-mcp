@@ -3770,5 +3770,89 @@
       "c-define-char-string-const-mismatch",
       "ffi-cfun-assign-const-char-fix"
     ]
+  },
+  {
+    "id": "tty-mode-set-six-args",
+    "title": "tty-mode-set! takes 6 arguments, not 5 (port + 4 bools + speed)",
+    "tags": [
+      "tty-mode-set!",
+      "terminal",
+      "raw",
+      "cooked",
+      "arity",
+      "six",
+      "speed"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: tty-mode-set! takes 6 arguments, not 5.\n;; The internal ##tty-mode-set! reveals the true signature:\n;;   (tty-mode-set! port allow-special echo output-raw input-raw speed)\n;; The 6th argument is a speed/flags parameter — use 0 for default.\n;;\n;; Evidence from Gambit source (lib/std/misc/ports~0.scm):\n;;   (##tty-mode-set! port '#f '#f '#t '#t '0)  ;; raw mode\n;;   (##tty-mode-set! port '#t '#t '#f '#f '0)  ;; cooked mode\n\n;; WRONG — only 5 args, will throw arity error or silently fail:\n;; (tty-mode-set! port #t #f #f #t)\n\n;; CORRECT — 6 args including speed=0:\n;; Raw mode (for line editor):\n(tty-mode-set! (current-input-port) #t #f #f #t 0)\n\n;; Cooked mode (restore):\n(tty-mode-set! (current-input-port) #t #t #f #f 0)\n\n;; Fully raw (no signal processing):\n(tty-mode-set! (current-input-port) #f #f #t #t 0)\n\n;; Safe pattern with dynamic-wind:\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #t #f #f #t 0))\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f 0)))))",
+    "notes": "The existing cookbook recipe \"tty-mode-set-raw-cooked\" shows 5 args — that is WRONG for Gerbil v0.19+. gerbil_doc reports arity:6 for tty-mode-set!. The 6th argument (speed) should be 0 for default. Discovered by examining Gambit's own std/misc/ports module which uses ##tty-mode-set! with 6 args including a trailing '0. Without the 6th arg, the call may silently fail or throw a type exception, leaving the terminal in an unexpected state.",
+    "related": [
+      "tty-mode-set-raw-cooked"
+    ]
+  },
+  {
+    "id": "signal-handler-zero-arity-callback",
+    "title": "add-signal-handler! callback takes 0 arguments, not 1",
+    "tags": [
+      "signal",
+      "handler",
+      "callback",
+      "arity",
+      "zero",
+      "add-signal-handler!"
+    ],
+    "imports": [
+      ":std/os/signal",
+      ":std/os/signal-handler"
+    ],
+    "code": "(import :std/os/signal :std/os/signal-handler)\n\n;; GOTCHA: The callback passed to add-signal-handler! takes ZERO arguments.\n;; The signal number is NOT passed to the handler.\n;;\n;; The existing cookbook recipe shows (lambda (sig) ...) — that is WRONG\n;; and causes: \"Wrong number of arguments passed to procedure\"\n\n;; WRONG — handler takes 1 arg:\n;; (add-signal-handler! SIGINT (lambda (sig) (displayln \"caught\")))\n;; => ERROR at runtime: Wrong number of arguments passed to procedure\n\n;; CORRECT — handler takes 0 args:\n(add-signal-handler! SIGINT (lambda () (displayln \"caught SIGINT\")))\n\n;; Example: flag signals for later processing\n(def *pending* [])\n\n(add-signal-handler! SIGINT\n  (lambda () (set! *pending* (cons \"INT\" *pending*))))\n\n(add-signal-handler! SIGTERM\n  (lambda () (set! *pending* (cons \"TERM\" *pending*))))\n\n;; Ignore a signal:\n(add-signal-handler! SIGPIPE (lambda () #!void))\n\n;; Remove handler:\n(remove-signal-handler! SIGINT)",
+    "notes": "The existing recipe \"signal-handler-register-remove\" shows (lambda (sig) ...) with 1 arg — that is WRONG. The signal dispatcher in :std/os/signal-handler calls the callback with zero arguments. The error message is: \"Wrong number of arguments passed to procedure (#<procedure>)\" and appears asynchronously in the signal-handler-wait thread. Discovered by debugging gsh shell where all signal handlers were failing at runtime.",
+    "related": [
+      "signal-handler-register-remove"
+    ]
+  },
+  {
+    "id": "c-ffi-isatty-returns-int-not-bool",
+    "title": "C FFI isatty returns int (1=true, 0=false); 0 is truthy in Gerbil",
+    "tags": [
+      "ffi",
+      "isatty",
+      "truthy",
+      "zero",
+      "int",
+      "boolean",
+      "C"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: C functions bound via c-lambda that return int for boolean\n;; values return 0/1 integers, not #f/#t. In Gerbil, 0 is TRUTHY!\n;; Only #f is falsy.\n\n;; Example FFI binding:\n;; (define-c-lambda ffi-isatty (int) int \"isatty\")\n\n;; WRONG — 0 is truthy, so this is always true:\n;; (if (ffi-isatty 0)\n;;   (displayln \"is a tty\")     ;; ALWAYS taken, even for pipes!\n;;   (displayln \"not a tty\"))\n\n;; CORRECT — compare against 1 explicitly:\n;; (if (= (ffi-isatty 0) 1)\n;;   (displayln \"is a tty\")\n;;   (displayln \"not a tty\"))\n\n;; General pattern for C boolean results:\n;; (def (isatty? fd) (= (ffi-isatty fd) 1))\n\n;; This applies to ALL C functions returning int as boolean:\n;;   isatty(), access(), tcsetattr(), etc.\n;; Always compare with = 1 or wrap in a Scheme predicate.",
+    "notes": "This is a subtle but critical bug source. In C, 0 is false and non-zero is true. In Gerbil, only #f is false — 0 is truthy. When binding C functions that return int-as-boolean via c-lambda, you MUST explicitly check (= result 1) or (not (zero? result)). Discovered while debugging gsh: ffi-isatty returned 0 for a pipe, but the shell still entered interactive mode because 0 is truthy.",
+    "related": [
+      "hash-ref-void-truthy"
+    ]
+  },
+  {
+    "id": "fd-e-extract-raw-fd-from-port",
+    "title": "Extract raw integer fd from a Gambit port using fd-e from :std/os/fd",
+    "tags": [
+      "fd",
+      "fd-e",
+      "port",
+      "file-descriptor",
+      "raw-fd",
+      "extract",
+      "integer"
+    ],
+    "imports": [
+      ":std/os/fd",
+      ":std/os/fdio",
+      ":std/os/fcntl"
+    ],
+    "code": ";; fd-e from :std/os/fd extracts the raw integer file descriptor from a Gambit port.\n;; This is essential when you need to pass fds to FFI functions like dup2.\n(import :std/os/fd :std/os/fdio :std/os/fcntl)\n\n;; open from :std/os/fdio returns a Gambit PORT (not a raw integer fd):\n(let ((port (open \"/dev/null\" O_RDONLY)))\n  (list (input-port? port)    ;; => #t  (it's a port!)\n        (fd-e port)           ;; => 5   (the raw integer fd)\n        (fd-type port)))      ;; => file\n;; => (#t 5 file)\n\n;; Typical use case: open a file, get its raw fd for dup2\n(let* ((port (open \"/tmp/output.txt\" (bitwise-ior O_WRONLY O_CREAT O_TRUNC) #o644))\n       (raw-fd (fd-e port)))\n  ;; raw-fd is an integer, usable with FFI dup2\n  (list raw-fd (integer? raw-fd)))\n;; => (5 #t)\n\n;; CAUTION: Gambit still owns the port.\n;; - close-port will close the underlying fd\n;; - If port is GC'd and close-on-gc is set, the fd gets closed\n;; - After dup2(raw-fd, target-fd), closing raw-fd via the port\n;;   does NOT affect the dup'd target-fd\n\n;; Pattern for shell redirections (redirect stdout to a file):\n;; 1. Open file → get port → extract raw fd\n;; 2. dup2(raw-fd, 1) to redirect stdout\n;; 3. close-port the original port (fd 1 still points to the file)\n;; 4. (Gambit builtins: also set current-output-port)",
+    "notes": "fd-e is exported from :std/os/fd alongside fdopen, fd-type, and fd-io. fd-type returns a symbol like 'file, 'pipe, 'socket. The open function from :std/os/fdio accepts 2 or 3 args: (open path flags) or (open path flags mode). It always returns a Gambit port, not a raw fd. This is different from C's open() which returns an int. Use fd-e to bridge from Gambit's port world to the raw fd world needed for FFI calls like dup2, dup, close, etc.",
+    "related": [
+      "fdopen-3-arity",
+      "os-pipe-create-fd-pair",
+      "fcntl-f-dupfd-partial-dup"
+    ]
   }
 ]

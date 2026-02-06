@@ -15,7 +15,7 @@
     "use_case": "When creating Gerbil FFI bindings for a C library, generate the boilerplate c-define-type and c-lambda declarations from the header file instead of manually translating each typedef and function signature.",
     "example_scenario": "User wants to bind libleveldb. They point the tool at leveldb/c.h. It generates: c-define-type declarations for all opaque types (leveldb_t, leveldb_options_t, etc.), c-lambda bindings for all functions, and cleanup functions for types that have corresponding _destroy functions. User then just needs to add the Gerbil wrapper layer.",
     "estimated_token_reduction": "~5000+ tokens per FFI project. Eliminates manually reading C headers, figuring out type mappings, and writing repetitive c-lambda declarations.",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "ffi-callback-debugger",
@@ -32,7 +32,7 @@
     "use_case": "When implementing C-to-Scheme callbacks (e.g., for comparators, event handlers), diagnose why the callback hangs or crashes instead of guessing through trial and error.",
     "example_scenario": "User implements a LevelDB comparator using c-define callbacks. When LevelDB calls the compare callback, the process hangs. The diagnostic tool would show: 'c-define scm_comparator_compare_cb exists but calling it blocks - Scheme runtime may not be in correct state for callbacks from this C context'.",
     "estimated_token_reduction": "~1000 tokens per callback debugging session. Eliminates trial-and-error approach to diagnosing why callbacks don't work.",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "struct-constructor-info",
@@ -67,7 +67,7 @@
     "use_case": "When starting a new Gerbil project that needs OS-level functionality (process control, filesystem, environment), you need to know what's available without imports vs what requires :std/os/* modules. Currently requires many trial-and-error apropos calls.",
     "example_scenario": "User wants to build a shell in Gerbil. Needs to find all process, filesystem, environment, and terminal primitives. Currently requires 10+ apropos calls (fork, exec, waitpid, chdir, dup, pipe, getenv, setenv, etc.) to discover that fork/exec/waitpid/dup2 don't exist while open-process/process-status/process-pid do. A single tool call listing 'process management primitives' would answer this in one round-trip.",
     "estimated_token_reduction": "~2000 tokens per discovery session. Eliminates 8-10 apropos calls and their results when exploring Gambit-level primitives for a new project.",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "concurrency-pattern-advisor",
@@ -180,6 +180,23 @@
     "use_case": "After implementing a module, check which exported functions don't have test cases yet. Also useful during code review to assess test completeness.",
     "example_scenario": "User implements a module with 15 exported functions. They write tests for 10 of them. Instead of manually cross-referencing exports and test file, one tool call shows: \"5 untested exports: fn-a, fn-b, fn-c, fn-d, fn-e\". Could also suggest which test scaffolding to add.",
     "estimated_token_reduction": "~500 tokens per coverage check. Eliminates manual cross-referencing of module_exports output with test file reads.",
+    "votes": 0
+  },
+  {
+    "id": "cookbook-correction-flag",
+    "title": "Flag or correct outdated cookbook recipes that have wrong arities/signatures",
+    "description": "Several existing cookbook recipes contain incorrect information that leads to bugs: (1) \"signal-handler-register-remove\" shows (lambda (sig) ...) but handlers take 0 args, (2) \"tty-mode-set-raw-cooked\" shows 5 args but the function takes 6. When a new recipe is added with a `related` field pointing to an incorrect recipe, there should be a mechanism to flag the old recipe as superseded or auto-update it. Currently both the wrong and correct versions coexist, and gerbil_howto may return the wrong one first.",
+    "impact": "medium",
+    "tags": [
+      "cookbook",
+      "correction",
+      "outdated",
+      "accuracy",
+      "recipe"
+    ],
+    "use_case": "When a session discovers that an existing recipe has incorrect arity, wrong argument types, or outdated API usage, the corrected recipe should supersede the old one rather than just adding a second entry that may confuse future lookups.",
+    "example_scenario": "Session discovers tty-mode-set! takes 6 args, not 5 as shown in existing recipe. Adds new recipe 'tty-mode-set-six-args' with correct info. But next session searches 'tty-mode-set raw' and gets the OLD wrong recipe first, wastes tokens debugging arity error, then finds the correction.",
+    "estimated_token_reduction": "~300 tokens per incorrect recipe encountered. Prevents re-debugging known-wrong patterns across sessions.",
     "votes": 0
   }
 ]

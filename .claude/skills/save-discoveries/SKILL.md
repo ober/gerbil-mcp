@@ -25,7 +25,8 @@ Skip trivial one-liners and project-specific business logic.
 For each workflow friction point or missing tool capability noticed during this session:
 
 1. Call `gerbil_list_features` with relevant keywords to check for duplicates
-2. If not found, call `gerbil_suggest_feature` with:
+2. If a matching feature already exists, call `gerbil_vote_feature` with its `id` to upvote it
+3. If not found, call `gerbil_suggest_feature` with:
    - `id`: kebab-case identifier
    - `title`: short description
    - `description`: detailed explanation
@@ -43,10 +44,11 @@ Recipes to save:
 - Multi-step patterns combining standard library functions
 - Arity or signature discoveries that weren't obvious
 
-Features to suggest:
+Features to suggest or vote for:
 - Multiple sequential tool calls that could be a single tool
 - Missing tool parameters or modes
 - Workflows that forced fallback to `gerbil_eval` or bash
 - Repeated cross-session patterns that could be automated
+- If the friction point matches an existing feature suggestion, vote for it instead of creating a duplicate
 
-Report what was saved and suggested when done.
+Report what was saved, suggested, and voted for when done.
