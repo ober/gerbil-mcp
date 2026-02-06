@@ -31,25 +31,7 @@
     "example_scenario": "User implements a new LSP handler and wants to verify the response structure is correct. Currently they must manually compare against the LSP spec or wait for editor errors. This tool would immediately flag: 'textDocument/completion response missing required field: isIncomplete'.",
     "estimated_token_reduction": "~300-500 tokens per handler implementation. Eliminates back-and-forth with editor clients to debug protocol issues."
   },
-  {
-    "id": "swagger-to-gerbil-scaffold",
-    "title": "Generate Gerbil REST API client from Swagger/OpenAPI spec",
-    "description": "A tool that reads a Swagger/OpenAPI JSON spec and generates Gerbil Scheme source code for a REST API client. For each endpoint, it would generate a function with the correct path, HTTP method, path parameters, query parameters, and request body structure. This would dramatically accelerate building API clients like gerbil-jira, where the Jira API has 597 endpoints across 97 groups. Currently, each endpoint must be manually translated from the spec to Scheme code, which is tedious and error-prone.",
-    "impact": "high",
-    "tags": [
-      "swagger",
-      "openapi",
-      "api",
-      "client",
-      "scaffold",
-      "generate",
-      "rest"
-    ],
-    "use_case": "When building a Gerbil REST API client for a service that publishes a Swagger/OpenAPI spec (Jira, GitHub, AWS, etc.), generate the boilerplate API functions automatically instead of hand-coding each endpoint.",
-    "example_scenario": "User has a swagger-v3.json with 597 Jira endpoints. They call gerbil_swagger_scaffold with the spec path and output directory. The tool generates Gerbil source files grouped by API tag (issues.ss, projects.ss, etc.) with a function per endpoint, correct parameter names, and proper HTTP method calls. The user then just needs to add formatting/CLI logic on top.",
-    "estimated_token_reduction": "~10000+ tokens per API client project. Eliminates manually reading the spec and translating hundreds of endpoints to Scheme functions."
-  },
-  {
+{
     "id": "ffi-binding-scaffold",
     "title": "Generate FFI bindings from C header files",
     "description": "A tool that parses a C header file and generates Gambit FFI binding code (.scm file with c-declare, c-define-type, c-lambda declarations). It would recognize common patterns: opaque pointer types, create/destroy function pairs (for automatic cleanup), and simple function signatures. This would dramatically accelerate creating Gerbil bindings for C libraries like LevelDB, SQLite, etc.",
