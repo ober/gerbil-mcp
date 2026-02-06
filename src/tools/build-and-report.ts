@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat, access, constants } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -112,6 +112,15 @@ export function registerBuildAndReportTool(server: McpServer): void {
 
         return {
           content: [{ type: 'text' as const, text: sections.join('\n') }],
+        };
+      }
+
+      // Check for non-executable build.ss before other failure handling
+      const buildSsPermissionHint = await checkBuildSsPermissions(project_path, result);
+      if (buildSsPermissionHint) {
+        return {
+          content: [{ type: 'text' as const, text: buildSsPermissionHint }],
+          isError: true,
         };
       }
 
@@ -294,6 +303,36 @@ async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
     // No gerbil.pkg or can't read it — no auto-detection
   }
   return [];
+}
+
+/**
+ * Check if build.ss exists but lacks the executable bit when a build fails
+ * with "Permission denied". Returns a helpful diagnostic message, or null.
+ */
+async function checkBuildSsPermissions(
+  projectPath: string,
+  result: { stdout: string; stderr: string },
+): Promise<string | null> {
+  const combined = [result.stdout, result.stderr].join('\n');
+  if (!/permission denied/i.test(combined)) return null;
+
+  const buildSsPath = join(projectPath, 'build.ss');
+  try {
+    await stat(buildSsPath);
+  } catch {
+    return null; // build.ss doesn't exist — not a permission issue
+  }
+
+  try {
+    await access(buildSsPath, constants.X_OK);
+    return null; // build.ss is executable — permission denied is from something else
+  } catch {
+    return (
+      `Build failed: build.ss is not executable.\n\n` +
+      `Fix with: chmod +x ${buildSsPath}\n\n` +
+      `The file exists but lacks the executable bit, which is required by \`gerbil build\`.`
+    );
+  }
 }
 
 const MAKE_MAX_BUFFER = 1024 * 1024;

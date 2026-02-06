@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, ChildProcess } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -2166,6 +2166,29 @@ test:
       });
       // Should work without error regardless of build outcome
       expect(result.text).toBeDefined();
+    }, 60000);
+
+    it('gerbil_build_and_report detects non-executable build.ss', async () => {
+      const noExecDir = join(TEST_DIR, 'no-exec-build');
+      mkdirSync(noExecDir, { recursive: true });
+      writeFileSync(join(noExecDir, 'gerbil.pkg'), '(package: test-no-exec)');
+      writeFileSync(
+        join(noExecDir, 'build.ss'),
+        '#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script \'("hello"))\n',
+      );
+      // Explicitly remove executable bit
+      chmodSync(join(noExecDir, 'build.ss'), 0o644);
+      writeFileSync(
+        join(noExecDir, 'hello.ss'),
+        '(export greet)\n(def (greet name) (string-append "Hello, " name "!"))\n',
+      );
+
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: noExecDir,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not executable');
+      expect(result.text).toContain('chmod');
     }, 60000);
   });
 

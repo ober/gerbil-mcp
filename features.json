@@ -113,21 +113,5 @@
     "use_case": "When generating code that will be compiled (e.g., code generators, project scaffolding), cookbook recipes are used as reference patterns. If the recipe uses a REPL-only pattern, the generated code will fail to compile, requiring debugging and workarounds.",
     "example_scenario": "Code generator emits (for ((k v) (in-hash data)) ...) based on the iterate-hash cookbook recipe. The generated project fails to build with 'unbound identifier: v'. Developer spends 500+ tokens debugging before discovering the REPL-vs-compiler divergence and rewriting with (for (kv (in-hash data)) (let ((k (car kv)) (v (cdr kv))) ...)).",
     "estimated_token_reduction": "~500-1000 tokens per incident. Prevents debugging sessions caused by copying REPL-only patterns into compiled code."
-  },
-  {
-    "id": "build-auto-chmod-build-ss",
-    "title": "Auto-detect and report non-executable build.ss in gerbil_build_and_report",
-    "description": "When gerbil_build_and_report fails with \"Permission denied\", the tool should check if build.ss exists but lacks the executable bit, and report a clear diagnostic message like \"build.ss is not executable — run chmod +x build.ss\" instead of the generic error. This is a very common issue when creating new Gerbil projects.",
-    "impact": "medium",
-    "tags": [
-      "build",
-      "permission",
-      "chmod",
-      "build.ss",
-      "diagnostic"
-    ],
-    "use_case": "When creating a new Gerbil project, the build.ss file is often created without the executable bit. The current error message is cryptic: \"Permission denied\" buried in a subprocess error chain.",
-    "example_scenario": "User creates a new project and writes build.ss. Runs gerbil_build_and_report. Gets \"1 error: Permission denied\" with no indication that chmod +x is needed. Has to manually debug the file permissions.",
-    "estimated_token_reduction": "~200 tokens per occurrence — eliminates a round-trip of debugging and running chmod manually"
   }
 ]

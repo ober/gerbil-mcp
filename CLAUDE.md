@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 187 tests must pass before considering any change complete. The test suite covers:
+All 188 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -66,7 +66,7 @@ All 187 tests must pass before considering any change complete. The test suite c
 - Demangle tool (hex decoding, double underscore, prefix recognition, module/symbol split)
 - Stale static files tool (no local files, no overlap, size mismatch detection, matching files, extension filtering)
 - Module exports declare fallback (compiled .scm artifact scanning when expander fails)
-- Build and report auto-loadpath (gerbil.pkg depend: auto-detection)
+- Build and report auto-loadpath (gerbil.pkg depend: auto-detection, non-executable build.ss detection)
 - Balanced replace tool (balance-preserving edits, rejection on break, fix detection, dry-run, ambiguous match, strings with parens)
 - Wrap form tool (single-line wrap, multi-line range, auto-detect end_line, invalid wrapper rejection, dry-run)
 - Splice form tool (default head removal, explicit keep_children, single child, apply mode, no form found)
