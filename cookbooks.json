@@ -3597,5 +3597,178 @@
       "gambit-path-builtins",
       "run-external-process"
     ]
+  },
+  {
+    "id": "hex-escape-semicolon-terminator",
+    "title": "Hex escapes in strings require semicolon terminator (\\xNN;)",
+    "tags": [
+      "hex",
+      "escape",
+      "string",
+      "R7RS",
+      "reader",
+      "syntax",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; WRONG — causes \"Invalid hexadecimal escape\" reader error:\n;; \"\\x1b[K\"    ;; intended: ESC [ K\n;; \"\\x07\"      ;; intended: BEL character\n;; \"\\x0b\"      ;; intended: vertical tab\n\n;; CORRECT — Gerbil/Gambit uses R7RS hex escape syntax with semicolon terminator:\n\"\\x1b;[K\"     ;; ESC [ K  (ANSI clear to end of line)\n\"\\x07;\"       ;; BEL character\n\"\\x0b;\"       ;; vertical tab\n\n;; The semicolon terminates the hex escape, it is NOT a literal character.\n(string-length \"\\x1b;\")   ;; => 1 (just the ESC character)\n(string-length \"\\x1b;[K\") ;; => 3 (ESC, [, K)\n\n;; For ANSI escapes, an alternative is to use (string #\\escape):\n(def ESC-STR (string #\\escape))\n(string-append ESC-STR \"[K\")  ;; equivalent to \"\\x1b;[K\"\n\n;; Or use the character literal directly:\n(string #\\escape #\\[ #\\K)  ;; => \"\\x1b;[K\"",
+    "notes": "This is a common gotcha when porting code from other Scheme implementations or C. Most languages use \\xNN without a terminator, but Gerbil/Gambit follows R7RS which requires \\xNN; with a semicolon. Without the semicolon, the reader tries to consume more hex digits and fails with \"Invalid hexadecimal escape\". The alternative (string #\\escape) approach avoids this issue entirely and is more readable for ANSI escape sequences.",
+    "related": [
+      "tty-mode-set-raw-cooked"
+    ]
+  },
+  {
+    "id": "symbol-reader-special-chars",
+    "title": "Symbols with # and , are invalid — use safe names in case/quote",
+    "tags": [
+      "symbol",
+      "reader",
+      "quote",
+      "hash",
+      "comma",
+      "unquote",
+      "case",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Some characters are special to the Gerbil reader and cannot\n;; be used in quoted symbols, even inside case clauses.\n\n;; WRONG — these cause reader errors:\n;; '#      ;; # is a reader dispatch character — '# is not a valid datum\n;; '##     ;; same issue\n;; ',      ;; , is unquote — ', becomes (unquote ...)\n;; ',,     ;; double unquote\n\n;; Reader error examples:\n;; (case x ((#) \"hash\"))    ;; Datum expected\n;; (case x ((,) \"comma\"))   ;; reader interprets , as unquote\n;; (case x ((,,) \"dc\"))     ;; Incomplete form, EOF reached\n\n;; CORRECT — use descriptive symbol names instead:\n(case modifier\n  ((prefix-short) \"# — remove shortest prefix\")\n  ((prefix-long)  \"## — remove longest prefix\")\n  ((lc-first)     \", — lowercase first char\")\n  ((lc-all)       \",, — lowercase all chars\")\n  (else \"unknown\"))\n\n;; Characters that WORK fine as symbols:\n'%     ;; => %\n'%%    ;; => %%\n'/     ;; => /\n'//    ;; => //\n'^     ;; => ^\n'^^    ;; => ^^\n':     ;; => :\n':-    ;; => :-\n'+     ;; => +\n'-     ;; => -\n\n;; Characters that DO NOT work as symbols:\n;; '#   — reader dispatch prefix\n;; '##  — Gambit namespace prefix\n;; ',   — unquote\n;; ',,  — double unquote\n;; '`   — quasiquote",
+    "notes": "This commonly bites when implementing shell-like DSLs where operators include # and , characters. The workaround is to map these to descriptive symbol names internally (e.g., 'prefix-short for #, 'lc-all for ,,). Character literals (#\\# and #\\,) work fine — the issue is only with quoted symbols.",
+    "related": [
+      "hex-escape-semicolon-terminator"
+    ]
+  },
+  {
+    "id": "dot-syntax-non-self-class-access",
+    "title": "Use explicit accessors (not dot syntax) for non-self class instances",
+    "tags": [
+      "dot",
+      "syntax",
+      "slot-ref",
+      "class",
+      "defclass",
+      "accessor",
+      "parent",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; Inside defmethod, self.field works because self is the class instance.\n;; But other-obj.field can fail during compilation.\n\n(defclass animal (name age) transparent: #t constructor: :init!)\n\n(defmethod {:init! animal}\n  (lambda (self parent: (parent #f))\n    ;; WORKS — self.field is special in defmethod:\n    (set! self.name \"default\")\n    (set! self.age 0)\n\n    ;; MAY FAIL at compile time — parent.name uses unsafe slot-ref:\n    ;; (set! self.name (if parent parent.name \"default\"))\n\n    ;; CORRECT — use the generated accessor function:\n    (set! self.name (if parent (animal-name parent) \"default\"))\n    (set! self.age (if parent (animal-age parent) 0))))\n\n;; General rule:\n;; - self.field      → OK inside defmethod (compiler knows the type)\n;; - (@ obj field)   → OK for dynamic slot access (runtime dispatch)\n;; - (TypeName-field obj) → OK always (generated accessor, no dispatch)\n;; - other-var.field → UNRELIABLE (reader macro, may fail at compile time)\n\n;; For safe access on any variable, use the accessor:\n(def (clone-animal a)\n  (make-animal (animal-name a) (animal-age a)))",
+    "notes": "The dot syntax obj.field is a reader macro that expands to (##slot-ref obj 'field) or similar. Inside defmethod bodies, self.field is handled specially by the compiler. For other variables, it uses unsafe slot access that can fail during compilation if the compiler can't verify the type. Always use the defclass/defstruct-generated accessor functions (TypeName-field obj) for non-self access. This is especially important when the variable might be #f (e.g., optional parent parameter).",
+    "related": [
+      "typed-struct-field-access",
+      "use-internal-helper-rebind-conflict"
+    ]
+  },
+  {
+    "id": "qt-qapplication-argc-by-reference",
+    "title": "QApplication argc must use static storage (not stack variables)",
+    "tags": [
+      "qt",
+      "qapplication",
+      "argc",
+      "argv",
+      "segfault",
+      "by-reference",
+      "ffi",
+      "c++",
+      "static"
+    ],
+    "imports": [],
+    "code": "// PROBLEM: QApplication(int &argc, char **argv) takes argc BY REFERENCE.\n// If you pass a local variable, Qt stores a dangling reference.\n// This causes SIGSEGV in QCoreApplication::arguments() -> strlen()\n// when a window is shown (not during construction!).\n\n// WRONG — argc is a local that goes out of scope:\n// qt_application_t qt_application_create(int argc, char** argv) {\n//     return new QApplication(argc, argv);  // dangling reference!\n// }\n\n// CORRECT — use static storage for argc:\nstatic int    s_argc = 1;\nstatic char   s_arg0[] = \"gerbil-qt\";\nstatic char*  s_argv[] = { s_arg0, nullptr };\n\nextern \"C\" void* qt_application_create(void) {\n    return new QApplication(s_argc, s_argv);\n}\n\n// The crash is deferred — construction works fine, but showing a window\n// triggers QXcbIntegration::wmClass() -> QCoreApplication::arguments()\n// which reads the dangling argc reference -> SIGSEGV in strlen().",
+    "notes": "Qt documentation says: \"argc and argv and must remain valid for the entire lifetime of the QApplication object.\" The reference parameter is stored internally. This is a common C++ FFI pitfall because C wrappers typically pass argc by value, but QApplication expects a reference. The segfault is deferred to window show time, making it hard to diagnose. GDB backtrace shows: strlen -> QCoreApplication::arguments -> QXcbIntegration::wmClass -> QXcbWindow::create -> QWidget::show.",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "build-ffi-with-pkg-config"
+    ]
+  },
+  {
+    "id": "ffi-const-char-return-cfun-assign-warning",
+    "title": "Fix ___CFUN_ASSIGN warning for const char* return types in FFI",
+    "tags": [
+      "ffi",
+      "const",
+      "char",
+      "return",
+      "CFUN_ASSIGN",
+      "warning",
+      "c-lambda",
+      "UTF-8-string"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PROBLEM: When a C function returns const char*, binding it with\n;; UTF-8-string return type causes a compiler warning:\n;;\n;;   warning: assignment discards 'const' qualifier from pointer target type\n;;   ___CFUN_ASSIGN(___result, my_get_text(___arg1))\n;;\n;; This is because Gambit's ___CFUN_ASSIGN macro assigns to a char*\n;; variable, but the function returns const char*.\n\n;; WRONG — compiles but produces warning:\n;; (define-c-lambda my_get_text ((pointer void)) UTF-8-string\n;;   \"my_get_text\")\n\n;; CORRECT — use a C wrapper that casts away const:\n(begin-ffi (my_get_text)\n  (c-declare #<<END-C\n#include \"mylib.h\"\n\n/* Wrapper: cast away const to suppress ___CFUN_ASSIGN warning.\n   Safe because Gambit immediately copies into a Scheme string. */\nstatic char* ffi_my_get_text(void* obj) {\n    return (char*)my_get_text(obj);\n}\nEND-C\n  )\n\n  ;; Bind the wrapper, not the original\n  (define-c-lambda my_get_text ((pointer void)) UTF-8-string\n    \"ffi_my_get_text\")\n)",
+    "notes": "The cast is safe because Gambit's UTF-8-string handling immediately copies the C string into a Scheme string object — it never writes through the pointer. Without the wrapper, the code works correctly but produces compiler warnings that clutter build output. This pattern is needed for any C function returning const char* when bound with UTF-8-string or char-string return type. Common in Qt (label text getters), GTK, and other C++ libraries with C wrapper APIs.",
+    "related": [
+      "c-define-char-string-const-mismatch",
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "hash-literal-symbol-keys-no-quote",
+    "title": "Hash literal with symbol keys: do NOT quote keys",
+    "tags": [
+      "hash",
+      "literal",
+      "symbol",
+      "keys",
+      "quote",
+      "gotcha",
+      "hash-ref"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: (hash) literal auto-quotes the first element of each pair.\n;; Do NOT add explicit quotes — that creates a LIST key, not a symbol key.\n\n;; WRONG — keys are (quote command) i.e. a 2-element list, not a symbol:\n(def bad (hash ('command #f) ('script #f)))\n(hash-ref bad 'command)  ;; ERROR: UnboundKeyError — key 'command not found!\n;; The actual key is the LIST (quote command), not the SYMBOL command.\n\n;; CORRECT — bare identifiers become symbol keys automatically:\n(def good (hash (command #f) (script #f)))\n(hash-ref good 'command)  ;; => #f — works!\n(hash->list good)  ;; => ((script . #f) (command . #f))\n\n;; For string keys, use string literals:\n(def str-ht (hash (\"name\" \"alice\") (\"age\" 30)))\n(hash-ref str-ht \"name\")  ;; => \"alice\"\n\n;; REMEMBER: hash-put! with symbol keys works fine:\n(hash-put! good 'command \"ls -la\")\n(hash-ref good 'command)  ;; => \"ls -la\"",
+    "notes": "The hash literal macro auto-quotes the car of each pair. Writing ('foo val) makes the key (quote foo), a list. Writing (foo val) makes the key 'foo, a symbol. This is a very common source of \"unknown hash key\" errors when initializing hash tables with symbol keys. Use (hash-eq ...) if you specifically want eq? comparison for symbol keys.",
+    "related": [
+      "hash-table-operations",
+      "hash-ref-void-truthy"
+    ]
+  },
+  {
+    "id": "fdopen-three-args",
+    "title": "fdopen from :std/os/fd takes 3 arguments: fd, direction, close-on-gc",
+    "tags": [
+      "fdopen",
+      "fd",
+      "port",
+      "pipe",
+      "arity",
+      "std/os/fd"
+    ],
+    "imports": [
+      ":std/os/fd",
+      ":std/os/fdio",
+      ":std/os/fcntl"
+    ],
+    "code": "(import :std/os/fd :std/os/fdio :std/os/fcntl)\n\n;; fdopen wraps a raw integer fd into a Gambit port.\n;; Signature: (fdopen fd direction close-on-gc?)\n;;   fd          — raw integer file descriptor\n;;   direction   — 'in for input port, 'out for output port\n;;   close-on-gc — #t to close fd when port is GC'd\n\n;; WRONG — only 2 args causes arity mismatch at compile time:\n;; (fdopen read-fd 'in)  ;; ERROR: arity mismatch, expected 3 args\n\n;; CORRECT:\n(let ((fd (open \"/dev/null\" O_RDONLY)))\n  (let ((port (fdopen fd 'in #t)))\n    (input-port? port)  ;; => #t\n    (close-port port)))\n\n;; Typical use with pipe 'none for shell pipelines:\n(import :std/os/pipe)\n(receive (rfd wfd) (pipe 'none)\n  (let ((write-port (fdopen wfd 'out #t))\n        (read-port  (fdopen rfd 'in #t)))\n    (display \"hello\" write-port)\n    (force-output write-port)\n    (close-port write-port)\n    (let ((line (read-line read-port)))\n      (close-port read-port)\n      line)))\n;; => \"hello\"",
+    "notes": "fdopen is strictly 3-arity. The third argument (close-on-gc?) should almost always be #t so the fd is cleaned up when the port is garbage collected. Passing #f means you're responsible for closing the fd manually. The direction must be 'in or 'out — there is no 'inout mode for fdopen.",
+    "related": [
+      "os-pipe-create-fd-pair",
+      "open-process-undocumented-settings"
+    ]
+  },
+  {
+    "id": "ffi-multi-type-callback-trampolines",
+    "title": "Multiple callback trampolines for different signal signatures (void, string, int, bool)",
+    "tags": [
+      "ffi",
+      "callback",
+      "trampoline",
+      "c-define",
+      "signal",
+      "multi-type",
+      "dispatch",
+      "Qt",
+      "GUI"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PATTERN: When a C library has signals/callbacks with DIFFERENT signatures\n;; (e.g., void(id), void(id, string), void(id, int), void(id, bool)),\n;; use separate dispatch tables and trampolines per signature type.\n;; Shares a single callback ID counter across all tables.\n\n;; Inside begin-ffi:\n\n;; 1. Separate dispatch tables per callback signature\n(define *void-handlers* (make-hash-table))\n(define *string-handlers* (make-hash-table))\n(define *int-handlers* (make-hash-table))\n(define *bool-handlers* (make-hash-table))\n(define *next-callback-id* 0)\n\n;; Register functions return a unique ID across all tables\n(define (register-void-handler! proc)\n  (let ((id *next-callback-id*))\n    (set! *next-callback-id* (+ id 1))\n    (hash-put! *void-handlers* id proc)\n    id))\n\n(define (register-string-handler! proc)\n  (let ((id *next-callback-id*))\n    (set! *next-callback-id* (+ id 1))\n    (hash-put! *string-handlers* id proc)\n    id))\n\n(define (register-int-handler! proc)\n  (let ((id *next-callback-id*))\n    (set! *next-callback-id* (+ id 1))\n    (hash-put! *int-handlers* id proc)\n    id))\n\n(define (register-bool-handler! proc)\n  (let ((id *next-callback-id*))\n    (set! *next-callback-id* (+ id 1))\n    (hash-put! *bool-handlers* id proc)\n    id))\n\n;; 2. Four c-define trampolines — each handles one signature\n(c-define (ffi_void_cb id) (long) void \"ffi_void_cb\" \"\"\n  (let ((h (hash-ref *void-handlers* id #f))) (when h (h))))\n\n(c-define (ffi_string_cb id value) (long UTF-8-string) void \"ffi_string_cb\" \"\"\n  (let ((h (hash-ref *string-handlers* id #f))) (when h (h value))))\n\n(c-define (ffi_int_cb id value) (long int) void \"ffi_int_cb\" \"\"\n  (let ((h (hash-ref *int-handlers* id #f))) (when h (h value))))\n\n(c-define (ffi_bool_cb id value) (long int) void \"ffi_bool_cb\" \"\"\n  (let ((h (hash-ref *bool-handlers* id #f)))\n    (when h (h (not (= value 0))))))  ;; convert C int to Scheme boolean\n\n;; 3. Static C trampolines that forward to the c-define'd functions\n;; (c-declare block — must be in same compilation unit)\n(c-declare #<<END-C\nvoid ffi_void_cb(long id);\nvoid ffi_string_cb(long id, char* value);\nvoid ffi_int_cb(long id, int value);\nvoid ffi_bool_cb(long id, int value);\n\nstatic void void_trampoline(long id) { ffi_void_cb(id); }\nstatic void string_trampoline(long id, const char* v) { ffi_string_cb(id, (char*)v); }\nstatic void int_trampoline(long id, int v) { ffi_int_cb(id, v); }\nstatic void bool_trampoline(long id, int v) { ffi_bool_cb(id, v); }\n\n/* C wrapper connects a specific signal to the appropriate trampoline */\n/* Example: button clicked → void trampoline */\nstatic void ffi_connect_clicked(void* btn, long id) {\n    my_button_on_clicked(btn, void_trampoline, id);\n}\n/* Example: text changed → string trampoline */\nstatic void ffi_connect_text_changed(void* edit, long id) {\n    my_edit_on_text_changed(edit, string_trampoline, id);\n}\nEND-C\n)\n\n;; 4. Bind the connection wrappers\n(define-c-lambda raw_connect_clicked ((pointer void) long) void \"ffi_connect_clicked\")\n(define-c-lambda raw_connect_text_changed ((pointer void) long) void \"ffi_connect_text_changed\")\n\n;; === High-level usage ===\n;; (def (on-clicked! button handler)\n;;   (raw_connect_clicked button (register-void-handler! handler)))\n;;\n;; (def (on-text-changed! edit handler)\n;;   (raw_connect_text_changed edit (register-string-handler! handler)))\n;;\n;; (on-clicked! my-btn (lambda () (displayln \"clicked!\")))\n;; (on-text-changed! my-edit (lambda (text) (displayln \"text: \" text)))",
+    "notes": "Extends the single-dispatch-table recipe to handle C libraries (like Qt, GTK) where different signals have different callback signatures. Key points: (1) Share one ID counter across all tables so IDs never collide. (2) The bool trampoline takes int from C and converts to Scheme boolean with (not (= value 0)). (3) Forward declarations for c-define use char* not const char* (Gambit generates char*). (4) Static trampolines cast const char* → char* to bridge the C library's const signatures to Gambit's char* c-define. (5) Each signal connection gets its own C wrapper that passes the right trampoline.",
+    "related": [
+      "ffi-callback-dispatch-table",
+      "c-define-char-string-const-mismatch",
+      "ffi-cfun-assign-const-char-fix"
+    ]
   }
 ]

@@ -1,4 +1,4 @@
-.PHONY: all install build clean
+.PHONY: all install build clean update
 
 all: install build
 
@@ -10,3 +10,7 @@ build:
 
 clean:
 	rm -rf dist node_modules
+
+update:
+	mkdir -p ~/.claude
+	cp CLAUDE.md.gerbil-example ~/.claude/CLAUDE.md

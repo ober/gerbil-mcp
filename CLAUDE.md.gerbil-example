@@ -105,8 +105,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Feature Suggestions
 
-- **`gerbil_list_features`**: Search or list existing feature suggestions for the gerbil-mcp toolset. Use before suggesting a new feature to check for duplicates.
-- **`gerbil_suggest_feature`**: Submit a feature suggestion for a new or improved gerbil-mcp tool. Requires `id`, `title`, `description`, `impact` (high/medium/low), `tags`, `use_case`, `example_scenario`, and `estimated_token_reduction`. Suggestions are stored in the server's `features.json`.
+- **`gerbil_list_features`**: Search or list existing feature suggestions for the gerbil-mcp toolset. Use before suggesting a new feature to check for duplicates. Shows vote counts for each feature.
+- **`gerbil_suggest_feature`**: Submit a feature suggestion for a new or improved gerbil-mcp tool. Requires `id`, `title`, `description`, `impact` (high/medium/low), `tags`, `use_case`, `example_scenario`, and `estimated_token_reduction`. Suggestions are stored in the server's `features.json`. New suggestions start with 0 votes.
+- **`gerbil_vote_feature`**: Vote for an existing feature suggestion by ID. Use this when you encounter a situation where a suggested feature would have saved time or tokens. Votes help prioritize which features to implement next.
 
 ### Key Principle
 
@@ -174,7 +175,8 @@ Then invoke at any time during a session:
 This triggers Claude to review the session and:
 1. Save non-trivial Gerbil patterns as cookbook recipes via `gerbil_howto_add`
 2. Submit tooling improvement ideas via `gerbil_suggest_feature`
-3. Check for duplicates before saving either
+3. Vote for existing feature suggestions that would have helped via `gerbil_vote_feature`
+4. Check for duplicates before saving either
 
 ### PreCompact Hook (Automatic)
 
@@ -229,7 +231,7 @@ When you notice opportunities to improve the gerbil-mcp toolset during a session
 - Notice repeated patterns across sessions that could be automated
 - Discover that an existing tool is missing a useful parameter or mode
 
-### Before suggesting, first check `gerbil_list_features` to avoid duplicates.
+### Before suggesting, first check `gerbil_list_features` to avoid duplicates. If a feature already exists that matches your need, vote for it with `gerbil_vote_feature` instead of creating a duplicate.
 
 ### When suggesting, fill in all fields honestly:
 

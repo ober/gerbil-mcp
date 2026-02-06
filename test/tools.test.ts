@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, ChildProcess } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -2460,6 +2460,62 @@ extern void iterator_destroy(iterator_t *it);
       });
       expect(result.isError).toBe(false);
       expect(result.text).toContain('No feature suggestions found');
+    });
+
+    it('gerbil_suggest_feature initializes votes to 0', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const raw = readFileSync(featuresPath, 'utf-8');
+      const features = JSON.parse(raw);
+      for (const f of features) {
+        expect(f.votes).toBe(0);
+      }
+    });
+
+    it('gerbil_list_features displays votes in output', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Votes: 0');
+    });
+
+    it('gerbil_vote_feature increments vote count', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_vote_feature', {
+        features_path: featuresPath,
+        id: 'batch-module-check',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Voted for "batch-module-check"');
+      expect(result.text).toContain('1 vote(s)');
+
+      // Vote again
+      const result2 = await client.callTool('gerbil_vote_feature', {
+        features_path: featuresPath,
+        id: 'batch-module-check',
+      });
+      expect(result2.isError).toBe(false);
+      expect(result2.text).toContain('2 vote(s)');
+    });
+
+    it('gerbil_vote_feature errors on nonexistent feature', async () => {
+      const featuresPath = join(TEST_DIR, 'features', 'features.json');
+      const result = await client.callTool('gerbil_vote_feature', {
+        features_path: featuresPath,
+        id: 'nonexistent-feature',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+
+    it('gerbil_vote_feature errors on missing file', async () => {
+      const result = await client.callTool('gerbil_vote_feature', {
+        features_path: '/nonexistent/path/features.json',
+        id: 'some-feature',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
     });
   });
 

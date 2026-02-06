@@ -19,6 +19,7 @@ export interface FeatureSuggestion {
   use_case: string;
   example_scenario: string;
   estimated_token_reduction: string;
+  votes: number;
 }
 
 export function registerSuggestFeatureTool(server: McpServer): void {
@@ -102,7 +103,10 @@ export function registerSuggestFeatureTool(server: McpServer): void {
         }
       }
 
-      // Build the new suggestion
+      // Replace existing suggestion with same id, or append
+      const existingIdx = features.findIndex((f) => f.id === id);
+      const existingVotes = existingIdx >= 0 ? (features[existingIdx].votes ?? 0) : 0;
+
       const suggestion: FeatureSuggestion = {
         id,
         title,
@@ -112,10 +116,9 @@ export function registerSuggestFeatureTool(server: McpServer): void {
         use_case,
         example_scenario,
         estimated_token_reduction,
+        votes: existingVotes,
       };
 
-      // Replace existing suggestion with same id, or append
-      const existingIdx = features.findIndex((f) => f.id === id);
       if (existingIdx >= 0) {
         features[existingIdx] = suggestion;
       } else {

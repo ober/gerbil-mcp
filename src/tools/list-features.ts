@@ -120,10 +120,11 @@ export function registerListFeaturesTool(server: McpServer): void {
 function formatFeatures(features: FeatureSuggestion[]): string {
   return features
     .map((f) => {
+      const votes = f.votes ?? 0;
       const parts = [
         `## ${f.title}`,
         `ID: ${f.id}`,
-        `Impact: ${f.impact}`,
+        `Impact: ${f.impact} | Votes: ${votes}`,
         `Tags: ${f.tags.join(', ')}`,
         `Description: ${f.description}`,
         `Use case: ${f.use_case}`,
