@@ -2259,5 +2259,1201 @@
       "gxpkg-install-destroys-cwd",
       "gerbil-build-loadpath"
     ]
+  },
+  {
+    "id": "websocket-binary-send-receive",
+    "title": "Send and receive binary WebSocket messages",
+    "tags": [
+      "websocket",
+      "binary",
+      "send",
+      "receive",
+      "message",
+      "u8vector",
+      "network"
+    ],
+    "imports": [
+      ":std/net/websocket"
+    ],
+    "code": "(import :std/net/websocket)\n\n;; Connect to a WebSocket endpoint\n(def ws (websocket-connect \"wss://example.com/ws\"))\n\n;; IMPORTANT: make-message is a STRUCT constructor — positional args only!\n;; Field order: (data type partial?)\n;; - data: u8vector for binary, string for text\n;; - type: 'binary or 'text\n;; - partial?: #f for complete messages\n\n;; Send a binary message\n(def payload #u8(1 2 3 4 5))\n(WebSocket-send ws (make-message payload 'binary #f))\n\n;; Send a text message\n(WebSocket-send ws (make-message \"{\\\"action\\\":\\\"hello\\\"}\" 'text #f))\n\n;; Receive a message (blocks until available)\n(let ((msg (WebSocket-recv ws)))\n  (displayln \"Type: \" (message-type msg))      ;; 'binary or 'text\n  (displayln \"Data: \" (message-data msg))      ;; u8vector or string\n  (displayln \"Partial: \" (message-partial? msg)))\n\n;; Close the connection\n(WebSocket-close ws)",
+    "notes": "CRITICAL: make-message uses POSITIONAL arguments (it's a defstruct). Do NOT use keyword args like (make-message type: 'binary data: payload) — this will fail with \"arguments don't match object size\". The field order is (data type partial?). WebSocket-send and WebSocket-recv are the methods (capital W). message-data, message-type, message-partial? are the accessors (lowercase m).",
+    "related": [
+      "defstruct-positional-args"
+    ]
+  },
+  {
+    "id": "os-pipe-create-fd-pair",
+    "title": "Create OS pipe fd pair with :std/os/pipe",
+    "tags": [
+      "pipe",
+      "fd",
+      "file descriptor",
+      "os",
+      "pipeline",
+      "ipc",
+      "values"
+    ],
+    "imports": [
+      ":std/os/pipe",
+      ":std/os/fd",
+      ":std/os/fdio"
+    ],
+    "code": ";; Create an OS-level pipe using :std/os/pipe\n;; pipe returns VALUES (not a vector!) with a direction parameter.\n;; Signature: (pipe (direction 'inout) (closeonexec #t))\n;; direction controls which ends become Gambit ports vs raw fds:\n;;   'inout (default) — both ends are Gambit ports (read-port, write-port)\n;;   'in    — read end is Gambit port, write end is raw fd\n;;   'out   — read end is raw fd, write end is Gambit port\n;;   'none  — both ends are raw fd integers\n(import :std/os/pipe :std/os/fd :std/os/fdio)\n\n;; Default ('inout) — both ends are Gambit ports:\n(receive (read-port write-port) (pipe)\n  (display \"hello from pipe\\n\" write-port)\n  (force-output write-port)\n  (close-port write-port)\n  (let ((line (read-line read-port)))\n    (close-port read-port)\n    line))\n;; => \"hello from pipe\"\n\n;; Raw fds ('none) — for passing to open-process or fdwrite:\n(receive (read-fd write-fd) (pipe 'none)\n  (fdwrite write-fd (string->bytes \"raw pipe data\\n\"))\n  (close write-fd)\n  (let* ((read-port (fdopen read-fd 'in))\n         (line (read-line read-port)))\n    (close-port read-port)\n    line))\n;; => \"raw pipe data\"\n\n;; Mixed ('in) — read port + raw write fd (useful for shell pipelines):\n;; Launch cmd1 with stdout -> write-fd, read cmd1 output from read-port\n(receive (read-port write-fd) (pipe 'in)\n  ;; write-fd is a raw integer for passing to open-process\n  ;; read-port is a Gambit port for read-line etc.\n  (close write-fd)    ;; close raw fd with close from :std/os/fdio\n  (close-port read-port))\n\n;; PIPELINE PATTERN for cmd1 | cmd2:\n;;   (receive (read-port write-fd) (pipe 'in)\n;;     ;; Launch cmd1 with stdout -> write-fd\n;;     ;; Launch cmd2 with stdin -> read-port\n;;     ;; Close write-fd and read-port in parent\n;;     ;; Wait for both processes)",
+    "notes": "CORRECTED: pipe returns VALUES (via (values ...)), NOT a vector. Use receive or call-with-values to destructure. The direction parameter controls which ends are Gambit ports vs raw fd integers. Default 'inout gives both as ports. Use 'none for raw fds, 'in for read-port+write-fd, 'out for read-fd+write-port. The closeonexec parameter defaults to #t (sets O_CLOEXEC). Use close from :std/os/fdio for raw fds, close-port for Gambit ports.",
+    "related": [
+      "open-process-stdin-write-read",
+      "run-external-process"
+    ]
+  },
+  {
+    "id": "u8vector-big-endian-encoding",
+    "title": "Big-endian binary encoding/decoding with u8vectors",
+    "tags": [
+      "u8vector",
+      "binary",
+      "big-endian",
+      "encode",
+      "decode",
+      "uint32",
+      "uint64",
+      "network",
+      "protocol"
+    ],
+    "imports": [],
+    "code": ";; Big-endian uint32 encode/decode\n(def (encode-uint32 n)\n  (u8vector (bitwise-and (arithmetic-shift n -24) #xff)\n            (bitwise-and (arithmetic-shift n -16) #xff)\n            (bitwise-and (arithmetic-shift n -8) #xff)\n            (bitwise-and n #xff)))\n\n(def (decode-uint32 buf offset)\n  (+ (arithmetic-shift (u8vector-ref buf offset) 24)\n     (arithmetic-shift (u8vector-ref buf (+ offset 1)) 16)\n     (arithmetic-shift (u8vector-ref buf (+ offset 2)) 8)\n     (u8vector-ref buf (+ offset 3))))\n\n;; Big-endian uint64 encode/decode\n(def (encode-uint64 n)\n  (u8vector (bitwise-and (arithmetic-shift n -56) #xff)\n            (bitwise-and (arithmetic-shift n -48) #xff)\n            (bitwise-and (arithmetic-shift n -40) #xff)\n            (bitwise-and (arithmetic-shift n -32) #xff)\n            (bitwise-and (arithmetic-shift n -24) #xff)\n            (bitwise-and (arithmetic-shift n -16) #xff)\n            (bitwise-and (arithmetic-shift n -8) #xff)\n            (bitwise-and n #xff)))\n\n(def (decode-uint64 buf offset)\n  (+ (arithmetic-shift (u8vector-ref buf offset) 56)\n     (arithmetic-shift (u8vector-ref buf (+ offset 1)) 48)\n     (arithmetic-shift (u8vector-ref buf (+ offset 2)) 40)\n     (arithmetic-shift (u8vector-ref buf (+ offset 3)) 32)\n     (arithmetic-shift (u8vector-ref buf (+ offset 4)) 24)\n     (arithmetic-shift (u8vector-ref buf (+ offset 5)) 16)\n     (arithmetic-shift (u8vector-ref buf (+ offset 6)) 8)\n     (u8vector-ref buf (+ offset 7))))\n\n;; u8vector helpers for building binary protocols\n(def (u8v-copy! dest dest-off src src-off len)\n  (let loop ((i 0))\n    (when (< i len)\n      (u8vector-set! dest (+ dest-off i) (u8vector-ref src (+ src-off i)))\n      (loop (+ i 1)))))\n\n(def (u8v-append . vecs)\n  (let* ((total (apply + (map u8vector-length vecs)))\n         (result (make-u8vector total 0)))\n    (let loop ((vecs vecs) (off 0))\n      (unless (null? vecs)\n        (let ((v (car vecs)))\n          (u8v-copy! result off v 0 (u8vector-length v))\n          (loop (cdr vecs) (+ off (u8vector-length v))))))\n    result))\n\n(def (u8v-slice buf start end)\n  (let* ((len (- end start))\n         (result (make-u8vector len)))\n    (u8v-copy! result 0 buf start len)\n    result))\n\n;; Example: build a 12-byte header\n;; [4 bytes: msg-type] [4 bytes: length] [4 bytes: seq-num]\n(def header (u8v-append (encode-uint32 1)     ;; msg-type = 1\n                        (encode-uint32 256)   ;; length = 256\n                        (encode-uint32 42)))  ;; seq-num = 42\n;; => #u8(0 0 0 1 0 0 1 0 0 0 0 42)",
+    "notes": "Gerbil's arithmetic-shift and bitwise-and work on arbitrary precision integers, so uint64 encoding works without overflow issues. For signed int64, use two's complement: if the high bit is set after decode-uint64, subtract (expt 2 64). u8v-append is not in the stdlib — you need to define it yourself for building binary protocol messages."
+  },
+  {
+    "id": "signal-handler-add-remove",
+    "title": "Register and remove signal handlers with :std/os/signal-handler",
+    "tags": [
+      "signal",
+      "handler",
+      "SIGINT",
+      "SIGCHLD",
+      "SIGTERM",
+      "trap",
+      "os"
+    ],
+    "imports": [
+      ":std/os/signal",
+      ":std/os/signal-handler"
+    ],
+    "code": ";; Register signal handlers using :std/os/signal-handler\n;; Signal constants are in :std/os/signal\n(import :std/os/signal :std/os/signal-handler)\n\n;; Available signal constants (partial list):\n;; SIGINT SIGTERM SIGHUP SIGQUIT SIGCHLD SIGPIPE\n;; SIGTSTP SIGCONT SIGSTOP SIGUSR1 SIGUSR2 SIGWINCH\n;; SIGALRM SIGURG SIGPROF SIGVTALRM\n\n;; Register a handler — returns a handler-id for later removal\n(def handler-id\n  (add-signal-handler! SIGINT\n    (lambda (sig)\n      (displayln \"\\nCaught SIGINT (Ctrl+C)\")\n      ;; Handle the signal — e.g., set a flag, cleanup, etc.\n      )))\n\n;; Remove the handler when done\n(remove-signal-handler! handler-id)\n\n;; Multiple handlers can be registered for the same signal:\n(def h1 (add-signal-handler! SIGTERM\n          (lambda (sig) (displayln \"Handler 1: cleanup\"))))\n(def h2 (add-signal-handler! SIGTERM\n          (lambda (sig) (displayln \"Handler 2: save state\"))))\n\n;; Remove individually:\n(remove-signal-handler! h1)\n(remove-signal-handler! h2)\n\n;; Send signals to processes using kill:\n(import :std/os/signal)\n(kill pid SIGTERM)    ;; send SIGTERM to process\n(kill pid SIGINT)     ;; send SIGINT\n(kill pid SIGCONT)    ;; resume a stopped process\n(kill pid SIGSTOP)    ;; stop (pause) a process\n\n;; Block/unblock signals with sigprocmask:\n(let ((mask (make_sigset)))\n  (sigemptyset mask)\n  (sigaddset mask SIGCHLD)\n  (sigprocmask SIG_BLOCK mask #f))  ;; block SIGCHLD",
+    "notes": "add-signal-handler! returns a handler ID (not void) — save it for removal with remove-signal-handler!. The handler receives the signal number as its argument. Multiple handlers can be registered for the same signal; they all fire. kill from :std/os/signal sends signals to processes by PID. For signal masking, use sigprocmask with make_sigset, sigemptyset, sigaddset, sigfillset, sigdelset, and sigismember. Constants SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK control the masking operation.",
+    "related": [
+      "run-external-process",
+      "os-pipe-create-fd-pair"
+    ]
+  },
+  {
+    "id": "terminal-raw-mode-stty",
+    "title": "Set terminal to raw mode and restore on exit",
+    "tags": [
+      "terminal",
+      "raw",
+      "stty",
+      "tty",
+      "interactive",
+      "console",
+      "unbuffered"
+    ],
+    "imports": [
+      ":std/misc/ports",
+      ":std/misc/process"
+    ],
+    "code": "(import :std/misc/ports :std/misc/process)\n\n;; Save current terminal settings\n(def (get-terminal-settings)\n  (with-input-from-process\n    (list path: \"stty\" arguments: [\"-g\"] stdin-redirection: #f)\n    read-all-as-string))\n\n;; Set raw mode (unbuffered, no echo, pass signals)\n(def (set-terminal-raw!)\n  (run-process [\"stty\" \"raw\" \"-echo\" \"icrnl\"]\n    stdin-redirection: #f))\n\n;; Restore saved settings\n(def (restore-terminal! saved-settings)\n  (run-process [\"stty\" (string-trim-right saved-settings)]\n    stdin-redirection: #f))\n\n;; Get terminal size as (columns . rows)\n(def (get-terminal-size)\n  (let ((output (with-input-from-process\n                  (list path: \"stty\" arguments: [\"size\"]\n                        stdin-redirection: #f)\n                  read-all-as-string)))\n    (let ((parts (string-split output #\\space)))\n      (if (>= (length parts) 2)\n        (cons (string->number (list-ref parts 1))   ;; columns\n              (string->number (list-ref parts 0)))   ;; rows\n        (cons 80 24)))))  ;; fallback\n\n;; Example: interactive session with raw terminal\n(def saved-settings (get-terminal-settings))\n(dynamic-wind\n  (lambda () (set-terminal-raw!))\n  (lambda ()\n    ;; Raw terminal active — read single keystrokes\n    (let loop ()\n      (let ((byte (read-u8 (current-input-port))))\n        (unless (or (eof-object? byte) (= byte 3))  ;; Ctrl-C = 3\n          ;; Process the byte...\n          (displayln \"Got: \" byte)\n          (force-output)\n          (loop)))))\n  (lambda () (restore-terminal! saved-settings)))",
+    "notes": "CRITICAL: stty must access the actual terminal, so use stdin-redirection: #f to prevent Gambit from redirecting stdin. Without this, stty will error with \"stdin isn't a terminal\". string-trim-right is needed because stty -g output may include a trailing newline. For interactive binary protocols (like SSM sessions), use read-u8 to read single bytes from stdin in raw mode, not read-char or read-line. Use unwind-protect or dynamic-wind to always restore terminal settings, even on error.",
+    "related": [
+      "run-external-process-capture-output"
+    ]
+  },
+  {
+    "id": "open-process-stdin-write-read",
+    "title": "Write to subprocess stdin and read stdout via open-process",
+    "tags": [
+      "process",
+      "stdin",
+      "write",
+      "pipe",
+      "subprocess",
+      "bidirectional"
+    ],
+    "imports": [],
+    "code": ";; open-process with bidirectional I/O — write to stdin, read from stdout\n;; No imports needed — open-process is a Gambit builtin\n\n;; The port returned by open-process is bidirectional (input+output):\n;; - display/write/fprintf writes to the child's stdin\n;; - read-line/read-char reads from the child's stdout\n\n(let* ((proc (open-process\n               (list path: \"/bin/cat\"\n                     arguments: '()\n                     stdout-redirection: #t\n                     stdin-redirection: #t)))\n       ;; Write to child's stdin\n       (_ (display \"hello from parent\\n\" proc))\n       (_ (force-output proc))\n       ;; Close the write direction so child sees EOF on stdin\n       (_ (close-output-port proc))\n       ;; Read from child's stdout\n       (line (read-line proc))\n       ;; Get exit status (blocks until process exits)\n       (status (process-status proc)))\n  (list line status))\n;; => (\"hello from parent\" 0)\n\n;; IMPORTANT GOTCHAS:\n;; 1. Call (force-output proc) after writing — output is buffered\n;; 2. Call (close-output-port proc) when done writing, or child\n;;    may block forever waiting for more input\n;; 3. process-status blocks until the child exits\n;; 4. Read ALL output BEFORE calling process-status, or you may\n;;    deadlock (child blocks on write, parent blocks on wait)\n\n;; Pattern for interactive command (write, read response, repeat):\n(let ((proc (open-process\n              (list path: \"/usr/bin/bc\"\n                    arguments: '(\"-l\")\n                    stdout-redirection: #t\n                    stdin-redirection: #t))))\n  (display \"2 + 3\\n\" proc)\n  (force-output proc)\n  (let ((result (read-line proc)))\n    (display \"quit\\n\" proc)\n    (force-output proc)\n    (close-output-port proc)\n    (process-status proc)\n    result))\n;; => \"5\"\n\n;; Pattern for filter (write all input, then read all output):\n(let ((proc (open-process\n              (list path: \"/usr/bin/sort\"\n                    arguments: '()\n                    stdout-redirection: #t\n                    stdin-redirection: #t))))\n  (for-each (lambda (line) (display line proc) (newline proc))\n            '(\"cherry\" \"apple\" \"banana\"))\n  (force-output proc)\n  (close-output-port proc)\n  (let loop ((lines '()))\n    (let ((line (read-line proc)))\n      (if (eof-object? line)\n        (begin (process-status proc) (reverse lines))\n        (loop (cons line lines))))))",
+    "notes": "The port from open-process is bidirectional when both stdin-redirection: and stdout-redirection: are #t. The MOST COMMON mistake is forgetting force-output (writes are buffered) or forgetting close-output-port (child never sees EOF). Deadlock warning: if the child produces output while you're still writing, and the pipe buffer fills, both processes block. For large data, use threads: one thread writes stdin, another reads stdout. The process-status call blocks — always drain stdout first.",
+    "related": [
+      "run-external-process",
+      "os-pipe-create-fd-pair",
+      "run-subprocess-custom-env"
+    ]
+  },
+  {
+    "id": "binary-io-device-ports",
+    "title": "Binary I/O on device ports (stdin/stdout) with write-subu8vector and read-u8",
+    "tags": [
+      "binary",
+      "io",
+      "stdin",
+      "stdout",
+      "write-subu8vector",
+      "read-u8",
+      "u8vector",
+      "port"
+    ],
+    "imports": [],
+    "code": ";; Writing binary data to stdout (or any output port)\n;; write-u8vector requires explicit port argument\n(def (write-binary-to-port data port)\n  (write-subu8vector data 0 (u8vector-length data) port)\n  (force-output port))\n\n;; Example: write binary payload to stdout\n(write-subu8vector #u8(72 101 108 108 111) 0 5 (current-output-port))\n(force-output (current-output-port))\n\n;; Reading single bytes from stdin (e.g., raw terminal input)\n;; read-u8 returns a fixnum (0-255) or eof-object\n(let loop ()\n  (let ((byte (read-u8 (current-input-port))))\n    (cond\n      ((eof-object? byte) (displayln \"EOF\"))\n      (else\n        (displayln \"Read byte: \" byte)\n        (loop)))))\n\n;; Reading a fixed number of bytes\n;; read-subu8vector returns the number of bytes actually read\n(def (read-exactly port n)\n  (let ((buf (make-u8vector n)))\n    (let loop ((offset 0))\n      (if (>= offset n) buf\n        (let ((got (read-subu8vector buf offset n port)))\n          (if (= got 0) #f  ;; EOF before filling\n            (loop (+ offset got))))))))\n\n;; Example: read 4-byte header then variable-length payload\n(let* ((header (read-exactly (current-input-port) 4))\n       (payload-len (decode-uint32 header 0))\n       (payload (read-exactly (current-input-port) payload-len)))\n  (displayln \"Payload: \" payload))",
+    "notes": "GOTCHA: write-u8vector has arity issues on some ports — use write-subu8vector instead, which takes (buf start end port) and always works. read-u8vector takes a COUNT argument (not a buffer), returning a new u8vector — but for interactive byte-at-a-time reading, use read-u8 instead. read-subu8vector returns the number of bytes read (may be less than requested), so loop until you have enough. Always call (force-output port) after writing binary data to ensure it's flushed.",
+    "related": [
+      "u8vector-big-endian-encoding",
+      "terminal-raw-mode-stty"
+    ]
+  },
+  {
+    "id": "directory-files-list-entries",
+    "title": "List directory entries with directory-files and file-info",
+    "tags": [
+      "directory",
+      "files",
+      "list",
+      "stat",
+      "file-info",
+      "ls",
+      "filesystem"
+    ],
+    "imports": [],
+    "code": ";; directory-files and file-info are Gambit builtins — no imports needed\n\n;; Basic: list files in a directory\n(directory-files \".\")\n;; => (\".\" \"..\" \".git\" \"README.md\" \"src\" ...)\n\n;; With options via settings list:\n(directory-files (list path: \".\" ignore-hidden: 'dot-and-dot-dot))\n;; => (\".git\" \"README.md\" \"src\" ...)\n;; ignore-hidden: 'dot-and-dot-dot excludes \".\" and \"..\" only\n\n;; Get file metadata with file-info (like stat):\n(let ((info (file-info \"README.md\")))\n  (list\n    (file-info-type info)                  ;; 'regular, 'directory, 'symbolic-link, etc.\n    (file-info-mode info)                  ;; permission bits as integer (e.g., 493 = #o755)\n    (file-info-size info)                  ;; size in bytes\n    (file-info-owner info)                 ;; uid (integer)\n    (file-info-group info)                 ;; gid (integer)\n    (file-info-last-modification-time info) ;; Gambit time object\n    (file-info-number-of-links info)))     ;; hard link count\n\n;; Check file type:\n(eq? (file-info-type (file-info \"src\")) 'directory)  ;; => #t\n\n;; file-info-type returns one of:\n;;   'regular  'directory  'symbolic-link  'character-special\n;;   'block-special  'fifo  'socket\n\n;; Pattern: list only regular files in a directory\n(let ((dir \".\"))\n  (filter (lambda (name)\n            (let ((path (string-append dir \"/\" name)))\n              (eq? (file-info-type (file-info path)) 'regular)))\n          (directory-files (list path: dir ignore-hidden: 'dot-and-dot-dot))))\n\n;; Pattern: recursive directory walk\n(def (walk-directory dir proc)\n  \"Call (proc full-path) for every file under dir recursively.\"\n  (for-each\n    (lambda (name)\n      (unless (member name '(\".\" \"..\"))\n        (let ((full (string-append dir \"/\" name)))\n          (if (eq? (file-info-type (file-info full)) 'directory)\n            (walk-directory full proc)\n            (proc full)))))\n    (directory-files dir)))",
+    "notes": "directory-files accepts either a string path or a settings list with path: and ignore-hidden: keywords. The ignore-hidden: option values are: #f (show all), 'dot-and-dot-dot (hide . and ..), or #t (hide all dotfiles). file-info follows symlinks by default; use (file-info path #f) to not follow symlinks (lstat behavior). file-info-mode returns an integer — use bitwise operations to check permissions (e.g., (bitwise-and mode #o100) for owner-execute). These are all Gambit builtins, no imports needed.",
+    "related": [
+      "gambit-path-builtins",
+      "read-file-to-string"
+    ]
+  },
+  {
+    "id": "user-info-environment-introspection",
+    "title": "Get user info, hostname, pid, and environment variables (Gambit builtins)",
+    "tags": [
+      "user",
+      "hostname",
+      "pid",
+      "environment",
+      "getenv",
+      "setenv",
+      "introspection"
+    ],
+    "imports": [
+      ":std/os/hostname",
+      ":std/os/pid"
+    ],
+    "code": ";; Most of these are Gambit builtins (no import needed)\n;; hostname and getpid need :std/os/hostname and :std/os/pid\n\n(import :std/os/hostname :std/os/pid)\n\n;; --- Environment variables ---\n(getenv \"HOME\" #f)               ;; => \"/home/user\" or #f if unset\n(getenv \"PATH\" \"\")               ;; second arg is default\n(setenv \"MY_VAR\" \"my_value\")     ;; set env var\n(get-environment-variables)      ;; => alist of ALL env vars: ((\"HOME\" . \"/home/user\") ...)\n\n;; --- User info ---\n(user-name)                      ;; => \"jafourni\" (current user)\n(let ((ui (user-info (user-name))))\n  (list\n    (user-info-name ui)          ;; => \"jafourni\"\n    (user-info-uid ui)           ;; => 1000\n    (user-info-gid ui)           ;; => 1000\n    (user-info-home ui)          ;; => \"/home/jafourni\"\n    (user-info-shell ui)))       ;; => \"/bin/bash\"\n\n;; user-info also accepts a uid integer:\n(user-info 0)                    ;; => root's user-info\n\n;; --- System info ---\n(hostname)                       ;; => \"myhost\" (needs :std/os/hostname)\n(getpid)                         ;; => 12345 (needs :std/os/pid)\n(getppid)                        ;; => 12344 (parent pid, needs :std/os/pid)\n\n;; --- Working directory ---\n(current-directory)              ;; => \"/home/user/project/\"\n(current-directory \"/tmp\")       ;; change directory (set!)\n\n;; --- TTY detection ---\n(tty? (current-input-port))      ;; => #t if interactive, #f if piped/redirected",
+    "notes": "getenv, setenv, user-name, user-info, current-directory, and tty? are Gambit builtins — no import needed. hostname needs :std/os/hostname, getpid/getppid need :std/os/pid. getenv with 2 args returns the default (not an error) if the variable is unset. user-info accepts either a username string or a uid integer. current-directory with one argument changes the cwd (like cd). tty? returns #t only for actual terminal ports (not when stdin is piped or redirected).",
+    "related": [
+      "gambit-path-builtins",
+      "run-subprocess-custom-env"
+    ]
+  },
+  {
+    "id": "process-status-decode-waitpid",
+    "title": "Decode raw waitpid status from process-status",
+    "tags": [
+      "process",
+      "status",
+      "waitpid",
+      "exit",
+      "signal",
+      "decode",
+      "WEXITSTATUS",
+      "WTERMSIG"
+    ],
+    "imports": [],
+    "code": ";; process-status returns the RAW waitpid(2) status integer, NOT the exit code.\n;; No imports needed — open-process and process-status are Gambit builtins.\n;;\n;; Encoding (same as POSIX waitpid):\n;;   Normal exit:  status = exit_code << 8    (exit 0 → 0, exit 1 → 256, exit 42 → 10752)\n;;   Killed by signal: status = signal_number (kill -9 → 9, kill -15 → 15)\n;;   Stopped:      status = (signal << 8) | 0x7f  (but Gambit's SIGCHLD handler ignores these)\n\n;; Decoding helpers (matching POSIX W* macros):\n(def (WIFEXITED status)    (= (bitwise-and status #x7f) 0))\n(def (WEXITSTATUS status)  (arithmetic-shift (bitwise-and status #xff00) -8))\n(def (WIFSIGNALED status)  (and (not (= (bitwise-and status #x7f) 0))\n                                (not (= (bitwise-and status #x7f) #x7f))))\n(def (WTERMSIG status)     (bitwise-and status #x7f))\n(def (WIFSTOPPED status)   (= (bitwise-and status #xff) #x7f))\n(def (WSTOPSIG status)     (arithmetic-shift (bitwise-and status #xff00) -8))\n\n;; Get a clean exit code (0-255) from raw status:\n(def (exit-status->code raw-status)\n  (cond\n    ((WIFEXITED raw-status) (WEXITSTATUS raw-status))\n    ((WIFSIGNALED raw-status) (+ 128 (WTERMSIG raw-status)))  ;; shell convention\n    (else 255)))  ;; unknown\n\n;; Examples:\n(let* ((proc (open-process (list path: \"/bin/sh\" arguments: '(\"-c\" \"exit 42\"))))\n       (status (process-status proc)))\n  (list 'raw: status 'exit-code: (exit-status->code status)))\n;; => (raw: 10752 exit-code: 42)\n\n(let* ((proc (open-process (list path: \"/bin/sh\" arguments: '(\"-c\" \"exit 0\"))))\n       (status (process-status proc)))\n  (list 'raw: status 'exit-code: (exit-status->code status)))\n;; => (raw: 0 exit-code: 0)\n\n;; Killed by signal (128 + signal_number is shell convention):\n;; exit-status->code for kill -9 → 137 (128 + 9)",
+    "notes": "CRITICAL for shell implementation: process-status does NOT return the exit code directly. exit 1 returns 256, exit 42 returns 10752, kill -9 returns 9. You MUST use bitwise decoding (WEXITSTATUS, WTERMSIG) to get the actual exit code. The shell convention is to report 128+signal for signal-killed processes. Gambit's internal SIGCHLD handler only handles WIFEXITED and WIFSIGNALED — it ignores WIFSTOPPED, so stopped processes (Ctrl+Z) won't be detected without FFI waitpid with WUNTRACED.",
+    "related": [
+      "open-process-stdin-write-read",
+      "os-pipe-create-fd-pair"
+    ]
+  },
+  {
+    "id": "tty-mode-set-raw-cooked",
+    "title": "Set terminal raw/cooked mode with tty-mode-set! (no stty needed)",
+    "tags": [
+      "tty",
+      "terminal",
+      "raw",
+      "cooked",
+      "mode",
+      "tty-mode-set!",
+      "line-editor",
+      "termios"
+    ],
+    "imports": [],
+    "code": ";; tty-mode-set! is a Gambit builtin — no imports needed.\n;; It controls terminal I/O mode without shelling out to stty.\n;;\n;; Signature: (tty-mode-set! port input-allow-special input-echo output-raw input-raw)\n;;   input-allow-special: #t = handle Ctrl-C/Z etc. (ISIG); #f = pass through as bytes\n;;   input-echo: #t = echo typed chars; #f = no echo\n;;   output-raw: #t = no output processing; #f = normal (e.g. LF→CRLF)\n;;   input-raw:  #t = raw byte-at-a-time (no line editing, VMIN=1); #f = canonical (line mode)\n\n;; Save current mode (returns: input-allow-special input-echo output-raw input-raw)\n;; There's no built-in to query mode, so save before changing.\n\n;; Set raw mode for a line editor (most common for shell):\n;; - No echo (we draw the line ourselves)\n;; - No canonical mode (read byte-by-byte)\n;; - Allow special signals (Ctrl-C sends SIGINT)\n;; - Normal output processing (LF→CRLF)\n(tty-mode-set! (current-input-port)\n  #t   ;; input-allow-special = #t (let Ctrl-C work)\n  #f   ;; input-echo = #f (we handle display)\n  #f   ;; output-raw = #f (normal output)\n  #t)  ;; input-raw = #t (byte-at-a-time)\n\n;; Fully raw mode (for things like ssh/screen passthrough):\n(tty-mode-set! (current-input-port)\n  #f   ;; no signal processing\n  #f   ;; no echo\n  #t   ;; raw output\n  #t)  ;; raw input\n\n;; Restore cooked/canonical mode:\n(tty-mode-set! (current-input-port)\n  #t   ;; allow specials\n  #t   ;; echo on\n  #f   ;; normal output\n  #f)  ;; canonical input (line-buffered)\n\n;; Safe pattern with cleanup:\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #t #f #f #t))  ;; enter raw\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f))))) ;; restore cooked\n\n;; Read single keystrokes in raw mode:\n(with-raw-terminal\n  (lambda ()\n    (let loop ()\n      (let ((ch (read-char)))\n        (unless (eqv? ch #\\x3)  ;; Ctrl-C\n          (display (format \"key: ~a (~a)\\n\" ch (char->integer ch)))\n          (force-output)\n          (loop))))))",
+    "notes": "tty-mode-set! is a native Gambit function that does termios manipulation in C (sets ICANON, ECHO, ISIG, VMIN=1, VTIME=0 etc). It is MORE RELIABLE than shelling out to stty because it doesn't require a subprocess. Internally it calls tcgetattr/tcsetattr. For a shell's line editor, the typical mode is: allow-special=#t, echo=#f, output-raw=#f, input-raw=#t. This gives byte-at-a-time input without echo, while still allowing Ctrl-C to generate SIGINT. Gambit also provides tty-type-set! for setting TERM type and tty-history/tty-history-set! for Gambit's built-in line editor history.",
+    "related": [
+      "process-status-decode-waitpid",
+      "os-pipe-create-fd-pair"
+    ]
+  },
+  {
+    "id": "patchelf-openssl-rpath",
+    "title": "Fix OpenSSL version mismatch in compiled Gerbil executables with patchelf",
+    "tags": [
+      "patchelf",
+      "openssl",
+      "rpath",
+      "linker",
+      "executable",
+      "build",
+      "libcrypto",
+      "ssl",
+      "makefile"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Compiled Gerbil executable fails at runtime with:\n;;   gerbil-aws: /lib/x86_64-linux-gnu/libcrypto.so.3: version `OPENSSL_3.4.0' not found\n;;\n;; ROOT CAUSE: The executable was compiled against Gerbil's bundled OpenSSL\n;; (e.g. from Homebrew/Linuxbrew) but at runtime finds the system's older\n;; libcrypto.so.3 which lacks the required version symbols.\n;;\n;; FIX: Use patchelf to set the RPATH to point to the correct OpenSSL:\n;;\n;;   # Find where Gerbil's OpenSSL lives (commonly Linuxbrew):\n;;   OPENSSL_RPATH=/home/linuxbrew/.linuxbrew/opt/openssl@3/lib\n;;\n;;   # Patch the compiled binary after gerbil build:\n;;   patchelf --set-rpath $OPENSSL_RPATH .gerbil/bin/my-app\n;;\n;; MAKEFILE PATTERN (recommended):\n;;\n;; OPENSSL_RPATH = /home/linuxbrew/.linuxbrew/opt/openssl@3/lib\n;; BINARY = .gerbil/bin/my-app\n;;\n;; build:\n;; \tgerbil build\n;; \tpatchelf --set-rpath $(OPENSSL_RPATH) $(BINARY)\n;;\n;; install: build\n;; \tsudo cp $(BINARY) /usr/local/bin\n;;\n;; IMPORTANT: The install target must depend on build so the patchelf\n;; step runs before copying. Running `gerbil build` alone (e.g. via\n;; gerbil_build_and_report) does NOT patch the binary — always use\n;; `make build` or `make install` for the complete workflow.\n;;\n;; DIAGNOSIS: Check what RPATH the binary has:\n;;   patchelf --print-rpath .gerbil/bin/my-app\n;;   ldd .gerbil/bin/my-app | grep ssl\n;;\n;; On macOS, use install_name_tool instead of patchelf.",
+    "notes": "This issue affects any Gerbil project that compiles executables using modules with OpenSSL dependencies (e.g. :std/net/request, :std/crypto, :std/net/ssl, :std/net/websocket). The system OpenSSL and Gerbil's build-time OpenSSL must match, or the RPATH must be patched. Install patchelf via: apt install patchelf (Debian/Ubuntu) or brew install patchelf.",
+    "related": [
+      "static-exe-with-deps",
+      "stale-global-static-segfault"
+    ]
+  },
+  {
+    "id": "atom-atomic-reference",
+    "title": "Clojure-style atomic reference with swap, CAS, and watches",
+    "tags": [
+      "atom",
+      "atomic",
+      "concurrency",
+      "swap",
+      "cas",
+      "compare-and-set",
+      "watch",
+      "thread-safe",
+      "mutable",
+      "state"
+    ],
+    "imports": [
+      ":std/misc/atom"
+    ],
+    "code": "(import :std/misc/atom)\n\n;; Create an atom with optional validator\n(def counter (atom 0))\n(def positive-counter (atom 1 validator: (lambda (x) (and (fixnum? x) (fx>= x 0)))))\n\n;; Read the current value\n(atom-deref counter)  ;; => 0\n\n;; Reset to a new value (like assignment)\n(atom-reset! counter 42)\n\n;; Swap: apply a function to the current value atomically\n(atom-swap! counter 1+)          ;; => 43\n(atom-swap! counter + 10)        ;; => 53 (extra args passed to fn)\n\n;; Compare-and-set (CAS): only update if current value matches expected\n(atom-compare-and-set! counter 53 100)  ;; => #t (was 53, now 100)\n(atom-compare-and-set! counter 53 200)  ;; => #f (not 53 anymore)\n\n;; Get both old and new values from a swap\n(defvalues (old new) (atom-swap-values! counter 1+))\n\n;; Convenience: atomic increment\n(atom-increment! counter)     ;; +1\n(atom-increment! counter 5)   ;; +5\n\n;; Atomic counter factory (returns a closure)\n(def next-id (atomic-counter))\n(next-id)  ;; => 0\n(next-id)  ;; => 1\n(next-id)  ;; => 2\n\n;; Add a watch function: called on every change\n;; watch-fn receives (key atom old-value new-value)\n(atom-add-watch! counter 'logger\n  (lambda (key a old new)\n    (displayln \"counter changed: \" old \" -> \" new)))\n(atom-swap! counter 1+)  ;; prints: counter changed: 106 -> 107\n\n;; Remove watch\n(atom-remove-watch! counter 'logger)",
+    "notes": "Atoms are thread-safe mutable references. Validators run inside the lock — if a validator raises an exception, the swap is aborted. The swap function may be called multiple times if there's contention (like Clojure atoms). Use atom-compare-and-set! for explicit CAS patterns. atomic-counter returns a zero-allocation incrementing closure, ideal for generating unique IDs.",
+    "related": [
+      "channel-based-communication",
+      "spawn-thread"
+    ]
+  },
+  {
+    "id": "list-builder-efficient-append",
+    "title": "Efficient O(1) list building with with-list-builder",
+    "tags": [
+      "list",
+      "builder",
+      "accumulate",
+      "append",
+      "efficient",
+      "performance",
+      "collect",
+      "push"
+    ],
+    "imports": [
+      ":std/misc/list-builder"
+    ],
+    "code": "(import :std/misc/list-builder)\n\n;; with-list-builder provides O(1) append to a growing list\n;; Avoids O(n^2) from repeated (append lst (list new-item))\n(with-list-builder (push! peek)\n  (push! 'a)\n  (push! 'b)\n  (push! 'c)\n  (peek))  ;; => (a b c)\n\n;; Functional form:\n(call-with-list-builder\n  (lambda (push! peek)\n    (for (x (in-range 5))\n      (when (odd? x)\n        (push! x)))\n    (peek)))  ;; => (1 3)\n\n;; Common pattern: conditional collection\n(def (find-matching items pred)\n  (with-list-builder (collect)\n    (for-each (lambda (item)\n                (when (pred item)\n                  (collect item)))\n              items)))\n\n;; Nested collection with intermediate results\n(with-list-builder (push! peek)\n  (push! 'start)\n  (for (x '(1 2 3))\n    (push! (* x 10)))\n  (push! 'end)\n  (peek))  ;; => (start 10 20 30 end)",
+    "notes": "with-list-builder uses cons cell mutation internally: a sentinel cons cell [#f] is created, and push! mutates the cdr to append in O(1). This prevents the O(n^2) quadratic append pattern. Always prefer this over (set! result (append result (list item))). The peek function returns the current list without consuming it. push! always appends to the end (maintains insertion order).",
+    "related": [
+      "collect-results-with-for-collect"
+    ]
+  },
+  {
+    "id": "lru-cache-bounded",
+    "title": "LRU cache with bounded size and automatic eviction",
+    "tags": [
+      "lru",
+      "cache",
+      "bounded",
+      "eviction",
+      "memoize",
+      "capacity",
+      "hash",
+      "performance"
+    ],
+    "imports": [
+      ":std/misc/lru"
+    ],
+    "code": "(import :std/misc/lru)\n\n;; Create a bounded LRU cache\n(def cache (make-lru-cache 100))  ;; capacity 100\n\n;; Put and get values\n(lru-cache-put! cache \"key1\" \"value1\")\n(lru-cache-put! cache \"key2\" \"value2\")\n\n(lru-cache-ref cache \"key1\")          ;; => \"value1\" (marks as recently used)\n(lru-cache-get cache \"key1\")          ;; => \"value1\" (same, alias)\n(lru-cache-get cache \"missing\")       ;; => #f (not found)\n(lru-cache-ref cache \"missing\" 'default) ;; => default\n\n;; Check membership\n(lru-cache-key? cache \"key1\")         ;; => #t\n\n;; Remove\n(lru-cache-remove! cache \"key1\")\n\n;; Iterate (newest to oldest)\n(lru-cache-for-each\n  (lambda (k v) (displayln k \": \" v))\n  cache)\n\n;; Fold (oldest to newest)\n(lru-cache-fold\n  (lambda (k v acc) (cons (cons k v) acc))\n  '() cache)\n\n;; Fold right (newest to oldest)\n(lru-cache-foldr\n  (lambda (k v acc) (cons (cons k v) acc))\n  '() cache)\n\n;; Flush all entries\n(lru-cache-flush! cache)\n\n;; LRU caches are iterable with for\n(import :std/iter)\n(for ((k v) (in-lru-cache cache))\n  (displayln k \" => \" v))\n\n;; Memoization pattern with LRU\n(def expensive-cache (make-lru-cache 1000))\n(def (cached-compute key)\n  (or (lru-cache-get expensive-cache key)\n      (let (result (expensive-operation key))\n        (lru-cache-put! expensive-cache key result)\n        result)))",
+    "notes": "LRU cache uses a hash table + doubly-linked list internally. Access (ref/get) promotes the entry to most-recently-used. When capacity is exceeded on put!, the least-recently-used entry is evicted. O(1) for all operations. The cache is NOT thread-safe — wrap with a mutex for concurrent access. Iteration via in-lru-cache yields (key . value) pairs from most-recent to least-recent.",
+    "related": [
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "rbtree-sorted-map",
+    "title": "Red-black tree for sorted key-value storage",
+    "tags": [
+      "rbtree",
+      "red-black",
+      "tree",
+      "sorted",
+      "map",
+      "ordered",
+      "comparator",
+      "balanced"
+    ],
+    "imports": [
+      ":std/misc/rbtree"
+    ],
+    "code": "(import :std/misc/rbtree)\n\n;; Create with a comparator function (must return <0, 0, or >0)\n(def t (rbtree string-cmp))       ;; string keys\n(def t2 (rbtree symbol-cmp))      ;; symbol keys\n\n;; Insert / update\n(rbtree-put! t \"banana\" 2)\n(rbtree-put! t \"apple\" 5)\n(rbtree-put! t \"cherry\" 1)\n\n;; Lookup\n(rbtree-ref t \"apple\")             ;; => 5 (error if missing)\n(rbtree-ref t \"missing\" 'default)  ;; => default\n(rbtree-get t \"apple\")             ;; => 5 (#f if missing)\n(rbtree-key? t \"apple\")            ;; => #t\n\n;; Remove\n(rbtree-remove! t \"banana\")\n\n;; In-order traversal (sorted by key)\n(rbtree-for-each\n  (lambda (k v) (displayln k \": \" v))\n  t)\n;; prints: apple: 5, cherry: 1 (alphabetical order)\n\n;; Fold\n(rbtree-fold\n  (lambda (k v acc) (+ acc v))\n  0 t)  ;; => 6\n\n;; Convert to/from alist\n(rbtree->list t)                   ;; => ((\"apple\" . 5) (\"cherry\" . 1))\n(def t3 (list->rbtree string-cmp '((\"x\" . 1) (\"y\" . 2))))\n\n;; Iterate with for\n(import :std/iter)\n(for ((k v) (in-rbtree t))\n  (displayln k \" => \" v))\n(for (k (in-rbtree-keys t))\n  (displayln k))\n(for (v (in-rbtree-values t))\n  (displayln v))\n\n;; Custom comparator for numeric keys\n(def num-tree (rbtree (lambda (a b) (- a b))))\n(rbtree-put! num-tree 42 \"answer\")\n(rbtree-put! num-tree 1 \"first\")",
+    "notes": "Red-black trees maintain sorted order by key. All operations are O(log n). The comparator function must return a negative number if a < b, zero if a = b, and positive if a > b. Pre-built comparators: string-cmp, symbol-cmp, symbol-hash-cmp. For numeric keys, use (lambda (a b) (- a b)). Trees are iterable via in-rbtree, in-rbtree-keys, in-rbtree-values.",
+    "related": [
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "priority-queue-heap",
+    "title": "Priority queue (min/max heap) for ordered processing",
+    "tags": [
+      "priority",
+      "queue",
+      "heap",
+      "pqueue",
+      "min-heap",
+      "max-heap",
+      "scheduling",
+      "sorted"
+    ],
+    "imports": [
+      ":std/misc/pqueue"
+    ],
+    "code": "(import :std/misc/pqueue)\n\n;; Create a min-heap (lowest priority value comes out first)\n(def pq (make-pqueue car <))  ;; priority extracted by car, compared with <\n\n;; Push items (each item has a priority component)\n(pqueue-push! pq '(3 \"low-priority\"))\n(pqueue-push! pq '(1 \"high-priority\"))\n(pqueue-push! pq '(2 \"medium-priority\"))\n\n;; Pop returns the highest-priority item (lowest number for <)\n(pqueue-pop! pq)    ;; => (1 \"high-priority\")\n(pqueue-pop! pq)    ;; => (2 \"medium-priority\")\n(pqueue-pop! pq)    ;; => (3 \"low-priority\")\n(pqueue-pop! pq 'empty)  ;; => empty (default when empty)\n\n;; Peek without removing\n(pqueue-push! pq '(5 \"item\"))\n(pqueue-peek pq)    ;; => (5 \"item\")\n\n;; Check size and emptiness\n(pqueue-empty? pq)  ;; => #f\n(pqueue-size pq)    ;; => 1\n\n;; Get all contents (unordered)\n(pqueue-contents pq)\n\n;; Max-heap example (highest number first)\n(def max-pq (make-pqueue identity >))\n(pqueue-push! max-pq 10)\n(pqueue-push! max-pq 30)\n(pqueue-push! max-pq 20)\n(pqueue-pop! max-pq)   ;; => 30\n\n;; Task scheduling pattern\n(defstruct task (priority name) transparent: #t)\n(def scheduler (make-pqueue task-priority <))\n(pqueue-push! scheduler (make-task 1 \"critical\"))\n(pqueue-push! scheduler (make-task 5 \"background\"))\n(pqueue-push! scheduler (make-task 2 \"important\"))\n(task-name (pqueue-pop! scheduler))  ;; => \"critical\"",
+    "notes": "make-pqueue takes a priority-extraction function and a comparator. The extraction function maps items to their priority values, and the comparator determines ordering (< for min-heap, > for max-heap). Uses a binary heap internally with 1-based vector indexing. Auto-resizes when full. O(log n) push and pop. pqueue-contents returns items in no particular order.",
+    "related": [
+      "rbtree-sorted-map"
+    ]
+  },
+  {
+    "id": "workgroup-thread-pool",
+    "title": "Workgroup (thread pool) for parallel task execution",
+    "tags": [
+      "workgroup",
+      "wg",
+      "thread-pool",
+      "parallel",
+      "concurrent",
+      "spawn",
+      "worker",
+      "fan-out"
+    ],
+    "imports": [
+      ":std/misc/wg"
+    ],
+    "code": "(import :std/misc/wg)\n\n;; Create a workgroup with N worker threads\n(def wg (make-wg 4))  ;; 4 workers\n\n;; Add tasks (thunks) to the workgroup\n(for (i (in-range 10))\n  (wg-add! wg (lambda ()\n    (thread-sleep! 0.1)  ;; simulate work\n    (displayln \"task \" i \" done\"))))\n\n;; Wait for ALL tasks to complete\n;; Rethrows any exception from worker threads\n(wg-wait! wg)\n(displayln \"all done\")\n\n;; Pattern: parallel map with shared result collection\n(import :std/misc/atom)\n(def results (atom []))\n(def wg2 (make-wg 8))\n(for (item '(\"a\" \"b\" \"c\" \"d\" \"e\"))\n  (wg-add! wg2 (lambda ()\n    (let (result (string-append item \"-processed\"))\n      (atom-swap! results (lambda (lst) (cons result lst)))))))\n(wg-wait! wg2)\n(displayln (atom-deref results))\n\n;; Error handling: wg-wait! propagates first error\n(def wg3 (make-wg 2))\n(wg-add! wg3 (lambda () (error \"task failed!\")))\n(wg-add! wg3 (lambda () (displayln \"ok\")))\n(with-catch\n  (lambda (e) (displayln \"caught: \" (error-message e)))\n  (lambda () (wg-wait! wg3)))",
+    "notes": "Workgroups create N worker threads that pull tasks from an internal channel. Workers run until the channel is closed. wg-wait! closes the channel and joins all workers, rethrowing any exception that occurred. Tasks are thunks (zero-argument procedures). For collecting results, use atoms or a shared channel since tasks run in parallel threads. The workgroup is single-use — after wg-wait!, create a new one for more work.",
+    "related": [
+      "atom-atomic-reference",
+      "channel-based-communication"
+    ]
+  },
+  {
+    "id": "barrier-synchronization",
+    "title": "Barrier synchronization for N threads to reach a checkpoint",
+    "tags": [
+      "barrier",
+      "synchronization",
+      "threads",
+      "checkpoint",
+      "wait",
+      "concurrency",
+      "rendezvous"
+    ],
+    "imports": [
+      ":std/misc/barrier"
+    ],
+    "code": "(import :std/misc/barrier)\n\n;; Create a barrier for N threads\n(def b (make-barrier 3))\n\n;; Each thread signals when it reaches the checkpoint\n(for (i (in-range 3))\n  (spawn (lambda ()\n    (thread-sleep! (* i 0.1))  ;; simulate varying work\n    (displayln \"thread \" i \" reached barrier\")\n    (barrier-post! b)           ;; signal \"I'm done\"\n    (displayln \"thread \" i \" past barrier\"))))\n\n;; Main thread waits for all 3 to post\n(barrier-wait! b)\n(displayln \"all threads reached the barrier\")\n\n;; Error propagation: if any thread fails, all waiters get the error\n(def b2 (make-barrier 2))\n(spawn (lambda ()\n  (with-barrier-error b2\n    (error \"worker failed!\"))))\n;; barrier-wait! will re-raise the error\n(with-catch\n  (lambda (e) (displayln \"barrier error: \" (error-message e)))\n  (lambda () (barrier-wait! b2)))",
+    "notes": "Barriers use a mutex + condition variable internally. barrier-post! increments a counter and broadcasts when it reaches the limit. barrier-wait! blocks until all expected threads have posted. with-barrier-error catches exceptions in the body and propagates them to all waiters via barrier-error!. Once a barrier fires (or errors), it cannot be reused — create a new one.",
+    "related": [
+      "workgroup-thread-pool",
+      "completion-async-value"
+    ]
+  },
+  {
+    "id": "completion-async-value",
+    "title": "Completion: one-shot async value/error container",
+    "tags": [
+      "completion",
+      "async",
+      "future",
+      "promise",
+      "one-shot",
+      "concurrency",
+      "wait",
+      "result"
+    ],
+    "imports": [
+      ":std/misc/completion"
+    ],
+    "code": "(import :std/misc/completion)\n\n;; Create a completion (like a one-shot promise/future)\n(def c (make-completion))\n\n;; Producer thread posts a value or error\n(spawn (lambda ()\n  (thread-sleep! 0.5)  ;; simulate async work\n  (completion-post! c 42)))\n\n;; Consumer blocks until value is available\n(def result (completion-wait! c))  ;; => 42\n\n;; Error propagation\n(def c2 (make-completion))\n(spawn (lambda ()\n  (completion-error! c2 (make-error \"async failure\"))))\n;; completion-wait! will raise the posted error\n(with-catch\n  (lambda (e) (displayln \"got error: \" (error-message e)))\n  (lambda () (completion-wait! c2)))\n\n;; with-completion-error: catch body errors and propagate to completion\n(def c3 (make-completion))\n(spawn (lambda ()\n  (with-completion-error c3\n    (let (result (risky-computation))\n      (completion-post! c3 result)))))\n;; If risky-computation throws, the error is posted to c3\n\n;; Pattern: async operation with timeout\n(def c4 (make-completion))\n(spawn (lambda ()\n  (let (data (fetch-remote-data))\n    (completion-post! c4 data))))\n;; Poll with timeout (using mutex-unlock! internally)\n(completion-wait! c4)  ;; blocks until ready",
+    "notes": "Completions are one-shot: once a value or error is posted, it cannot be changed. Attempting to post twice raises an error. Multiple threads can wait on the same completion — all will be woken when the value is posted. completion-wait! returns the posted value or re-raises the posted error. This is simpler than channels for single-result async operations.",
+    "related": [
+      "barrier-synchronization",
+      "channel-based-communication"
+    ]
+  },
+  {
+    "id": "rwlock-readers-writer",
+    "title": "Read-write lock for multiple readers / single writer",
+    "tags": [
+      "rwlock",
+      "read-write",
+      "lock",
+      "readers",
+      "writer",
+      "concurrent",
+      "shared",
+      "exclusive",
+      "mutex"
+    ],
+    "imports": [
+      ":std/misc/rwlock"
+    ],
+    "code": "(import :std/misc/rwlock)\n\n;; Create a read-write lock\n(def rw (make-rwlock))\n\n;; Multiple readers can hold the lock simultaneously\n(def shared-data (make-hash-table))\n\n;; Reader pattern (shared access)\n(def (read-data key)\n  (with-read-lock rw\n    (lambda () (hash-get shared-data key))))\n\n;; Writer pattern (exclusive access)\n(def (write-data key value)\n  (with-write-lock rw\n    (lambda () (hash-put! shared-data key value))))\n\n;; Manual lock/unlock (use with-read-lock/with-write-lock instead)\n;; (rwlock-read-lock! rw)\n;; (rwlock-read-unlock! rw)\n;; (rwlock-write-lock! rw)\n;; (rwlock-write-unlock! rw)\n\n;; Concurrent usage\n(for (i (in-range 10))\n  (spawn (lambda ()\n    (if (zero? (modulo i 3))\n      ;; Writer (every 3rd thread)\n      (write-data (string-append \"key\" (number->string i)) i)\n      ;; Reader\n      (let (v (read-data \"key0\"))\n        (displayln \"reader \" i \" got: \" v))))))",
+    "notes": "Read-write locks allow multiple concurrent readers OR a single exclusive writer. with-read-lock and with-write-lock take a thunk (zero-argument lambda) and handle lock/unlock automatically, even on exceptions. Writers queue with a writers-waiting counter. When all readers release, waiting writers are woken. This is NOT a fair lock — readers can starve writers under heavy read load.",
+    "related": [
+      "atom-atomic-reference"
+    ]
+  },
+  {
+    "id": "chain-advanced-pipeline",
+    "title": "Advanced chain pipeline with destructuring and named bindings",
+    "tags": [
+      "chain",
+      "pipeline",
+      "compose",
+      "sugar",
+      "transform",
+      "destructure",
+      "threading",
+      "diamond"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":std/iter"
+    ],
+    "code": "(import :std/sugar :std/iter)\n\n;; Basic chain: <> is the slot for the piped value\n(chain [1 2 3 4 5]\n  (filter odd? <>)\n  (map (cut * <> 10) <>)\n  (apply + <>))\n;; => 90 (1+3+5 = 9, *10 = 90)\n\n;; Unary functions don't need <>\n(chain \"Hello World\"\n  string-downcase\n  (string-split <> \" \")\n  car)\n;; => \"hello\"\n\n;; Destructuring in pipeline stages\n(chain [1 2 3 4 5]\n  ([head . tail] tail)           ;; destructure, keep tail\n  (map (cut + <> 10) <>))\n;; => (12 13 14 15)\n\n;; Named bindings for intermediate values\n(chain [1 2 3]\n  (xs (map number->string xs))   ;; bind as 'xs', use in expression\n  (string-join <> \", \"))\n;; => \"1, 2, 3\"\n\n;; Starting with <> creates a lambda (point-free style)\n(def add-and-sum\n  (chain <>\n    (map (cut + <> 1) <>)\n    (apply + <>)))\n(add-and-sum [1 2 3])  ;; => 9\n\n;; Mixing destructuring + named bindings\n(chain (iota 5)\n  ([_ . rest] rest)              ;; drop first element\n  (xs (map (cut * <> 2) xs))     ;; double remaining\n  (string-join (map number->string <>) \"-\"))\n;; => \"2-4-6-8\"",
+    "notes": "chain from :std/sugar is a powerful pipeline macro. Three stage forms: (1) (expr <>): <> is replaced by the pipe value, (2) (name expr): binds pipe value to name for use in expr, (3) ([pat ...] expr): destructures the pipe value. When a stage is just a symbol (like string-downcase), it's treated as a unary function applied to the pipe value. Starting with <> creates a lambda for point-free style.",
+    "related": [
+      "collect-results-with-for-collect"
+    ]
+  },
+  {
+    "id": "is-predicate-factory",
+    "title": "Smart predicate factory with 'is' macro",
+    "tags": [
+      "is",
+      "predicate",
+      "filter",
+      "find",
+      "sugar",
+      "accessor",
+      "compare",
+      "lambda"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; (is accessor value) creates a predicate: (lambda (x) (equal? (accessor x) value))\n;; Auto-selects comparator based on value type:\n;;   numbers -> =, characters -> eqv?, strings -> string=?, else -> equal?\n\n;; Find by accessor + value\n(find (is car 'target) '((a . 1) (target . 2) (c . 3)))\n;; => (target . 2)\n\n;; Filter by accessor + predicate\n(filter (is cdr positive?) '((a . -1) (b . 5) (c . -2) (d . 3)))\n;; => ((b . 5) (d . 3))\n\n;; Compose accessor + comparison\n(filter (is string-length 3) '(\"hi\" \"foo\" \"x\" \"bar\" \"ab\"))\n;; => (\"foo\" \"bar\")\n\n;; With numeric comparison (uses =)\n(filter (is car 42) '((42 . a) (1 . b) (42 . c)))\n;; => ((42 . a) (42 . c))\n\n;; Accessor + predicate (tests result of accessor)\n(filter (is car symbol?) '((a . 1) (\"b\" . 2) (c . 3)))\n;; => ((a . 1) (c . 3))\n\n;; Identity accessor (is identity value) or just (is value)\n(filter (is identity even?) '(1 2 3 4 5 6))\n;; => (2 4 6)\n\n;; Custom test: keyword\n(find (is car 'x test: eq?) '((a 1) (x 2) (b 3)))\n;; => (x 2)",
+    "notes": "The 'is' macro from :std/sugar generates compact predicate closures. When the second argument is a procedure, it's treated as a predicate applied to the accessor result: (is accessor pred?) => (lambda (x) (pred? (accessor x))). When it's a value, it's compared using auto-detected equality. This makes filter/find expressions very concise. Use test: keyword to override the equality comparator.",
+    "related": [
+      "chain-advanced-pipeline",
+      "destructure-hash-tables-with-let-hash"
+    ]
+  },
+  {
+    "id": "custom-iterator-protocol",
+    "title": "Implement custom :iter protocol for any type",
+    "tags": [
+      "iterator",
+      "iter",
+      "custom",
+      "protocol",
+      "for",
+      "iterable",
+      "defmethod",
+      "generator",
+      "make-iterator"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": "(import :std/iter)\n\n;; To make any type iterable with for/for-collect/for-fold,\n;; implement the :iter method that returns a make-iterator object.\n\n;; Example: make a \"range-set\" iterable\n(defstruct range-set (ranges) transparent: #t)  ;; list of (lo . hi) pairs\n\n(defmethod (:iter (rs range-set))\n  (let (all-ranges (range-set-ranges rs))\n    ;; State: (current-value . remaining-ranges)\n    (def (next it)\n      (using (it :- iterator)\n        (match it.e\n          ([(? (lambda (p) (< (car p) (cdr p)))) . rest]\n           (let* ((current (caar it.e))\n                  (lo (caar it.e))\n                  (hi (cdar it.e)))\n             (if (< lo hi)\n               (begin\n                 (set! (caar it.e) (+ lo 1))\n                 lo)\n               ;; Move to next range\n               (if (pair? rest)\n                 (begin\n                   (set! it.e rest)\n                   (next it))\n                 iter-end))))\n          (_ iter-end))))\n    (if (pair? all-ranges)\n      (make-iterator all-ranges next)\n      (make-iterator '() (lambda (it) iter-end)))))\n\n;; Now it works with all for forms:\n(def rs (make-range-set '((0 . 3) (10 . 12))))\n(for/collect (x rs) x)  ;; => (0 1 2 10 11)\n\n;; Simpler example: iterator from a thunk (generator-style)\n(def (in-producer thunk)\n  (def (next it)\n    (let (v (thunk))\n      (if (eof-object? v) iter-end v)))\n  (make-iterator #f next))\n\n;; Iterator with cleanup (e.g., file handle)\n(def (in-file-lines path)\n  (let (port (open-input-file path))\n    (def (next it)\n      (let (line (read-line port))\n        (if (eof-object? line) iter-end line)))\n    (def (fini it)\n      (close-input-port port))\n    (make-iterator port next fini)))\n\n;; With cleanup, resources are freed even if loop exits early\n(for (line (in-file-lines \"/etc/hostname\"))\n  (displayln line))",
+    "notes": "The iterator protocol requires: (1) define a :iter method on your type via defmethod, (2) return a make-iterator with state, next-fn, and optional fini-fn. The next function receives the iterator itself — access state via it.e (using (it :- iterator) for typed access). Return iter-end to signal completion. The fini function is called when iteration completes (even early exit). Register fini with make-will for GC cleanup of abandoned iterators. iter-end is a singleton — use iter-end? to test.",
+    "related": [
+      "collect-results-with-for-collect",
+      "reduce-with-for-fold"
+    ]
+  },
+  {
+    "id": "coroutine-generator-pattern",
+    "title": "Coroutine generators with yield for lazy sequences",
+    "tags": [
+      "coroutine",
+      "generator",
+      "yield",
+      "lazy",
+      "sequence",
+      "continue",
+      "producer",
+      "stream"
+    ],
+    "imports": [
+      ":std/coroutine"
+    ],
+    "code": "(import :std/coroutine)\n\n;; Basic generator with yield\n(def gen (coroutine (lambda ()\n  (yield 1)\n  (yield 2)\n  (yield 3)\n  'done)))\n\n(continue gen)  ;; => 1\n(continue gen)  ;; => 2\n(continue gen)  ;; => 3\n(continue gen)  ;; => done (return value)\n\n;; Generator with arguments\n(def (fibonacci)\n  (let loop ((a 0) (b 1))\n    (yield a)\n    (loop b (+ a b))))\n\n(def fib (coroutine fibonacci))\n(continue fib)  ;; => 0\n(continue fib)  ;; => 1\n(continue fib)  ;; => 1\n(continue fib)  ;; => 2\n(continue fib)  ;; => 3\n\n;; Iterate a coroutine with for (via :iter protocol)\n(import :std/iter)\n(def (range-gen start end)\n  (let loop ((i start))\n    (when (< i end)\n      (yield i)\n      (loop (+ i 1)))))\n\n(for/collect (x (in-coroutine range-gen 0 5))\n  (* x x))\n;; => (0 1 4 9 16)\n\n;; Cothread: thread-safe coroutine (heavier but concurrent)\n(def ct (cothread (lambda ()\n  (yield \"from thread 1\")\n  (yield \"from thread 2\"))))\n(continue ct)  ;; => \"from thread 1\"\n(cothread-stop! ct)  ;; clean shutdown\n\n;; Two-way communication: continue can pass values back to yield\n(def echo (coroutine (lambda ()\n  (let loop ()\n    (let (msg (yield 'ready))\n      (yield (string-append \"echo: \" msg))\n      (loop))))))\n(continue echo)           ;; => ready\n(continue echo \"hello\")   ;; => echo: hello\n(continue echo \"world\")   ;; => ready (next yield)\n(continue echo \"!\")        ;; => echo: !",
+    "notes": "Coroutines are lightweight (single-threaded, continuation-based). yield suspends execution and returns a value to the caller. continue resumes the coroutine and optionally passes a value back into yield. Coroutines are NOT thread-safe — use cothreads for cross-thread generators. in-coroutine wraps a procedure into an iterator that terminates when the procedure returns. The return value of the procedure becomes the final iter-end signal.",
+    "related": [
+      "custom-iterator-protocol",
+      "channel-based-communication"
+    ]
+  },
+  {
+    "id": "event-sync-select",
+    "title": "Event system: sync and select for waiting on multiple sources",
+    "tags": [
+      "event",
+      "sync",
+      "select",
+      "wait",
+      "timeout",
+      "concurrency",
+      "multiplex",
+      "condition-variable"
+    ],
+    "imports": [
+      ":std/event"
+    ],
+    "code": "(import :std/event)\n\n;; wait: block on a single selector with optional timeout (seconds)\n(def t (spawn (lambda () (thread-sleep! 1) 'done)))\n(wait t 2)       ;; => t (thread completed within 2 seconds)\n\n;; select: race multiple selectors, return first ready\n(def t1 (spawn (lambda () (thread-sleep! 0.1) 'fast)))\n(def t2 (spawn (lambda () (thread-sleep! 1.0) 'slow)))\n(select [t1 t2] 2)  ;; => t1 (ready first)\n\n;; Wait on a condition variable (mutex+condvar pair)\n(def mx (make-mutex))\n(def cv (make-condition-variable))\n(spawn (lambda ()\n  (thread-sleep! 0.5)\n  (mutex-lock! mx)\n  (condition-variable-signal! cv)\n  (mutex-unlock! mx)))\n(mutex-lock! mx)\n(wait (cons mx cv) 2)  ;; blocks until signaled\n\n;; High-level events with handlers\n;; handle-evt: attach a handler to an event\n(sync (handle-evt always-evt (lambda (_) 'immediate)))  ;; => immediate\n\n;; choice-evt: first-ready-wins among multiple events\n(def result\n  (sync (choice-evt\n          (handle-evt (wrap-evt t1) (lambda (_) 'thread-done))\n          (handle-evt 2 (lambda (_) 'timeout)))))\n\n;; Timeout as event (number = seconds until ready)\n(sync (handle-evt 0.5 (lambda (_) 'timed-out)))  ;; => timed-out after 0.5s\n\n;; never-evt: never fires (useful as default in choice-evt)\n(sync never-evt 0)  ;; => #f (immediate timeout)\n\n;; Pattern: multiplexed I/O + timeout\n(def (read-with-timeout port seconds)\n  (let (ready (sync (choice-evt\n                      (wrap-evt port)\n                      (handle-evt seconds (lambda (_) #f)))))\n    (if ready\n      (read-line port)\n      'timeout)))",
+    "notes": "The event system unifies threads, condition variables, and I/O readiness under one API. wait/select are low-level selectors. sync works with high-level events (wrap-evt, handle-evt, choice-evt). Selectors: threads (ready when terminated), (cons mutex condvar) pairs, I/O ports. Events: always-evt, never-evt, time values (seconds), wrap-evt (raw selector -> event), handle-evt (event + handler fn), choice-evt (OR of events). sync spawns internal threads to race selectors and cleans up after first fires.",
+    "related": [
+      "channel-based-communication",
+      "barrier-synchronization"
+    ]
+  },
+  {
+    "id": "syntax-eval-compile-time",
+    "title": "Compile-time computation with syntax-eval",
+    "tags": [
+      "syntax-eval",
+      "compile-time",
+      "macro",
+      "constant",
+      "precompute",
+      "optimization",
+      "begin-syntax"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":std/misc/list-builder"
+    ],
+    "code": "(import :std/sugar :std/misc/list-builder)\n\n;; syntax-eval computes a value at compile time and embeds it as a constant\n;; The expression is evaluated during macro expansion, not at runtime\n\n;; Precompute a lookup table at compile time\n(def fibonacci-table\n  (syntax-eval\n    (list->vector\n      (with-list-builder (push!)\n        (let loop ((a 0) (b 1) (n 0))\n          (when (< n 20)\n            (push! a)\n            (loop b (+ a b) (+ n 1))))))))\n;; fibonacci-table is a vector literal in the compiled code\n;; No computation at runtime!\n\n(vector-ref fibonacci-table 10)  ;; => 55\n\n;; Precompute character classification tables\n(def digit-chars\n  (syntax-eval\n    (let (v (make-vector 128 #f))\n      (for-each (lambda (c) (vector-set! v (char->integer c) #t))\n                (string->list \"0123456789\"))\n      v)))\n\n;; begin-syntax: run arbitrary code at compile time\n(begin-syntax\n  (def (make-accessor-name prefix field)\n    (string->symbol\n      (string-append (symbol->string prefix) \"-\" (symbol->string field)))))\n\n;; syntax-call: call a compile-time function with syntax context\n;; Useful for generating identifiers based on macro expansion context\n(defsyntax (define-accessors stx)\n  (syntax-case stx ()\n    ((_ name field ...)\n     (with-syntax (((getter ...) (map (lambda (f)\n                                         (stx-identifier #'name\n                                           (symbol->string (stx-e #'name)) \"-\"\n                                           (symbol->string (stx-e f))))\n                                       #'(field ...))))\n       #'(begin\n           (def (getter obj) (slot-ref obj 'field)) ...)))))",
+    "notes": "syntax-eval is from :std/sugar. The expression runs at compile time (macro expansion phase), so it can use any Scheme computation but NOT runtime values or side effects. The result must be a datum that can be embedded in compiled code (numbers, strings, vectors, lists, symbols, booleans). begin-syntax runs code in the compile-time environment for use by subsequent macros. syntax-call passes the macro's syntax context to a compile-time function.",
+    "related": [
+      "chain-advanced-pipeline"
+    ]
+  },
+  {
+    "id": "with-destroy-raii",
+    "title": "RAII resource cleanup with with-destroy",
+    "tags": [
+      "with-destroy",
+      "destroy",
+      "raii",
+      "cleanup",
+      "resource",
+      "finally",
+      "unwind",
+      "close"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; with-destroy ensures {destroy obj} is called on exit, even on exception\n;; The object must have a 'destroy' method\n\n(defclass connection (handle)\n  constructor: :init!)\n\n(defmethod {:init! connection}\n  (lambda (self handle:)\n    (set! self.handle handle)\n    (displayln \"opened connection \" handle)))\n\n(defmethod {destroy connection}\n  (lambda (self)\n    (displayln \"closing connection \" self.handle)\n    (set! self.handle #f)))\n\n;; Usage: guaranteed cleanup\n(def conn (make-connection handle: 42))\n(with-destroy conn\n  (displayln \"using connection \" conn.handle)\n  ;; even if this throws, destroy is called\n  (do-something-with conn))\n\n;; Multiple resources (nested)\n(with-destroy (make-connection handle: 1)\n  (lambda (c1)\n    (with-destroy (make-connection handle: 2)\n      (lambda (c2)\n        (use-both c1 c2)))))\n\n;; Equivalent to:\n;; (try (use resource) (finally {destroy resource}))",
+    "notes": "with-destroy is from :std/sugar. It calls {destroy obj} in a finally clause. The object must implement a destroy method. This is Gerbil's equivalent of Python's context managers or C++ RAII. Common uses: database connections, file handles, network sockets, FFI resources. The destroy method should be idempotent (safe to call multiple times).",
+    "related": [
+      "completion-async-value"
+    ]
+  },
+  {
+    "id": "function-composition-combinators",
+    "title": "Function composition and predicate combinators",
+    "tags": [
+      "compose",
+      "rcompose",
+      "every-of",
+      "any-of",
+      "predicate",
+      "combinator",
+      "func",
+      "higher-order"
+    ],
+    "imports": [
+      ":std/misc/func"
+    ],
+    "code": "(import :std/misc/func)\n\n;; compose1: right-to-left composition (single-value)\n(def add1-then-double (compose1 (cut * <> 2) 1+))\n(add1-then-double 3)  ;; => 8 ((3+1)*2)\n\n;; rcompose1: left-to-right composition (more readable)\n(def inc-double (rcompose1 1+ (cut * <> 2)))\n(inc-double 3)  ;; => 8\n\n;; compose/values: threads multiple return values\n(def (swap-and-add a b) (values b (+ a b)))\n(def transform (compose/values swap-and-add values))\n\n;; @compose1: macro version (no closure allocation, inlined)\n(def fast-fn (@compose1 string->number 1+ number->string))\n\n;; every-of: all predicates must match (AND combinator)\n(def valid-age? (every-of number? positive? (cut < <> 150)))\n(valid-age? 25)    ;; => #t\n(valid-age? -5)    ;; => #f\n(valid-age? \"hi\")  ;; => #f\n\n;; any-of: at least one predicate must match (OR combinator)\n(def number-like? (any-of number? string->number))\n(number-like? 42)    ;; => #t\n(number-like? \"42\")  ;; => 42 (truthy)\n(number-like? \"hi\")  ;; => #f\n\n;; pred-limit: predicate that matches only N times\n(def first-3-evens (pred-limit even? 3))\n(filter first-3-evens '(1 2 3 4 5 6 7 8 9 10))\n;; => (2 4 6)  -- only first 3 matches\n\n;; pred-sequence: match elements in order\n(def match-seq (pred-sequence '(1 2 3)))\n(match-seq 1)  ;; => #t\n(match-seq 2)  ;; => #t\n(match-seq 2)  ;; => #f (expected 3)\n\n;; repeat: apply function N times\n(repeat string-upcase 1 \"hello\")  ;; => \"HELLO\"",
+    "notes": ":std/misc/func provides function composition and predicate combinators. compose1/rcompose1 are for single-value functions. compose/rcompose handle multi-value (values) returns. @compose1/@rcompose1 are macro versions that inline the composition — no closure allocated, better for hot paths. every-of/any-of create compound predicates from lists. pred-limit creates stateful predicates that only match a fixed number of times. pred-sequence matches elements in a specific order across calls.",
+    "related": [
+      "is-predicate-factory",
+      "chain-advanced-pipeline"
+    ]
+  },
+  {
+    "id": "lazy-evaluation-delay-force",
+    "title": "Lazy evaluation with lazy, force, and delay",
+    "tags": [
+      "lazy",
+      "delay",
+      "force",
+      "thunk",
+      "memoize",
+      "deferred",
+      "evaluation"
+    ],
+    "imports": [
+      ":std/lazy"
+    ],
+    "code": "(import :std/lazy)\n\n;; lazy: wrap an expression for deferred evaluation\n(def expensive (lazy (begin (displayln \"computing...\") (* 6 7))))\n\n;; force: evaluate the lazy value (computed only once, then cached)\n(force expensive)  ;; prints \"computing...\" => 42\n(force expensive)  ;; => 42 (no print, cached)\n\n;; delay: alternative form (equivalent to lazy for simple cases)\n(def later (delay (+ 1 2)))\n(force later)  ;; => 3\n\n;; Lazy lists (recursive lazy evaluation)\n(def (lazy-range n)\n  (if (> n 0)\n    (lazy (cons n (lazy-range (- n 1))))\n    (lazy '())))\n\n(def r (lazy-range 5))\n(car (force r))           ;; => 5\n(car (force (cdr (force r)))) ;; => 4\n\n;; Pattern: lazy configuration loading\n(def config\n  (lazy (call-with-input-file \"config.json\" read-json)))\n\n;; Config is only loaded when first accessed\n(def (get-config key)\n  (hash-ref (force config) key))\n\n;; Pattern: memoized expensive computation\n(def (make-lazy-cache compute-fn)\n  (let (cache (make-hash-table))\n    (lambda (key)\n      (unless (hash-key? cache key)\n        (hash-put! cache key (lazy (compute-fn key))))\n      (force (hash-ref cache key)))))",
+    "notes": ":std/lazy implements R7RS-style lazy evaluation. lazy wraps an expression — it won't be evaluated until force is called. Results are memoized: subsequent force calls return the cached value. The internal representation uses tagged cons cells: (lazy . thunk), (eager . promise), (resolved . value). delay is syntactic sugar for lazy. Cyclic force detection prevents infinite loops. Lazy values are useful for deferred initialization, infinite data structures, and expensive computations that may not be needed.",
+    "related": [
+      "coroutine-generator-pattern"
+    ]
+  },
+  {
+    "id": "amb-nondeterministic-search",
+    "title": "Nondeterministic computation with amb (backtracking search)",
+    "tags": [
+      "amb",
+      "nondeterministic",
+      "backtracking",
+      "search",
+      "constraint",
+      "choice",
+      "puzzle",
+      "solver"
+    ],
+    "imports": [
+      ":std/amb"
+    ],
+    "code": "(import :std/amb)\n\n;; amb picks one of the choices; backtracks if amb-fail is called\n;; amb-find returns the first solution, amb-collect returns all\n\n;; Basic: find a value satisfying a constraint\n(amb-find\n  (let (x (amb 1 2 3 4 5))\n    (when (even? x) (amb-fail))  ;; reject even numbers\n    x))\n;; => 1 (first odd number)\n\n;; Collect all solutions\n(amb-collect\n  (let (x (amb 1 2 3 4 5))\n    (when (even? x) (amb-fail))\n    x))\n;; => (1 3 5)\n\n;; Constraint satisfaction: find Pythagorean triples\n(amb-collect\n  (let ((a (amb 1 2 3 4 5 6 7 8 9 10))\n        (b (amb 1 2 3 4 5 6 7 8 9 10))\n        (c (amb 1 2 3 4 5 6 7 8 9 10)))\n    (unless (and (<= a b) (= (+ (* a a) (* b b)) (* c c)))\n      (amb-fail))\n    (list a b c)))\n;; => ((3 4 5) (6 8 10))\n\n;; amb-assert: shorthand for (unless test (amb-fail))\n(amb-find\n  (let ((x (amb 1 2 3 4 5))\n        (y (amb 1 2 3 4 5)))\n    (amb-assert (= (+ x y) 6))\n    (amb-assert (> x y))\n    (list x y)))\n;; => (4 2) or (5 1)\n\n;; Custom strategy: shuffle choices for randomized search\n(parameterize ((amb-strategy shuffle))\n  (amb-find\n    (let (x (amb 1 2 3 4 5))\n      (amb-assert (odd? x))\n      x)))\n;; => random odd number from 1,3,5",
+    "notes": ":std/amb implements McCarthy's ambiguous operator for nondeterministic programming. amb chooses one value from its arguments. If subsequent computation calls amb-fail, amb backtracks and tries the next choice. amb-find returns the first successful result. amb-collect gathers all solutions. amb-assert is sugar for (unless test (amb-fail)). amb-strategy controls iteration order: identity (default, left-to-right) or shuffle (randomized). Internally uses continuations (let/cc) for backtracking, running in a dedicated thread.",
+    "related": [
+      "coroutine-generator-pattern"
+    ]
+  },
+  {
+    "id": "generic-multi-dispatch",
+    "title": "Generic functions with multi-method dispatch",
+    "tags": [
+      "generic",
+      "defgeneric",
+      "defmethod",
+      "dispatch",
+      "polymorphism",
+      "multi-method",
+      "overload"
+    ],
+    "imports": [
+      ":std/generic"
+    ],
+    "code": "(import :std/generic)\n\n;; Define a generic function (dispatches on first argument's type)\n(defgeneric stringify)\n\n;; Add methods for different types\n(defmethod {stringify fixnum}\n  (lambda (n) (number->string n)))\n\n(defmethod {stringify string}\n  (lambda (s) (string-append \"\\\"\" s \"\\\"\")))\n\n(defmethod {stringify pair}\n  (lambda (p)\n    (string-append \"(\" (stringify (car p)) \" . \" (stringify (cdr p)) \")\")))\n\n(defmethod {stringify :t}  ;; default (any type)\n  (lambda (obj)\n    (call-with-output-string (lambda (p) (write obj p)))))\n\n;; Usage: dispatches based on argument type\n(stringify 42)            ;; => \"42\"\n(stringify \"hello\")       ;; => \"\\\"hello\\\"\"\n(stringify '(1 . \"a\"))    ;; => \"(1 . \\\"a\\\")\"\n(stringify #t)            ;; => \"#t\" (default method)\n\n;; Works with custom struct/class types\n(defstruct point (x y) transparent: #t)\n\n(defmethod {stringify point}\n  (lambda (p)\n    (format \"Point(~a, ~a)\" (point-x p) (point-y p))))\n\n(stringify (make-point 3 4))  ;; => \"Point(3, 4)\"\n\n;; Multi-arity generic\n(defgeneric combine)\n\n(defmethod {combine fixnum}\n  (lambda (a b) (+ a b)))\n\n(defmethod {combine string}\n  (lambda (a b) (string-append a b)))\n\n(combine 1 2)        ;; => 3\n(combine \"hi\" \" lo\") ;; => \"hi lo\"",
+    "notes": ":std/generic provides CLOS-style generic functions that dispatch on the type of the first argument. defgeneric declares the function. defmethod adds a type-specialized implementation. Type names: fixnum, flonum, string, pair, vector, symbol, boolean, :t (default/any). For structs/classes, use the struct name directly. Methods are resolved using the type hierarchy — more specific types take priority. Use :t as a catch-all default method.",
+    "related": [
+      "custom-iterator-protocol"
+    ]
+  },
+  {
+    "id": "deque-double-ended-queue",
+    "title": "Double-ended queue (deque) with O(1) front/back operations",
+    "tags": [
+      "deque",
+      "double-ended",
+      "queue",
+      "push",
+      "pop",
+      "front",
+      "back",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/deque"
+    ],
+    "code": "(import :std/misc/deque)\n\n;; Create a double-ended queue\n(def dq (make-deque))\n\n;; Push to front or back\n(push-front! dq 'a)\n(push-front! dq 'b)\n(push-back! dq 'c)\n;; deque is now: [b a c]\n\n;; Peek without removing\n(peek-front dq)   ;; => b\n(peek-back dq)    ;; => c\n\n;; Pop from front or back\n(pop-front! dq)   ;; => b\n(pop-back! dq)    ;; => c\n;; deque is now: [a]\n\n;; Pop with default (when empty)\n(pop-front! dq)        ;; => a\n(pop-front! dq 'empty) ;; => empty\n\n;; Check emptiness\n(deque-empty? dq)  ;; => #t\n(deque-length dq)  ;; => 0\n\n;; Convert to list\n(push-back! dq 1)\n(push-back! dq 2)\n(push-back! dq 3)\n(deque->list dq)   ;; => (1 2 3)\n\n;; Pattern: sliding window\n(def window (make-deque))\n(def window-size 3)\n(def (add-to-window! val)\n  (push-back! window val)\n  (when (> (deque-length window) window-size)\n    (pop-front! window)))\n\n(for-each add-to-window! '(1 2 3 4 5))\n(deque->list window)  ;; => (3 4 5)",
+    "notes": "Deque from :std/misc/deque uses a doubly-linked list internally. All operations (push-front!, push-back!, pop-front!, pop-back!, peek-front, peek-back) are O(1). Nodes have prev/next pointers; #f indicates unlinked boundaries. NOT thread-safe — wrap with mutex for concurrent access. Useful for sliding windows, BFS, and work-stealing patterns.",
+    "related": [
+      "priority-queue-heap",
+      "list-builder-efficient-append"
+    ]
+  },
+  {
+    "id": "run-process-subprocess",
+    "title": "Run external processes and capture output",
+    "tags": [
+      "process",
+      "subprocess",
+      "exec",
+      "command",
+      "shell",
+      "capture",
+      "output",
+      "pipe",
+      "run"
+    ],
+    "imports": [
+      ":std/misc/process"
+    ],
+    "code": "(import :std/misc/process)\n\n;; Run a command and capture stdout as string\n(run-process [\"ls\" \"-la\"] stdout-redirection: #t\n             coprocess: read-all-as-string)\n;; => \"total 42\\ndrwxr-xr-x ...\"\n\n;; Run with check-status (raises on non-zero exit)\n(run-process [\"grep\" \"-r\" \"pattern\" \"src/\"]\n             stdout-redirection: #t\n             coprocess: read-all-as-string\n             check-status: #t)\n\n;; Run a batch command (inherits stdin/stdout/stderr)\n(run-process/batch [\"make\" \"build\"])\n\n;; Filter: pipe input string through a command\n(filter-with-process [\"sort\" \"-n\"] \"3\\n1\\n2\\n\")\n;; => \"1\\n2\\n3\\n\"\n\n;; Custom coprocess: process output line by line\n(run-process [\"find\" \".\" \"-name\" \"*.ss\"]\n             stdout-redirection: #t\n             coprocess: (lambda (port)\n               (let loop ((lines []))\n                 (let (line (read-line port))\n                   (if (eof-object? line)\n                     (reverse lines)\n                     (loop (cons line lines)))))))\n\n;; Pass environment variables\n(run-process [\"env\"]\n             stdout-redirection: #t\n             coprocess: read-all-as-string\n             environment: (cons \"MY_VAR=hello\"\n                                (##command-line)))\n\n;; Invoke: simplified API for fire-and-forget\n(invoke \"echo\" [\"hello\" \"world\"])\n\n;; Getting exit status without exception\n(def proc (open-process [path: \"grep\" arguments: [\"-q\" \"pattern\" \"file.txt\"]]))\n(process-status proc)  ;; => 0 or 1",
+    "notes": ":std/misc/process wraps Gambit's open-process. run-process is the main entry point: pass the command as a list [program arg ...]. stdout-redirection: #t captures stdout. coprocess receives the process port and returns a value (default: read-all-as-string). check-status: #t raises an exception on non-zero exit. run-process/batch inherits all I/O (for interactive or build commands). filter-with-process feeds a string to stdin and captures stdout. For Gambit-level control, use open-process directly with path: and arguments: keywords.",
+    "related": [
+      "read-file-to-string"
+    ]
+  },
+  {
+    "id": "repr-evaluable-printing",
+    "title": "Evaluable object printing with repr (Python-style repr)",
+    "tags": [
+      "repr",
+      "print",
+      "display",
+      "debug",
+      "representation",
+      "pr",
+      "prn",
+      "inspect"
+    ],
+    "imports": [
+      ":std/misc/repr"
+    ],
+    "code": "(import :std/misc/repr)\n\n;; repr: convert any object to a string representation\n(repr 42)          ;; => \"42\"\n(repr \"hello\")     ;; => \"\\\"hello\\\"\"\n(repr '(1 2 3))    ;; => \"(1 2 3)\"\n(repr (hash (\"a\" 1) (\"b\" 2)))  ;; => \"(hash (\\\"a\\\" 1) (\\\"b\\\" 2))\"\n\n;; pr: print representation to a port (default: current-output-port)\n(pr 42)            ;; prints: 42\n(pr \"hello\")       ;; prints: \"hello\"\n\n;; prn: print representation + newline\n(prn '(1 2 3))     ;; prints: (1 2 3)\\n\n\n;; Custom repr for your structs via :pr method\n(defstruct point (x y) transparent: #t)\n\n(defmethod {:pr point}\n  (lambda (self port options)\n    (fprintf port \"(make-point ~a ~a)\" (point-x self) (point-y self))))\n\n(repr (make-point 3 4))  ;; => \"(make-point 3 4)\"\n\n;; display-separated: format lists with custom delimiters\n(display-separated '(1 2 3)\n  port: (current-output-port)\n  prefix: \"[\"\n  separator: \", \"\n  suffix: \"]\")\n;; prints: [1, 2, 3]\n\n;; Useful for debugging: print and return\n(def (debug-print label value)\n  (display label)\n  (display \": \")\n  (prn value)\n  value)\n\n(debug-print \"result\" (+ 1 2))  ;; prints: result: 3, returns 3",
+    "notes": ":std/misc/repr provides Python-style repr for all Gerbil objects. The output is designed to be evaluable Scheme code when possible. For custom types, implement the :pr method (receives self, port, and options hash). Hash tables are printed in (hash ...) literal syntax. display-separated is useful for custom formatting with delimiters. If no :pr method exists, repr uses #<N #;\\\"obj\\\"> syntax with a serial number.",
+    "related": [
+      "chain-advanced-pipeline"
+    ]
+  },
+  {
+    "id": "assert-with-diagnostics",
+    "title": "Assert with automatic sub-expression diagnostics",
+    "tags": [
+      "assert",
+      "check",
+      "debug",
+      "diagnostic",
+      "test",
+      "invariant",
+      "error-message"
+    ],
+    "imports": [
+      ":std/assert"
+    ],
+    "code": "(import :std/assert)\n\n;; assert! checks a condition and reports sub-expression values on failure\n(def x 5)\n(def y 10)\n(assert! (< x y))  ;; passes silently\n\n;; On failure, reports values of all sub-expressions:\n(def a 10)\n(def b 3)\n;; (assert! (< (* a 2) b))\n;; Error: Assertion failed (< (* a 2) b)\n;;   a => 10\n;;   b => 3\n;;   (* a 2) => 20\n\n;; Custom error message\n;; (assert! (positive? x) \"x must be positive\")\n\n;; Pattern: function preconditions\n(def (divide a b)\n  (assert! (not (zero? b)))  ;; shows b's value on failure\n  (/ a b))\n\n;; Pattern: invariant checking in data structures\n(def (sorted? lst)\n  (or (null? lst) (null? (cdr lst))\n      (and (<= (car lst) (cadr lst))\n           (sorted? (cdr lst)))))\n\n(def (binary-search vec target)\n  (assert! (sorted? (vector->list vec)))\n  ;; ... search implementation\n  )",
+    "notes": ":std/assert provides assert! which automatically extracts sub-expressions from the assertion condition and binds them to temporary variables. On failure, it reports each sub-expression and its value, making debugging much easier than a plain assertion. The macro uses compile-time analysis (split-sub-exprs) to identify which expressions to capture. Built-in identifiers are not rebound. Source location is preserved for error reporting.",
+    "related": [
+      "is-predicate-factory"
+    ]
+  },
+  {
+    "id": "actor-message-passing",
+    "title": "Actor message passing with send, receive, and reply",
+    "tags": [
+      "actor",
+      "message",
+      "send",
+      "receive",
+      "reply",
+      "mailbox",
+      "concurrent",
+      "defmessage",
+      "rpc"
+    ],
+    "imports": [
+      ":std/actor"
+    ],
+    "code": "(import :std/actor)\n\n;; Define message types\n(defmessage !ping ())\n(defmessage !echo (text))\n(defmessage !shutdown ())\n(defmessage !ok (value))\n\n;; Simple actor with message loop\n(def (my-actor)\n  (let/cc exit\n    (while #t\n      (<-  ;; receive and pattern match on messages\n        ((!ping)\n         (--> (!ok 'pong)))     ;; reply to sender\n\n        ((!echo text)\n         (--> (!ok (string-append \"Echo: \" text))))\n\n        ((!shutdown)\n         (-->? (!ok 'bye))      ;; reply only if expected\n         (exit 'shutdown))\n\n        (unexpected\n         (displayln \"unknown: \" @message))))))\n\n;; Start the actor server and spawn actor\n(def srv (start-actor-server! cookie: (make-random-cookie)))\n(def actor-thread (spawn/name 'my-actor my-actor))\n\n;; One-way send (fire and forget)\n(-> actor-thread (!ping))\n\n;; Request-reply (blocks until response or timeout)\n(def reply (->> actor-thread (!echo \"hello\") timeout: 5))\n;; reply => (!ok \"Echo: hello\")\n\n;; Context variables available inside <- handlers:\n;; @message       - the received message\n;; @source        - sender thread/handle\n;; @nonce         - message ID\n;; @reply-expected? - whether sender expects a reply\n;; @envelope      - full envelope struct\n\n;; Shutdown the actor\n(->> actor-thread (!shutdown) timeout: 5)",
+    "notes": "Gerbil actors use thread mailboxes for message passing. defmessage defines a struct type for messages. <- receives and pattern-matches. -> sends one-way (fire-and-forget). ->> sends and waits for reply (RPC-style). --> sends a reply (only works inside <- handler). -->? sends reply only if the sender expects one. Context syntax parameters (@source, @nonce, etc.) are bound inside <- handlers via syntax-parameterize. Actors are just threads — spawn/name creates them. start-actor-server! is needed for remote/ensemble actors.",
+    "related": [
+      "channel-based-communication",
+      "event-sync-select"
+    ]
+  },
+  {
+    "id": "port-utilities-file-io",
+    "title": "File I/O utilities: read/write files, strings, lines, bytes",
+    "tags": [
+      "port",
+      "file",
+      "read",
+      "write",
+      "string",
+      "lines",
+      "bytes",
+      "io",
+      "utility"
+    ],
+    "imports": [
+      ":std/misc/ports"
+    ],
+    "code": "(import :std/misc/ports)\n\n;; Read entire file as string\n(def content (read-file-string \"path/to/file.txt\"))\n\n;; Read file as list of lines\n(def lines (read-file-lines \"path/to/file.txt\"))\n\n;; Read from port as string\n(def text (call-with-input-file \"file.txt\" read-all-as-string))\n\n;; Read from port as u8vector (binary)\n(def bytes (call-with-input-file \"file.bin\" read-all-as-u8vector))\n\n;; Write string to file\n(write-file-string \"output.txt\" \"hello world\\n\")\n\n;; Write lines to file\n(write-file-lines \"output.txt\" '(\"line 1\" \"line 2\" \"line 3\"))\n\n;; Macro forms with automatic port binding\n(with-input \"file.txt\"\n  (read-line))  ;; reads from file bound to current-input-port\n\n(with-output \"out.txt\"\n  (displayln \"hello\"))  ;; writes to file\n\n;; Copy between ports\n(call-with-input-file \"source.txt\"\n  (lambda (in)\n    (call-with-output-file \"dest.txt\"\n      (lambda (out)\n        (copy-port in out)))))\n\n;; Functional forms\n(call-with-input \"file.txt\" (lambda (port) (read-json port)))\n(call-with-output \"file.txt\" (lambda (port) (write-json data port)))",
+    "notes": ":std/misc/ports provides convenience wrappers for common file I/O patterns. read-file-string and read-file-lines are the most commonly needed. write-file-string and write-file-lines handle opening/closing automatically. copy-port auto-detects byte vs character ports. with-input/with-output are macros that parameterize current-input-port/current-output-port. For binary I/O, use read-all-as-u8vector. All functions handle port closing on exceptions.",
+    "related": [
+      "read-file-to-string",
+      "read-file-as-list-of-lines"
+    ]
+  },
+  {
+    "id": "interface-contracts",
+    "title": "Define and implement interfaces with type contracts",
+    "tags": [
+      "interface",
+      "contract",
+      "type",
+      "protocol",
+      "defmethod",
+      "polymorphism",
+      "using",
+      "typed"
+    ],
+    "imports": [
+      ":std/interface"
+    ],
+    "code": "(import :std/interface)\n\n;; Define an interface\n(interface Printable\n  (to-string)\n  (display-to port))\n\n(interface Comparable\n  (compare-to other))\n\n;; Implement for a struct\n(defstruct point (x y) transparent: #t)\n\n(defmethod {to-string point}\n  (lambda (self)\n    (format \"Point(~a, ~a)\" (point-x self) (point-y self))))\n\n(defmethod {display-to point}\n  (lambda (self port)\n    (display (to-string self) port)))\n\n(defmethod {compare-to point}\n  (lambda (self other)\n    (let ((d1 (+ (* (point-x self) (point-x self))\n                  (* (point-y self) (point-y self))))\n          (d2 (+ (* (point-x other) (point-x other))\n                  (* (point-y other) (point-y other)))))\n      (- d1 d2))))\n\n;; Use interface as type contract in function signatures\n(def (print-it (obj : Printable))\n  (displayln {obj.to-string}))\n\n(def (sort-items (items : :list))\n  (sort items (lambda (a b)\n    (< {a.compare-to b} 0))))\n\n;; 'using' for typed, optimized access (no dynamic dispatch)\n(def (fast-print (p :- point))\n  (using (p :- point)\n    (displayln \"x=\" p.x \" y=\" p.y)))\n\n;; Multiple typed bindings\n(def (add-points (p1 :- point) (p2 :- point))\n  (using ((p1 :- point) (p2 :- point))\n    (make-point (+ p1.x p2.x) (+ p1.y p2.y))))\n\n(print-it (make-point 3 4))  ;; => Point(3, 4)\n(fast-print (make-point 1 2)) ;; => x=1 y=2",
+    "notes": "Interfaces define a protocol (set of methods) that types can implement. Use (obj : InterfaceName) in function signatures for runtime type checking. Use (obj :- StructType) with 'using' for compile-time optimized access without dynamic dispatch — this inlines field accesses. Interface methods are called via {obj.method args} syntax. Interfaces compose: a type can implement multiple interfaces. Type contracts raise errors at call time if the wrong type is passed.",
+    "related": [
+      "generic-multi-dispatch",
+      "with-destroy-raii"
+    ]
+  },
+  {
+    "id": "defmethod-alias-multi-name",
+    "title": "Create method aliases with defmethod/alias",
+    "tags": [
+      "defmethod",
+      "alias",
+      "method",
+      "rename",
+      "multiple-names",
+      "dispatch",
+      "oop"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; defmethod/alias: one implementation, multiple method names\n(defclass animal (name sound) transparent: #t)\n\n(defmethod/alias {speak (talk say) animal}\n  (lambda (self)\n    (string-append (@ self name) \" says \" (@ self sound))))\n\n;; All three names dispatch to the same implementation\n(def dog (make-animal \"Rex\" \"woof\"))\n{speak dog}    ;; => \"Rex says woof\"\n{talk dog}     ;; => \"Rex says woof\"\n{say dog}      ;; => \"Rex says woof\"\n\n;; Useful for API compatibility: provide both short and long names\n(defclass logger (level) transparent: #t)\n\n(defmethod/alias {log (write-log emit) logger}\n  (lambda (self msg)\n    (when (>= (@ self level) 1)\n      (displayln \"[LOG] \" msg))))\n\n(def lg (make-logger 1))\n{log lg \"hello\"}        ;; => [LOG] hello\n{write-log lg \"world\"}  ;; => [LOG] world\n{emit lg \"!\"}           ;; => [LOG] !",
+    "notes": "defmethod/alias from :std/sugar maps multiple method names to a single implementation. Syntax: {primary-name (alias1 alias2 ...) ClassName}. All names create separate method entries in the dispatch table, but they all point to the same lambda. Useful for providing backwards-compatible names or short/long variants of the same operation.",
+    "related": [
+      "generic-multi-dispatch",
+      "interface-contracts"
+    ]
+  },
+  {
+    "id": "awhen-anaphoric-conditional",
+    "title": "Anaphoric when (awhen) for concise null-checking",
+    "tags": [
+      "awhen",
+      "anaphoric",
+      "when",
+      "null-check",
+      "optional",
+      "binding",
+      "sugar"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; awhen: bind a value, execute body only if truthy\n;; (awhen (var expr) body ...) => (let (var expr) (when var body ...))\n\n;; Common pattern: lookup and use\n(def table (hash (\"key1\" 42) (\"key2\" \"hello\")))\n\n(awhen (v (hash-get table \"key1\"))\n  (displayln \"found: \" v))  ;; prints: found: 42\n\n(awhen (v (hash-get table \"missing\"))\n  (displayln \"found: \" v))  ;; does nothing (#f from hash-get)\n\n;; Chain of lookups\n(def config (hash (\"db\" (hash (\"host\" \"localhost\") (\"port\" 5432)))))\n\n(awhen (db (hash-get config \"db\"))\n  (awhen (host (hash-get db \"host\"))\n    (displayln \"connecting to \" host)))\n\n;; With side effects\n(awhen (pid (find-process \"myapp\"))\n  (kill-process pid)\n  (displayln \"killed process \" pid))\n\n;; Compare with verbose alternative:\n;; (let (v (hash-get table \"key1\"))\n;;   (when v\n;;     (displayln \"found: \" v)))",
+    "notes": "awhen from :std/sugar is shorthand for let + when. The bound variable is available in the body. Returns void if the expression is #f. This is much more concise than the let+when pattern for optional value handling. Works well with hash-get (returns #f on missing keys), find (returns #f if not found), and other functions that return #f for absence.",
+    "related": [
+      "destructure-hash-tables-with-let-hash",
+      "is-predicate-factory"
+    ]
+  },
+  {
+    "id": "shuffle-random-permutation",
+    "title": "Fisher-Yates shuffle for random permutations",
+    "tags": [
+      "shuffle",
+      "random",
+      "permutation",
+      "randomize",
+      "vector",
+      "list",
+      "sample"
+    ],
+    "imports": [
+      ":std/misc/shuffle"
+    ],
+    "code": "(import :std/misc/shuffle)\n\n;; Shuffle a list (returns new list)\n(shuffle '(1 2 3 4 5))  ;; => (3 1 5 2 4) (random order)\n\n;; Shuffle a vector (returns new vector)\n(vector-shuffle #(a b c d e))  ;; => #(c a e b d)\n\n;; Shuffle vector in-place (mutates)\n(def v #(1 2 3 4 5))\n(vector-shuffle! v)  ;; v is now randomly permuted\n\n;; Custom random number generator\n(import :std/crypto)\n(shuffle '(1 2 3 4 5) random-integer)\n\n;; Pattern: random sampling (take first N after shuffle)\n(def (random-sample lst n)\n  (take (shuffle lst) (min n (length lst))))\n\n(random-sample '(a b c d e f g) 3)  ;; => e.g. (d a f)",
+    "notes": ":std/misc/shuffle implements Fisher-Yates (Knuth) shuffle, which produces uniformly distributed random permutations. shuffle copies the list to a vector, shuffles in-place, then converts back. vector-shuffle returns a new vector; vector-shuffle! mutates. An optional second argument provides a custom RNG: (lambda (n) -> integer in [0, n)). Default uses Gambit's random-integer.",
+    "related": [
+      "amb-nondeterministic-search"
+    ]
+  },
+  {
+    "id": "with-id-identifier-generation",
+    "title": "Generate identifiers at macro time with with-id",
+    "tags": [
+      "with-id",
+      "macro",
+      "identifier",
+      "generate",
+      "metaprogramming",
+      "syntax",
+      "defsyntax",
+      "hygiene"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; with-id generates new identifiers by concatenating strings/symbols\n;; at macro expansion time. Useful for defining families of related functions.\n\n;; Example: generate getter/setter pairs from a name\n(defrules define-property ()\n  ((_ name initial)\n   (with-id name ((getter #'name)\n                  (setter #'name \"-set!\"))\n     (begin\n       (def getter initial)\n       (def (setter v) (set! getter v))))))\n\n(define-property my-counter 0)\nmy-counter          ;; => 0\n(my-counter-set! 5)\nmy-counter          ;; => 5\n\n;; with-id syntax: (with-id context-id ((new-id parts ...) ...) body)\n;; parts can be: #'identifier, \"string\", or 'symbol\n;; They're concatenated to form the new identifier name\n\n;; Example: defvar macro for indexed memory access\n(defrules defvar ()\n  ((_ name n vec)\n   (with-id name ((idx #'name \"@\")\n                  (get #'name \"-get\")\n                  (set! #'name \"-set!\"))\n     (begin\n       (def idx n)\n       (def (get) (vector-ref vec idx))\n       (def (set! v) (vector-set! vec idx v))))))\n\n(def mem (make-vector 10 0))\n(defvar x 0 mem)\n(defvar y 1 mem)\n(x-set! 42)\n(y-set! 99)\n(x-get)   ;; => 42\nx@        ;; => 0 (the index)\n\n;; with-id/expr: same but wraps body in (let () ...) for expression context\n;; Use when you need the result as a value, not at top level",
+    "notes": "with-id from :std/sugar is for advanced macro writing where you need to create related identifier names programmatically. The context identifier determines the hygiene scope — new identifiers are created in the same scope as the context. Parts are concatenated as strings to form the new name: #'id extracts the symbol name, \"string\" is literal, 'symbol converts to string. with-id/expr wraps in (let () ...) so it can be used in expression position.",
+    "related": [
+      "syntax-eval-compile-time"
+    ]
+  },
+  {
+    "id": "if-let-when-let-conditional-bind",
+    "title": "Conditional binding with if-let and when-let (short-circuit on #f)",
+    "tags": [
+      "if-let",
+      "when-let",
+      "conditional",
+      "binding",
+      "optional",
+      "short-circuit",
+      "sugar",
+      "guard"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; if-let: bind variables, run then-branch if ALL are truthy\n;; If any binding is #f, immediately run else-branch\n(def ht (hash (\"name\" \"Alice\") (\"age\" 30)))\n\n(if-let ((name (hash-get ht \"name\"))\n         (age (hash-get ht \"age\")))\n  (format \"~a is ~a years old\" name age)\n  \"missing data\")\n;; => \"Alice is 30 years old\"\n\n(if-let ((name (hash-get ht \"name\"))\n         (email (hash-get ht \"email\")))  ;; #f — not found\n  (format \"~a: ~a\" name email)\n  \"missing data\")\n;; => \"missing data\" (short-circuited at email)\n\n;; when-let: like if-let but no else branch (returns void if #f)\n(when-let ((name (hash-get ht \"name\")))\n  (displayln \"Hello, \" name \"!\"))\n;; prints: Hello, Alice!\n\n(when-let ((email (hash-get ht \"email\")))\n  (send-notification email))\n;; does nothing (email is #f)\n\n;; Single binding form\n(if-let (x (find even? '(1 3 5 7)))\n  (displayln \"found even: \" x)\n  (displayln \"no even numbers\"))\n\n;; Chaining lookups\n(if-let ((config (load-config))\n         (db (hash-get config \"database\"))\n         (host (hash-get db \"host\")))\n  (connect host)\n  (error \"incomplete configuration\"))",
+    "notes": "if-let and when-let from :std/sugar provide conditional binding that short-circuits on #f. Each binding is tested in order — if any evaluates to #f, the else branch (for if-let) runs immediately without evaluating subsequent bindings. This is implemented using let/cc for early exit. Perfect for chaining optional lookups (hash-get, find, etc.) where any step might fail. when-let returns void when the condition is false.",
+    "related": [
+      "awhen-anaphoric-conditional",
+      "destructure-hash-tables-with-let-hash"
+    ]
+  },
+  {
+    "id": "alet-star-anaphoric-let",
+    "title": "alet/alet* — anaphoric let that short-circuits on #f",
+    "tags": [
+      "alet",
+      "alet*",
+      "and-let",
+      "short-circuit",
+      "pipeline",
+      "optional",
+      "binding",
+      "chained"
+    ],
+    "imports": [],
+    "code": ";; alet* is a built-in (no import needed) that works like let*\n;; but short-circuits to #f if any binding evaluates to #f\n\n;; Chained lookups — returns #f if any step fails\n(def config (hash (\"db\" (hash (\"host\" \"localhost\") (\"port\" 5432)))))\n\n(alet* ((db (hash-get config \"db\"))\n        (host (hash-get db \"host\"))\n        (port (hash-get db \"port\")))\n  (string-append host \":\" (number->string port)))\n;; => \"localhost:5432\"\n\n(alet* ((db (hash-get config \"db\"))\n        (ssl (hash-get db \"ssl\")))  ;; #f - not found\n  (displayln \"SSL: \" ssl))\n;; => #f (short-circuited, body never runs)\n\n;; Works like a null-safe navigation chain (?.operator in other langs)\n(alet* ((user (find-user id))\n        (address (user-address user))\n        (city (address-city address)))\n  city)\n;; Returns city or #f if any step fails\n\n;; alet (non-star): bindings are independent (like let, not let*)\n(alet ((x (hash-get ht \"x\"))\n       (y (hash-get ht \"y\")))\n  (+ x y))\n\n;; and-let* is the SRFI-2 equivalent\n;; (and-let* ((x expr1) (y expr2)) body)\n;; Same semantics: short-circuit on #f",
+    "notes": "alet* is built into Gerbil core (no import needed). It behaves like let* but returns #f immediately if any binding evaluates to #f, without evaluating subsequent bindings or the body. This is Gerbil's answer to null-safe navigation (like ?. in Kotlin/Swift). alet is the parallel binding version (like let). and-let* from SRFI-2 has similar semantics. Use alet* for chaining operations that may return #f (hash-get, find, assoc, etc.).",
+    "related": [
+      "if-let-when-let-conditional-bind",
+      "awhen-anaphoric-conditional"
+    ]
+  },
+  {
+    "id": "logger-per-source-config",
+    "title": "Structured logging with per-source level configuration",
+    "tags": [
+      "logger",
+      "logging",
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "verbose",
+      "level",
+      "source"
+    ],
+    "imports": [
+      ":std/logger"
+    ],
+    "code": "(import :std/logger)\n\n;; Basic logging (uses current-logger-options)\n(errorf \"critical: ~a\" \"disk full\")     ;; ERROR level\n(warnf \"caution: ~a\" \"low memory\")      ;; WARN level\n(infof \"status: ~a\" \"running\")          ;; INFO level\n(debugf \"detail: ~a\" \"processing x\")    ;; DEBUG level\n(verbosef \"trace: ~a\" \"entered fn\")     ;; VERBOSE level\n\n;; Set global log level (0=ERROR, 1=WARN, 2=INFO, 3=DEBUG, 4=VERBOSE)\n(current-logger-options (make-logger-options 2))  ;; INFO and above\n\n;; Per-source log levels\n(def opts (make-logger-options\n            2  ;; default: INFO\n            (hash ('network 4)    ;; network: VERBOSE\n                  ('database 1)))) ;; database: WARN only\n\n(current-logger-options opts)\n\n;; Now logging uses source-specific levels:\n(debugf \"~a\" \"general debug\")          ;; suppressed (default=INFO)\n(verbosef source: 'network \"~a\" \"x\")   ;; printed (network=VERBOSE)\n(debugf source: 'database \"~a\" \"y\")    ;; suppressed (database=WARN)\n(warnf source: 'database \"~a\" \"z\")     ;; printed\n\n;; Log level names to numbers\n;; (log-level 'ERROR)   => 0\n;; (log-level 'WARN)    => 1\n;; (log-level 'INFO)    => 2\n;; (log-level 'DEBUG)   => 3\n;; (log-level 'VERBOSE) => 4\n\n;; Pattern: per-module logger\n(def (my-module-log msg . args)\n  (apply debugf source: 'my-module msg args))",
+    "notes": ":std/logger provides printf-style logging with five levels. current-logger-options is a parameter holding the logger configuration. make-logger-options takes a default level and optional hash of source-specific overrides. Source is a symbol identifying the subsystem. All log functions (errorf, warnf, infof, debugf, verbosef) accept an optional source: keyword. Messages below the configured level are suppressed. Thread-local caching is used for performance.",
+    "related": [
+      "repr-evaluable-printing"
+    ]
+  },
+  {
+    "id": "getopt-cli-parsing",
+    "title": "Command-line argument parsing with getopt",
+    "tags": [
+      "getopt",
+      "cli",
+      "command-line",
+      "argument",
+      "option",
+      "flag",
+      "subcommand",
+      "parse"
+    ],
+    "imports": [
+      ":std/getopt"
+    ],
+    "code": "(import :std/getopt)\n\n;; Define CLI options\n(def my-opts\n  (getopt\n    (flag 'verbose \"-v\" \"--verbose\"\n      help: \"Enable verbose output\")\n    (option 'output \"-o\" \"--output\"\n      help: \"Output file path\"\n      default: \"out.txt\")\n    (option 'count \"-n\" \"--count\"\n      help: \"Number of iterations\"\n      value: string->number\n      default: 1)\n    (argument 'input\n      help: \"Input file\")\n    (optional-argument 'extra\n      help: \"Optional extra file\"\n      default: #f)))\n\n;; Parse arguments\n(def args (call-with-getopt \"myapp\" my-opts\n            (lambda (opt) opt)   ;; handler receives parsed options hash\n            args: '(\"-v\" \"-n\" \"5\" \"-o\" \"result.txt\" \"input.txt\")))\n;; args => hash with: verbose=#t, output=\"result.txt\", count=5, input=\"input.txt\"\n\n;; With subcommands\n(def cli\n  (getopt\n    (command 'build\n      help: \"Build the project\"\n      (flag 'release \"--release\" help: \"Release build\")\n      (option 'target \"-t\" help: \"Target platform\"))\n    (command 'test\n      help: \"Run tests\"\n      (flag 'verbose \"-v\" help: \"Verbose output\")\n      (rest-arguments 'files help: \"Test files\"))))\n\n;; call-with-getopt handles help display and error reporting\n(def (main . args)\n  (call-with-getopt \"myapp\" cli\n    (lambda (cmd opt)\n      (case cmd\n        ((build) (do-build opt))\n        ((test) (do-test opt))))\n    args: args))\n\n;; Access parsed options\n(def (do-build opt)\n  (let-hash opt\n    (when .?release (displayln \"Release mode\"))\n    (displayln \"Target: \" (or .?target \"default\"))))",
+    "notes": ":std/getopt provides declarative CLI argument parsing. flag creates boolean switches. option creates key-value options (value: provides a converter function). argument is a required positional arg. optional-argument is optional. rest-arguments collects remaining args as a list. command creates subcommands. call-with-getopt invokes the handler with parsed results and handles --help display and error messages automatically. Results are returned as a hash table — use let-hash for convenient access.",
+    "related": [
+      "destructure-hash-tables-with-let-hash"
+    ]
+  },
+  {
+    "id": "csv-parsing-options",
+    "title": "CSV parsing with configurable options and predefined standards",
+    "tags": [
+      "csv",
+      "parse",
+      "read",
+      "write",
+      "text",
+      "delimiter",
+      "rfc4180",
+      "options"
+    ],
+    "imports": [
+      ":std/text/csv"
+    ],
+    "code": "(import :std/text/csv)\n\n;; Read CSV from a file (returns list of lists)\n(def rows\n  (call-with-input-file \"data.csv\"\n    (lambda (port)\n      (read-csv-records port))))\n\n;; Write CSV records\n(call-with-output-file \"output.csv\"\n  (lambda (port)\n    (for-each (lambda (row) (write-csv-record row port))\n              '((\"name\" \"age\" \"city\")\n                (\"Alice\" \"30\" \"NYC\")\n                (\"Bob\" \"25\" \"LA\")))))\n\n;; Custom CSV options\n(def my-opts\n  (make-csv-options\n    separator: #\\tab       ;; tab-separated\n    quote-char: #\\\"        ;; quote character\n    unquoted-quotequote?: #f\n    loose-quote?: #f\n    newline: 'lf))\n\n;; Use custom options via parameterize\n(parameterize ((current-csv-options my-opts))\n  (call-with-input-file \"data.tsv\" read-csv-records))\n\n;; Or with call-with-csv-options\n(call-with-csv-options my-opts\n  (lambda ()\n    (call-with-input-file \"data.tsv\" read-csv-records)))\n\n;; Predefined option sets\n;; csv-options/rfc4180           - strict RFC 4180\n;; csv-options/rfc4180-strict    - stricter variant\n;; csv-options/creativyst        - Creativyst CSV standard\n\n;; Read a single record at a time\n(call-with-input-file \"data.csv\"\n  (lambda (port)\n    (let loop ()\n      (let (record (read-csv-record port))\n        (unless (eof-object? record)\n          (displayln record)\n          (loop))))))\n\n;; Convert CSV to hash tables (first row as headers)\n(def (csv->hashes port)\n  (let* ((headers (read-csv-record port))\n         (records (read-csv-records port)))\n    (map (lambda (row)\n           (let (ht (make-hash-table))\n             (for-each (lambda (h v) (hash-put! ht h v))\n                       headers row)\n             ht))\n         records)))",
+    "notes": ":std/text/csv provides RFC 4180 compliant CSV parsing. read-csv-records reads all records from a port. read-csv-record reads one record. write-csv-record writes one record. CSV options are configured via make-csv-options with: separator (default #\\,), quote-char, newline ('lf, 'cr, 'crlf, 'lax). Use current-csv-options parameter or call-with-csv-options for custom settings. Predefined: csv-options/rfc4180 for standard CSV.",
+    "related": [
+      "port-utilities-file-io"
+    ]
+  },
+  {
+    "id": "in-range-iota-naturals-iterators",
+    "title": "Numeric iterators: in-range, in-iota, in-naturals",
+    "tags": [
+      "in-range",
+      "in-iota",
+      "in-naturals",
+      "iterator",
+      "numeric",
+      "sequence",
+      "loop",
+      "range"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": "(import :std/iter)\n\n;; in-range: iterate between bounds (auto-detects step direction)\n(for/collect (x (in-range 5)) x)            ;; => (0 1 2 3 4)\n(for/collect (x (in-range 2 7)) x)          ;; => (2 3 4 5 6)\n(for/collect (x (in-range 0 10 2)) x)       ;; => (0 2 4 6 8)\n(for/collect (x (in-range 5 0)) x)          ;; => (5 4 3 2 1) auto negative step!\n(for/collect (x (in-range 10 0 -3)) x)      ;; => (10 7 4 1)\n\n;; in-iota: fixed count from a start (SRFI-1 iota semantics)\n(for/collect (x (in-iota 5)) x)             ;; => (0 1 2 3 4) — 5 elements from 0\n(for/collect (x (in-iota 3 10)) x)          ;; => (10 11 12) — 3 elements from 10\n(for/collect (x (in-iota 4 0 0.5)) x)       ;; => (0 0.5 1.0 1.5) — step 0.5\n\n;; in-naturals: infinite sequence (must limit with another iterator or when)\n(for/collect ((x (in-naturals))\n              (_ (in-range 5)))  ;; limit to 5\n  x)\n;; => (0 1 2 3 4)\n\n(for/collect (x (in-naturals 10 2) when (< x 20))\n  x)\n;; WARNING: for/collect with in-naturals + when may not terminate!\n;; Use a finite iterator to bound it instead.\n\n;; Combine infinite with finite (stops when shortest ends)\n(for/collect ((i (in-naturals))\n              (ch \"hello\"))\n  (cons i ch))\n;; => ((0 . #\\h) (1 . #\\e) (2 . #\\l) (3 . #\\l) (4 . #\\o))\n\n;; in-indexed: add index to any iterable\n(for/collect ((val idx) (in-indexed '(a b c)))\n  (list idx val))\n;; => ((0 a) (1 b) (2 c))\n\n;; Port iterators\n;; (in-input-lines port)  — iterate lines\n;; (in-input-chars port)  — iterate characters\n;; (in-input-bytes port)  — iterate bytes",
+    "notes": "Key differences: in-range takes (end), (start end), or (start end step) and auto-detects direction. in-iota takes (count), (count start), or (count start step) — always count-based. in-naturals is infinite — MUST be bounded by pairing with a finite iterator. When multiple iterators are used in for/collect, iteration stops when the shortest one ends. All three compile to tight loops (no iterator protocol overhead) when used directly in for/for-collect/for-fold.",
+    "related": [
+      "collect-results-with-for-collect",
+      "reduce-with-for-fold"
+    ]
+  },
+  {
+    "id": "path-manipulation-utilities",
+    "title": "Path manipulation utilities (string-based, no filesystem)",
+    "tags": [
+      "path",
+      "file",
+      "directory",
+      "extension",
+      "join",
+      "subpath",
+      "normalize",
+      "relative"
+    ],
+    "imports": [
+      ":std/misc/path"
+    ],
+    "code": "(import :std/misc/path)\n\n;; Join path components\n(subpath \"/home\" \"user\" \"docs\" \"file.txt\")\n;; => \"/home/user/docs/file.txt\"\n\n;; Check if path is under a base\n(subpath? \"/home/user/docs/file.txt\" \"/home/user\")\n;; => #t\n(subpath? \"/etc/passwd\" \"/home/user\")\n;; => #f\n\n;; File extension operations\n(path-extension \"file.txt\")                    ;; => \".txt\"\n(path-strip-extension \"file.txt\")              ;; => \"file\"\n(path-force-extension \"file.txt\" \".md\")        ;; => \"file.md\"\n(path-default-extension \"file\" \".txt\")         ;; => \"file.txt\"\n(path-default-extension \"file.md\" \".txt\")      ;; => \"file.md\" (already has ext)\n\n;; Relative path computation\n(path-enough \"/home/user/docs/file.txt\" \"/home/user\")\n;; => \"docs/file.txt\"\n\n;; Simplify path (remove . and ..)\n(path-simplify \"/home/user/../admin/./docs\")\n;; => \"/home/admin/docs\"\n\n;; Absolute path check\n(path-absolute? \"/home/user\")   ;; => #t\n(path-absolute? \"relative/path\") ;; => #f\n\n;; Gambit built-in (no import needed)\n(path-expand \"~/docs\")            ;; expands ~ to home dir\n(path-normalize \"relative/path\")  ;; resolve to absolute\n(path-directory \"/home/user/file.txt\")  ;; => \"/home/user/\"\n(path-strip-directory \"/home/user/file.txt\")  ;; => \"file.txt\"",
+    "notes": ":std/misc/path provides pure string manipulation — no filesystem access. subpath joins components with the OS separator. subpath? checks containment. path-extension includes the dot. path-force-extension replaces any existing extension. path-default-extension only adds if none exists. Gambit also provides path-expand, path-normalize (filesystem-aware), path-directory, and path-strip-directory as built-ins. Use Gambit's for real path resolution, :std/misc/path for string manipulation.",
+    "related": [
+      "port-utilities-file-io"
+    ]
+  },
+  {
+    "id": "string-utilities-misc",
+    "title": "String utility functions: trim, split, substitute, random",
+    "tags": [
+      "string",
+      "trim",
+      "split",
+      "substitute",
+      "replace",
+      "prefix",
+      "suffix",
+      "eol",
+      "utility"
+    ],
+    "imports": [
+      ":std/misc/string"
+    ],
+    "code": "(import :std/misc/string)\n\n;; Remove prefix/suffix\n(string-trim-prefix \"Hello \" \"Hello World\")   ;; => \"World\"\n(string-trim-suffix \".txt\" \"file.txt\")        ;; => \"file\"\n(string-trim-prefix \"X\" \"Hello\")              ;; => \"Hello\" (no match, unchanged)\n\n;; Split on prefix (returns 2 values)\n(defvalues (rest prefix) (string-split-prefix \"http://\" \"http://example.com\"))\n;; rest => \"example.com\", prefix => \"http://\"\n\n;; Trim end-of-line characters\n(string-trim-eol \"hello\\r\\n\")  ;; => \"hello\"\n(string-trim-eol \"hello\\n\")    ;; => \"hello\"\n(string-trim-eol \"hello\\r\")    ;; => \"hello\"\n\n;; String substitution (replace occurrences)\n(string-subst \"old\" \"new\" \"the old old way\")\n;; => \"the new new way\" (replaces all by default)\n\n(string-subst \"old\" \"new\" \"the old old way\" 1)\n;; => \"the new old way\" (count=1, replace first only)\n\n;; Random string generation\n(random-string 16)  ;; => \"a3f7b2c8e1d9f4a0\" (hex chars)\n\n;; str: convert anything to string (like Python's str())\n(str 42)            ;; => \"42\"\n(str 'hello)        ;; => \"hello\"\n(str \"already\")     ;; => \"already\"\n\n;; Lexicographic comparison\n(as-string<? 'apple 'banana)  ;; => #t (compares as strings)\n\n;; Gambit built-ins (no import needed):\n;; (string-contains s1 s2)        — substring search\n;; (string-prefix? pre s)         — check prefix\n;; (string-suffix? suf s)         — check suffix\n;; (string-upcase s)              — uppercase\n;; (string-downcase s)            — lowercase",
+    "notes": ":std/misc/string provides common string manipulation beyond R7RS. string-trim-prefix/suffix return the original string unchanged if the prefix/suffix isn't found. string-subst replaces all occurrences by default; pass a count to limit replacements. string-trim-eol handles CR, LF, and CRLF (tries CRLF first). random-string generates random hex characters. str is a generic to-string converter. Gambit provides additional built-ins like string-contains, string-prefix?, string-suffix?.",
+    "related": [
+      "csv-parsing-options"
+    ]
+  },
+  {
+    "id": "using-typed-access",
+    "title": "Optimized typed access with 'using' (no dynamic dispatch)",
+    "tags": [
+      "using",
+      "typed",
+      "access",
+      "optimization",
+      "struct",
+      "class",
+      "field",
+      "slot",
+      "inline"
+    ],
+    "imports": [],
+    "code": ";; 'using' tells the compiler the exact type, enabling inlined field access\n;; No import needed — it's a core form\n\n(defstruct point (x y) transparent: #t)\n\n;; Without using: dynamic slot lookup (slower)\n(def (distance-slow p1 p2)\n  (sqrt (+ (expt (- (point-x p1) (point-x p2)) 2)\n           (expt (- (point-y p1) (point-y p2)) 2))))\n\n;; With using: inlined field access (faster, no dispatch)\n(def (distance-fast p1 p2)\n  (using ((p1 :- point) (p2 :- point))\n    (sqrt (+ (expt (- p1.x p2.x) 2)\n             (expt (- p1.y p2.y) 2)))))\n\n;; Dot syntax works with using\n(def (translate p dx dy)\n  (using (p :- point)\n    (make-point (+ p.x dx) (+ p.y dy))))\n\n;; Mutation via set! + using\n(def (move! p dx dy)\n  (using (p :- point)\n    (set! p.x (+ p.x dx))\n    (set! p.y (+ p.y dy))))\n\n;; Using with classes\n(defclass widget (label visible?)\n  transparent: #t)\n\n(def (toggle-visibility! w)\n  (using (w :- widget)\n    (set! w.visible? (not w.visible?))))\n\n;; Using in method bodies for self-access\n(defmethod {area point}\n  (lambda (self)\n    (using (self :- point)\n      (* self.x self.y))))\n\n;; Using with interface types\n(def (print-it (obj : Printable))\n  (using (obj :- Printable)\n    (displayln {obj.to-string})))",
+    "notes": "using is a core Gerbil form that provides typed field access. Syntax: (using (var :- Type) body) or (using ((v1 :- T1) (v2 :- T2)) body). Inside using, dot syntax (v.field) compiles to direct struct field access without dynamic dispatch. This is significantly faster in hot loops. set! works with dot syntax inside using for mutation. The type annotation is NOT checked at runtime — it's a promise to the compiler. Wrong types will cause undefined behavior, not errors. Use : (colon) in function signatures for runtime-checked contracts.",
+    "related": [
+      "interface-contracts"
+    ]
+  },
+  {
+    "id": "list-utilities-advanced",
+    "title": "Advanced list utilities: slice, group, split, flatten, duplicates",
+    "tags": [
+      "list",
+      "slice",
+      "group",
+      "split",
+      "flatten",
+      "duplicates",
+      "unique",
+      "butlast",
+      "take",
+      "drop"
+    ],
+    "imports": [
+      ":std/misc/list"
+    ],
+    "code": "(import :std/misc/list)\n\n;; Slicing\n(slice '(a b c d e) 1 3)       ;; => (b c d) — from index 1, take 3\n(slice-right '(a b c d e) 1 2) ;; => (d c) — from right, index 1, take 2\n(butlast '(a b c d))           ;; => (a b c) — all but last\n\n;; Flatten nested lists\n(flatten '(1 (2 (3 4) 5) 6))  ;; => (1 2 3 4 5 6) — fully recursive\n(flatten1 '(1 (2 (3 4) 5) 6)) ;; => (1 2 (3 4) 5 6) — one level only\n\n;; Split on predicate\n(split '(1 2 0 3 4 0 5) zero?) ;; => ((1 2) (3 4) (5))\n\n;; Group consecutive equal elements\n(group-consecutive '(1 1 2 2 2 3 1 1))\n;; => ((1 1) (2 2 2) (3) (1 1))\n\n;; Group by N elements\n(group-n-consecutive 3 '(a b c d e f g))\n;; => ((a b c) (d e f) (g))\n\n;; Group by key function\n(group-same '(\"apple\" \"avocado\" \"banana\" \"blueberry\")\n  key: (lambda (s) (string-ref s 0)))\n;; => ((\"apple\" \"avocado\") (\"banana\" \"blueberry\"))\n\n;; Take/drop until predicate\n(take-until even? '(1 3 5 6 7 8))  ;; => (1 3 5) — take while odd\n(drop-until even? '(1 3 5 6 7 8))  ;; => (6 7 8) — drop until even\n\n;; Find duplicates\n(duplicates '(a b c a b a))\n;; => ((a . 3) (b . 2)) — items with count > 1\n\n;; Efficient length checks (short-circuit, no full traversal)\n(length=n? '(a b c) 3)    ;; => #t\n(length<n? '(a b) 5)      ;; => #t\n(length<=n? '(a b c) 2)   ;; => #f\n\n;; Unique (remove duplicates)\n(unique '(3 1 2 1 3 4) =)  ;; => (3 1 2 4)\n\n;; Mutation macros\n(def lst '(1 2 3))\n(push! 0 lst)       ;; lst => (0 1 2 3)\n(pop! lst)           ;; => 0, lst => (1 2 3)",
+    "notes": ":std/misc/list provides extensive list utilities beyond SRFI-1. slice is 0-indexed and takes (list start limit). flatten is fully recursive; flatten1 is one level. split divides on predicate matches (like string-split for lists). group-consecutive groups runs of equal adjacent elements. group-same groups by a key function (non-adjacent allowed). length=n?/length<n?/length<=n? are O(min(n,len)) instead of O(len) — use these instead of (= (length lst) n). push!/pop! are mutation macros using set!.",
+    "related": [
+      "list-builder-efficient-append"
+    ]
+  },
+  {
+    "id": "def-star-multi-arity",
+    "title": "Multi-arity function definition with def*",
+    "tags": [
+      "def*",
+      "multi-arity",
+      "case-lambda",
+      "overload",
+      "dispatch",
+      "variadic"
+    ],
+    "imports": [],
+    "code": ";; def* defines a function with multiple arities (like case-lambda)\n;; No import needed — it's a core form\n\n(def* my-add\n  ((x) x)                    ;; 1 arg: identity\n  ((x y) (+ x y))            ;; 2 args: add\n  ((x y z) (+ x y z))        ;; 3 args: add three\n  (args (apply + args)))      ;; variadic: add all\n\n(my-add 1)       ;; => 1\n(my-add 1 2)     ;; => 3\n(my-add 1 2 3)   ;; => 6\n(my-add 1 2 3 4) ;; => 10\n\n;; Pattern: optional arguments with different behavior\n(def* connect\n  ((host) (connect host 80))              ;; default port\n  ((host port) (connect host port #f))    ;; default no-ssl\n  ((host port ssl?)\n   (displayln \"Connecting to \" host \":\" port\n              (if ssl? \" (SSL)\" \"\"))))\n\n(connect \"example.com\")          ;; => Connecting to example.com:80\n(connect \"example.com\" 443 #t)   ;; => Connecting to example.com:443 (SSL)\n\n;; Pattern: recursive with base case by arity\n(def* my-map\n  ((f lst) (my-map f lst []))\n  ((f lst acc)\n   (if (null? lst) (reverse acc)\n       (my-map f (cdr lst) (cons (f (car lst)) acc)))))\n\n(my-map 1+ '(1 2 3))  ;; => (2 3 4)",
+    "notes": "def* is a core Gerbil form equivalent to defining with case-lambda. Each clause has a parameter list and body. Clauses are tried in order until one matches the call arity. The last clause can be variadic (args without parens) to catch remaining arities. This is cleaner than using optional arguments with defaults when different arities have fundamentally different behavior. def* generates efficient dispatch code.",
+    "related": [
+      "function-composition-combinators"
+    ]
   }
 ]
