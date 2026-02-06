@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 183 tests must pass before considering any change complete. The test suite covers:
+All 187 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -51,7 +51,8 @@ All 183 tests must pass before considering any change complete. The test suite c
 - Enhanced find definition (source preview)
 - Cross-module export checker (check-exports)
 - Diagnostics with loadpath support
-- Function signature parameter names (source-level formals extraction, runtime keyword arg detection)
+- Function signature parameter names (source-level formals extraction, runtime keyword arg detection, loadpath/project_path support)
+- Module exports loadpath/project_path support
 - Makefile awareness in build-and-report and gerbil_make tool
 - Howto cookbook tool (keyword-based recipe search, external cookbook loading, howto_add)
 - Howto verify tool (cookbook recipe syntax validation)

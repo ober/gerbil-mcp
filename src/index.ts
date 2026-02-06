@@ -67,7 +67,7 @@ import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
-- BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures.
+- BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures. Use loadpath or project_path to resolve project-local dependency modules.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules.
 - When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context.
@@ -75,7 +75,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
 - When understanding macros: use gerbil_expand_macro to see what sugar forms expand to.
-- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors.
+- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors. Use loadpath or project_path for dependency modules.
 - When understanding module structure: use gerbil_module_deps to see what a module imports and depends on.
 - When analyzing user code: use gerbil_load_file to extract definitions from Gerbil source files.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.

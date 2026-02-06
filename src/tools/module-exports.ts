@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { runGxi, ERROR_MARKER } from '../gxi.js';
+import { runGxi, ERROR_MARKER, buildLoadpathEnv } from '../gxi.js';
 
 /**
  * Convert a module path like ":foo/bar/baz" to the static file base name "foo__bar__baz".
@@ -104,9 +104,22 @@ export function registerModuleExportsTool(server: McpServer): void {
         module_path: z
           .string()
           .describe('Module path (e.g. ":std/text/json", ":std/sugar", ":std/iter")'),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution ' +
+            '(e.g. ["/path/to/project/.gerbil/lib"])',
+          ),
+        project_path: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib',
+          ),
       },
     },
-    async ({ module_path }) => {
+    async ({ module_path, loadpath, project_path }) => {
       const modPath = module_path.startsWith(':') ? module_path : `:${module_path}`;
 
       const exprs = [
@@ -126,7 +139,13 @@ export function registerModuleExportsTool(server: McpServer): void {
         ].join(' '),
       ];
 
-      const result = await runGxi(exprs);
+      const effectiveLoadpath: string[] = [...(loadpath ?? [])];
+      if (project_path) {
+        effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
+      }
+      const env = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
+
+      const result = await runGxi(exprs, { env });
 
       if (result.timedOut) {
         return {

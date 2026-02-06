@@ -1680,6 +1680,47 @@ test:
       // read-json does NOT have keyword args — should not show keywords:
       expect(result.text).not.toContain('keywords:');
     });
+
+    it('gerbil_function_signature accepts loadpath parameter', async () => {
+      // Use loadpath with a standard module to verify the parameter is accepted
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/text/json',
+        symbol: 'read-json',
+        loadpath: ['/nonexistent/path'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-json');
+      expect(result.text).toContain('procedure');
+    });
+
+    it('gerbil_function_signature accepts project_path parameter', async () => {
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/text/json',
+        symbol: 'write-json',
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('write-json');
+      expect(result.text).toContain('procedure');
+    });
+
+    it('gerbil_module_exports accepts loadpath parameter', async () => {
+      const result = await client.callTool('gerbil_module_exports', {
+        module_path: ':std/text/json',
+        loadpath: ['/nonexistent/path'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-json');
+    });
+
+    it('gerbil_module_exports accepts project_path parameter', async () => {
+      const result = await client.callTool('gerbil_module_exports', {
+        module_path: ':std/text/json',
+        project_path: TEST_DIR,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-json');
+    });
   });
 
   // ── Makefile awareness ─────────────────────────────────────────────

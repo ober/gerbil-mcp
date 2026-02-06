@@ -1,7 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile } from 'node:fs/promises';
-import { runGxi, escapeSchemeString, ERROR_MARKER } from '../gxi.js';
+import { join } from 'node:path';
+import { runGxi, escapeSchemeString, ERROR_MARKER, buildLoadpathEnv } from '../gxi.js';
 
 const RESULT_MARKER = 'GERBIL-MCP-SIG:';
 const SOURCE_MARKER = 'GERBIL-MCP-SIG-SOURCE:';
@@ -28,9 +29,22 @@ export function registerFunctionSignatureTool(server: McpServer): void {
           .describe(
             'Specific symbol to inspect. If omitted, inspects all exports.',
           ),
+        loadpath: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Directories to add to GERBIL_LOADPATH for project-local module resolution ' +
+            '(e.g. ["/path/to/project/.gerbil/lib"])',
+          ),
+        project_path: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib',
+          ),
       },
     },
-    async ({ module_path, symbol }) => {
+    async ({ module_path, symbol, loadpath, project_path }) => {
       const modPath = module_path.startsWith(':')
         ? module_path
         : `:${module_path}`;
@@ -108,7 +122,13 @@ export function registerFunctionSignatureTool(server: McpServer): void {
         ].join(' '),
       ];
 
-      const result = await runGxi(exprs);
+      const effectiveLoadpath: string[] = [...(loadpath ?? [])];
+      if (project_path) {
+        effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
+      }
+      const env = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
+
+      const result = await runGxi(exprs, { env });
 
       if (result.timedOut) {
         return {
