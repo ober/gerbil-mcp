@@ -135,6 +135,10 @@ export function registerClassInfoTool(server: McpServer): void {
         sections.push(`Constructor: ${info['constructor']}`);
       }
 
+      if (info['make-signature']) {
+        sections.push(`Constructor signature: ${info['make-signature']}`);
+      }
+
       return {
         content: [
           { type: 'text' as const, text: sections.join('\n') },
@@ -214,6 +218,29 @@ function buildInspectExpr(typeSym: string): string {
     `          (display "${RESULT_MARKER}constructor\\t")`,
     '          (let ((c (class-type-constructor t)))',
     '            (if c (display c) (display "(none)")))',
+    '          (newline)',
+    // constructor signature: make-Name(field1, field2, ...) with inherited annotation
+    `          (display "${RESULT_MARKER}make-signature\\t")`,
+    '          (let* ((slots (class-type-slot-list t))',
+    '                 (own-fv (class-type-fields t))',
+    '                 (own-names (let loop ((i 0) (r (list)))',
+    '                              (if (>= i (vector-length own-fv))',
+    '                                (reverse r)',
+    '                                (loop (+ i 3) (cons (vector-ref own-fv i) r)))))',
+    '                 (own-set (list->hash-table-eq (map (lambda (n) (cons n #t)) own-names)))',
+    '                 (name (class-type-name t)))',
+    '            (display "make-")',
+    '            (display name)',
+    '            (display "(")',
+    '            (let loop ((rest slots) (first? #t))',
+    '              (when (pair? rest)',
+    '                (unless first? (display ", "))',
+    '                (let ((s (car rest)))',
+    '                  (display s)',
+    '                  (unless (hash-key? own-set s)',
+    '                    (display " [inherited]")))',
+    '                (loop (cdr rest) #f)))',
+    '            (display ")"))',
     '          (newline)',
     '        )))))',
   ].join(' ');

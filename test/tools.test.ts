@@ -773,6 +773,16 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.text).toContain('Precedence');
     });
 
+    it('gerbil_class_info shows constructor signature', async () => {
+      const result = await client.callTool('gerbil_class_info', {
+        type_name: 'Error',
+        module_path: ':std/error',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Constructor signature:');
+      expect(result.text).toContain('make-Error');
+    });
+
     it('gerbil_error_hierarchy shows error types', async () => {
       const result = await client.callTool('gerbil_error_hierarchy');
       expect(result.isError).toBe(false);
@@ -2971,6 +2981,118 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.text).toContain('typedef');
       expect(result.text).toContain('function');
       expect(result.text).toContain('constant');
+    });
+  });
+
+  describe('Project dependency graph tool', () => {
+    it('gerbil_project_dep_graph shows dependency tree', async () => {
+      const projDir = join(TEST_DIR, 'dep-graph-proj');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: mypkg)\n');
+      writeFileSync(
+        join(projDir, 'main.ss'),
+        '(import :mypkg/lib)\n(export main)\n(def (main) (lib-fn))\n',
+      );
+      writeFileSync(
+        join(projDir, 'lib.ss'),
+        '(import :std/sugar)\n(export lib-fn)\n(def (lib-fn) 42)\n',
+      );
+      const result = await client.callTool('gerbil_project_dep_graph', {
+        project_path: projDir,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('mypkg');
+      expect(result.text).toContain('main');
+      expect(result.text).toContain('lib');
+      expect(result.text).toContain('Dependency tree');
+    });
+
+    it('gerbil_project_dep_graph lists external deps', async () => {
+      const projDir = join(TEST_DIR, 'dep-graph-ext');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: extpkg)\n');
+      writeFileSync(
+        join(projDir, 'app.ss'),
+        '(import :std/text/json :std/sugar)\n(export run)\n(def (run) 1)\n',
+      );
+      const result = await client.callTool('gerbil_project_dep_graph', {
+        project_path: projDir,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('External dependencies');
+      expect(result.text).toContain(':std/text/json');
+    });
+
+    it('gerbil_project_dep_graph requires gerbil.pkg', async () => {
+      const emptyDir = join(TEST_DIR, 'dep-graph-empty');
+      mkdirSync(emptyDir, { recursive: true });
+      const result = await client.callTool('gerbil_project_dep_graph', {
+        project_path: emptyDir,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('gerbil.pkg');
+    });
+  });
+
+  describe('Test coverage summary tool', () => {
+    it('gerbil_test_coverage shows coverage for std module', async () => {
+      const result = await client.callTool('gerbil_test_coverage', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module: :std/text/json');
+      expect(result.text).toContain('Exports:');
+    });
+
+    it('gerbil_test_coverage shows untested when no test file', async () => {
+      const result = await client.callTool('gerbil_test_coverage', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      // Without a test file, all exports should be untested
+      expect(result.text).toMatch(/Untested|No test file/);
+    });
+
+    it('gerbil_test_coverage uses provided test file', async () => {
+      const testDir = join(TEST_DIR, 'tcov-test');
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'json-test.ss'),
+        '(import :std/test :std/text/json)\n(def json-test\n  (test-suite "json"\n    (test-case "read-json" (check (read-json) ? values))))\n',
+      );
+      const result = await client.callTool('gerbil_test_coverage', {
+        module_path: ':std/text/json',
+        test_file: join(testDir, 'json-test.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Covered:');
+      expect(result.text).toContain('read-json');
+    });
+  });
+
+  describe('Module catalog tool', () => {
+    it('gerbil_module_catalog shows sugar exports with descriptions', async () => {
+      const result = await client.callTool('gerbil_module_catalog', {
+        module_path: ':std/sugar',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module: :std/sugar');
+      expect(result.text).toContain('Exports:');
+    });
+
+    it('gerbil_module_catalog shows iter exports', async () => {
+      const result = await client.callTool('gerbil_module_catalog', {
+        module_path: ':std/iter',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module: :std/iter');
+    });
+
+    it('gerbil_module_catalog handles unknown module', async () => {
+      const result = await client.callTool('gerbil_module_catalog', {
+        module_path: ':std/nonexistent/module',
+      });
+      expect(result.isError).toBe(true);
     });
   });
 });

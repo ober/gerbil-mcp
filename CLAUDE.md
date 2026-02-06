@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 206 tests must pass before considering any change complete. The test suite covers:
+All 216 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -72,6 +72,10 @@ All 206 tests must pass before considering any change complete. The test suite c
 - Splice form tool (default head removal, explicit keep_children, single child, apply mode, no form found)
 - FFI scaffold tool (typedef parsing, function declarations, #define constants, enums, create/destroy pairs, auto-cleanup, include_path, module_name, missing file handling)
 - Check test arity tool (test file scanning, arity mismatch detection, no-test-files handling)
+- Class info constructor signature (make-X positional arg order with inherited field annotations)
+- Project dependency graph tool (dependency tree, external deps listing, gerbil.pkg requirement)
+- Test coverage summary tool (module export introspection, test file auto-discovery, coverage percentage)
+- Module catalog tool (sugar descriptions, iter descriptions, unknown module error handling)
 
 
 ### Adding a New Tool

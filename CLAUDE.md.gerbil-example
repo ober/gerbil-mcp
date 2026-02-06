@@ -31,7 +31,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### When Working with Types and FFI
 
-- **`gerbil_class_info`**: Inspect defclass/defstruct types — slots, fields, inheritance, precedence list.
+- **`gerbil_class_info`**: Inspect defclass/defstruct types — slots, fields, inheritance, precedence list, and exact constructor signature with positional argument order (annotates inherited fields).
 - **`gerbil_ffi_inspect`**: Classify a module's FFI exports (C constants, C functions, Gerbil wrappers).
 - **`gerbil_ffi_scaffold`**: Parse a C header file and generate Gambit FFI binding code with `c-define-type`, `c-lambda`, and `define-const` declarations. Recognizes create/destroy pairs for automatic GC cleanup.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
@@ -89,6 +89,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 - **`gerbil_project_info`**: Single-call project summary: package name, build targets, source files, and external dependencies.
 - **`gerbil_project_map`**: Complete view of all modules with their exports, definitions by kind, and import dependencies.
+- **`gerbil_project_dep_graph`**: Visualize project module dependency graph as an ASCII tree. Shows which project modules import from which others. External dependencies listed separately.
+- **`gerbil_test_coverage`**: Compare a module's exports against its test file to identify untested symbols. Auto-discovers `*-test.ss` files. Reports coverage percentage.
+- **`gerbil_module_catalog`**: Compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for `:std/sugar`, `:std/iter`. Replaces multiple `gerbil_doc` calls.
 
 ### For Recipes and Idioms
 

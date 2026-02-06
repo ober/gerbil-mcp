@@ -65,6 +65,9 @@ import { registerBalancedReplaceTool } from './tools/balanced-replace.js';
 import { registerWrapFormTool } from './tools/wrap-form.js';
 import { registerSpliceFormTool } from './tools/splice-form.js';
 import { registerFfiScaffoldTool } from './tools/ffi-scaffold.js';
+import { registerProjectDepGraphTool } from './tools/project-dep-graph.js';
+import { registerTestCoverageTool } from './tools/test-coverage.js';
+import { registerModuleCatalogTool } from './tools/module-catalog.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -132,6 +135,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form (e.g. when, let, begin) with guaranteed matching parentheses. Auto-detects form boundaries. Dry-run by default.
 - To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children. The inverse of wrap. Dry-run by default.
 - To generate FFI bindings: use gerbil_ffi_scaffold to parse a C header file and generate Gambit FFI binding code with c-define-type, c-lambda, and define-const declarations. Recognizes create/destroy pairs for automatic GC cleanup.
+- To visualize project dependencies: use gerbil_project_dep_graph to see which project modules import from which other modules as an ASCII dependency tree. Lists external dependencies separately.
+- To check test coverage: use gerbil_test_coverage to compare a module's exports against its test file and identify untested symbols. Auto-discovers *-test.ss files.
+- To get a module catalog: use gerbil_module_catalog for a compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for :std/sugar, :std/iter. Replaces multiple gerbil_doc calls.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -203,6 +209,9 @@ registerBalancedReplaceTool(server);
 registerWrapFormTool(server);
 registerSpliceFormTool(server);
 registerFfiScaffoldTool(server);
+registerProjectDepGraphTool(server);
+registerTestCoverageTool(server);
+registerModuleCatalogTool(server);
 
 registerPrompts(server);
 

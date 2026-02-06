@@ -3455,5 +3455,147 @@
     "related": [
       "function-composition-combinators"
     ]
+  },
+  {
+    "id": "open-process-undocumented-settings",
+    "title": "open-process undocumented settings: pseudo-terminal, directory, environment",
+    "tags": [
+      "open-process",
+      "pseudo-terminal",
+      "pty",
+      "directory",
+      "environment",
+      "child",
+      "process"
+    ],
+    "imports": [],
+    "code": ";; open-process accepts several undocumented/lesser-known settings\n;; beyond the standard path:, arguments:, stdin/stdout/stderr-redirection:\n;; No imports needed — open-process is a Gambit builtin.\n\n;; 1. directory: — set child's working directory\n(let* ((p (open-process (list path: \"/bin/pwd\"\n                              arguments: '()\n                              directory: \"/tmp\"\n                              stdout-redirection: #t)))\n       (cwd (read-line p))\n       (_ (process-status p)))\n  cwd)\n;; => \"/tmp\"\n\n;; 2. environment: — set child's environment (list of \"KEY=val\" strings)\n;; If provided, REPLACES the entire environment (not append!)\n(let* ((p (open-process (list path: \"/usr/bin/env\"\n                              arguments: '()\n                              environment: '(\"FOO=bar\" \"BAZ=quux\")\n                              stdout-redirection: #t)))\n       (lines (let loop ((acc '()))\n                (let ((line (read-line p)))\n                  (if (eof-object? line) (begin (process-status p) (reverse acc))\n                    (loop (cons line acc)))))))\n  lines)\n;; => (\"FOO=bar\" \"BAZ=quux\")\n\n;; 3. pseudo-terminal: #t — allocate a pty for the child\n;; This makes the child think it's running on a real terminal.\n;; Programs that require a tty (less, vim, ssh) will work.\n;; NOTE: Fails with OS exception if no pty is available.\n(with-exception-catcher\n  (lambda (e) (displayln \"pty allocation failed (expected in sandbox)\"))\n  (lambda ()\n    (let ((p (open-process (list path: \"/usr/bin/tty\"\n                                 arguments: '()\n                                 pseudo-terminal: #t\n                                 stdout-redirection: #t))))\n      (let ((tty-name (read-line p)))\n        (process-status p)\n        (displayln \"Child tty: \" tty-name)))))\n;; On real terminal: \"Child tty: /dev/pts/N\"\n\n;; 4. output-width: N — set the port's width (for pretty-printing)\n(let ((p (open-process (list path: \"/bin/echo\" arguments: '(\"ok\")\n                             output-width: 120\n                             stdout-redirection: #t))))\n  (read-line p)\n  (process-status p))",
+    "notes": "These settings were verified by testing against Gambit's source code. Key points: (1) environment: REPLACES the entire env, it doesn't merge with the parent's. Pass #f or omit to inherit. (2) pseudo-terminal: #t eliminates the need for FFI openpty/forkpty for most pty use cases — Gambit handles pty allocation internally. (3) directory: lets you avoid cd-ing in the parent just to affect the child. (4) Unknown/misspelled keywords are silently ignored — no error. The child inherits the parent's process group (Gambit does NOT call setpgid).",
+    "related": [
+      "open-process-stdin-write-read",
+      "process-status-decode-waitpid",
+      "run-subprocess-custom-env"
+    ]
+  },
+  {
+    "id": "output-port-width-terminal-columns",
+    "title": "Get terminal column width with output-port-width (no subprocess needed)",
+    "tags": [
+      "terminal",
+      "columns",
+      "width",
+      "output-port-width",
+      "COLUMNS",
+      "tty",
+      "size"
+    ],
+    "imports": [],
+    "code": ";; output-port-width returns the terminal column width.\n;; No imports needed — it's a Gambit builtin.\n\n;; Basic usage:\n(output-port-width (current-output-port))\n;; => 80 (default, or actual terminal width on a real tty)\n\n;; On a real terminal, Gambit uses ioctl(TIOCGWINSZ) to get the actual width.\n;; On non-tty ports (files, pipes), it returns the default (80).\n\n;; Useful for shell $COLUMNS variable and line editor wrapping:\n(def (get-terminal-columns)\n  (let ((port (current-output-port)))\n    (if (tty? port)\n      (output-port-width port)\n      80)))\n\n;; NOTE: There is NO output-port-height or equivalent for rows.\n;; For terminal rows, you need either:\n;;   - ioctl(TIOCGWINSZ) via FFI\n;;   - (stty size) via subprocess\n;;   - ANSI escape: write ESC[6n, read cursor position response",
+    "notes": "output-port-width is a Gambit builtin (no import needed). Returns terminal columns on a real tty, 80 on non-tty. There is NO height/rows equivalent — only width. For the shell's $COLUMNS, this is sufficient. For $LINES, you'll need ioctl TIOCGWINSZ via FFI or stty subprocess. The width updates automatically when the terminal is resized (Gambit handles SIGWINCH internally).",
+    "related": [
+      "tty-mode-set-raw-cooked",
+      "process-status-decode-waitpid"
+    ]
+  },
+  {
+    "id": "process-times-cpu-usage",
+    "title": "Get process CPU times with process-times (for time/times builtins)",
+    "tags": [
+      "process-times",
+      "cpu",
+      "time",
+      "user",
+      "system",
+      "real",
+      "builtin",
+      "times"
+    ],
+    "imports": [],
+    "code": ";; process-times returns an f64vector of 3 elements: user, system, real time.\n;; No imports needed — it's a Gambit builtin.\n\n(let ((t (process-times)))\n  (list 'user:   (f64vector-ref t 0)   ;; user CPU seconds\n        'system: (f64vector-ref t 1)   ;; system CPU seconds  \n        'real:   (f64vector-ref t 2))) ;; wall-clock seconds\n;; => (user: 0.062071 system: 0.017019 real: 0.076280...)\n\n;; Pattern for shell's `time` builtin:\n(def (time-command thunk)\n  (let ((before (process-times)))\n    (thunk)\n    (let ((after (process-times)))\n      (let ((user (- (f64vector-ref after 0) (f64vector-ref before 0)))\n            (sys  (- (f64vector-ref after 1) (f64vector-ref before 1)))\n            (real (- (f64vector-ref after 2) (f64vector-ref before 2))))\n        (fprintf (current-error-port)\n          \"\\nreal\\t~as\\nuser\\t~as\\nsys\\t~as\\n\"\n          real user sys)))))\n\n(time-command (lambda () (thread-sleep! 0.1)))\n;; real  0.1003s\n;; user  0.0001s\n;; sys   0.0000s\n\n;; For shell's `times` builtin (accumulated shell + children times):\n;; process-times gives shell's own times.\n;; ##process-statistics gives a 21-element f64vector with more detail:\n;;   indices 0-2: user/sys/real for the process itself\n;;   indices 3-5: user/sys/real for terminated children",
+    "notes": "process-times is a Gambit builtin (no import needed). Returns f64vector(user, system, real) in seconds as floats. For the `time` builtin, measure before/after and subtract. For the `times` builtin, use ##process-statistics which has child process times at indices 3-5. Note: these are cumulative times, not per-command — you must compute deltas yourself.",
+    "related": [
+      "process-status-decode-waitpid",
+      "open-process-undocumented-settings"
+    ]
+  },
+  {
+    "id": "fcntl-f-dupfd-duplicate-fd",
+    "title": "Duplicate file descriptor with F_DUPFD via fcntl (partial dup, not dup2)",
+    "tags": [
+      "fcntl",
+      "F_DUPFD",
+      "dup",
+      "duplicate",
+      "fd",
+      "file descriptor",
+      "redirect"
+    ],
+    "imports": [
+      ":std/os/fcntl",
+      ":std/os/fdio",
+      ":std/os/pipe"
+    ],
+    "code": ";; :std/os/fcntl provides F_DUPFD for duplicating file descriptors.\n;; F_DUPFD picks the lowest available fd >= the given minimum.\n;; This is NOT dup2 (which targets a SPECIFIC fd atomically).\n(import :std/os/fcntl :std/os/fdio :std/os/pipe)\n\n;; Create a pipe and duplicate the read end to fd >= 10\n(receive (read-port write-fd) (pipe 'in)\n  (let* ((read-fd 5)  ;; hypothetical; in practice pipe 'none gives raw fds\n         ;; For demo, use the write-fd which IS a raw integer:\n         (new-fd (fcntl write-fd F_DUPFD 10)))\n    ;; new-fd is >= 10, pointing to the same file description as write-fd\n    (displayln \"original: \" write-fd \" new: \" new-fd)\n    ;; Both fds are usable; closing one doesn't affect the other\n    (close new-fd)\n    (close write-fd)\n    (close-port read-port)))\n\n;; Practical example: duplicate a pipe fd to a high range\n(receive (rfd wfd) (pipe 'none)\n  (let ((high-fd (fcntl rfd F_DUPFD 100)))\n    ;; high-fd >= 100, same underlying pipe as rfd\n    (displayln \"low: \" rfd \" high: \" high-fd)\n    ;; => e.g. \"low: 5 high: 100\"\n    (close rfd)\n    (close wfd)\n    (close high-fd)))\n\n;; LIMITATIONS:\n;; - F_DUPFD picks lowest fd >= arg, NOT a specific target fd\n;; - For dup2(old, target) behavior (redirect fd 0/1/2), need FFI\n;; - No F_DUPFD_CLOEXEC available in Gerbil's fcntl exports\n;; - Cannot replace an existing fd atomically (dup2 closes target first)",
+    "notes": "F_DUPFD is the only fd duplication available without FFI in Gerbil. It duplicates an fd to the lowest available fd >= the given minimum. This differs from dup2(old, new) which atomically closes 'new' and duplicates 'old' to exactly 'new'. For shell-style redirections (redirecting fd 0, 1, 2 to specific targets), F_DUPFD is insufficient — you need FFI dup2. However, F_DUPFD is useful for moving fds out of the low range (e.g., saving original stdin before redirecting). Missing from Gerbil: F_DUPFD_CLOEXEC (which sets close-on-exec atomically).",
+    "related": [
+      "os-pipe-create-fd-pair",
+      "open-process-undocumented-settings"
+    ]
+  },
+  {
+    "id": "concurrency-pattern-guide",
+    "title": "Concurrency pattern decision guide — choose the right primitive",
+    "tags": [
+      "concurrency",
+      "pattern",
+      "decision",
+      "guide",
+      "channel",
+      "barrier",
+      "completion",
+      "atom",
+      "rwlock",
+      "wg",
+      "actor",
+      "thread"
+    ],
+    "imports": [],
+    "code": ";; Concurrency Pattern Decision Guide for Gerbil Scheme\n;;\n;; Use case                          → Primitive               → Module\n;; ─────────────────────────────────────────────────────────────────────\n;; Fire-and-forget task              → spawn                   → (builtin)\n;; Multiple producers/consumers      → channel                 → :std/misc/channel\n;; One-shot async result (future)    → completion              → :std/misc/completion\n;; Wait for N tasks to finish        → barrier                 → :std/misc/barrier\n;; Thread pool with task queue       → workgroup (wg)          → :std/misc/wg\n;; Shared mutable state (simple)     → atom                    → :std/misc/atom\n;; Read-heavy shared state           → rwlock                  → :std/misc/rwlock\n;; Message passing / RPC             → actor                   → :std/actor\n;; Race multiple events              → sync/select             → :std/event\n;; Exclusive critical section        → mutex + unwind-protect  → (builtin)\n;;\n;; Quick decision tree:\n;; 1. Need to pass data between threads?\n;;    - Stream of values → channel\n;;    - Single result    → completion\n;; 2. Need to coordinate threads?\n;;    - Wait for all    → barrier or wg\n;;    - Wait for first  → sync/select\n;; 3. Need shared mutable state?\n;;    - Read-heavy      → rwlock\n;;    - Read/write even → atom\n;; 4. Need structured message passing?\n;;    - Request/reply   → actor (->>)\n;;    - Fire-and-forget → actor (->)",
+    "notes": "This is a reference guide, not executable code. Each primitive listed here has its own cookbook recipe with working examples. Search for the specific pattern name (e.g., \"channel\", \"barrier\", \"workgroup\") to find detailed examples.",
+    "related": [
+      "channel-pattern",
+      "barrier-synchronization",
+      "completion-async-value",
+      "workgroup-thread-pool",
+      "atom-atomic-reference",
+      "rwlock-read-write-lock",
+      "actor-message-passing",
+      "event-sync-select"
+    ]
+  },
+  {
+    "id": "gambit-primitives-inventory",
+    "title": "Gambit runtime primitives available without imports",
+    "tags": [
+      "gambit",
+      "builtins",
+      "primitives",
+      "inventory",
+      "discovery",
+      "no-import",
+      "process",
+      "file",
+      "environment",
+      "terminal"
+    ],
+    "imports": [],
+    "code": ";; Gambit runtime primitives — available without any imports.\n;; These are NOT in :std/* modules; they're from the Gambit runtime.\n;;\n;; ── Process Management ──────────────────────────────────────────\n;; open-process      Create a subprocess (returns a port)\n;;   Settings: path:, arguments:, directory:, environment:,\n;;             stdin-redirection:, stdout-redirection:, stderr-redirection:,\n;;             pseudo-terminal:, output-width:\n;; process-status    Get exit status (blocks until exited); raw waitpid value\n;; process-pid       Get PID of a process port\n;; shell-command     Run a shell command string (returns exit status)\n;;\n;; ── Filesystem ──────────────────────────────────────────────────\n;; file-exists?      Check if file/directory exists\n;; file-info         Get file metadata (like stat): type, mode, size, times\n;; file-info-type    Extract type from file-info (:regular, :directory, etc.)\n;; file-info-size    Extract size from file-info\n;; file-info-mode    Extract permission bits from file-info\n;; rename-file       Rename/move a file (atomic on POSIX)\n;; delete-file       Delete a file\n;; create-directory  Create a directory (mkdir)\n;; delete-directory  Delete an empty directory (rmdir)\n;; directory-files   List directory entries (returns list of strings)\n;; current-directory Get/set current working directory\n;;\n;; ── Path Manipulation ───────────────────────────────────────────\n;; path-normalize       Resolve to absolute path (like realpath)\n;; path-directory       Directory portion (like dirname, with trailing /)\n;; path-strip-directory Filename portion (like basename)\n;; path-extension       File extension (includes dot)\n;; path-strip-extension Remove file extension\n;; path-expand          Expand ~ and environment variables\n;;\n;; ── Environment ─────────────────────────────────────────────────\n;; getenv            Get environment variable (returns #f if unset)\n;; setenv            Set environment variable (Gambit extension)\n;;\n;; ── I/O ─────────────────────────────────────────────────────────\n;; open-input-file   Open file for reading (returns port)\n;; open-output-file  Open file for writing\n;; call-with-input-file   Open, call proc with port, close\n;; call-with-output-file  Open, call proc with port, close\n;; with-input-from-file   Set current-input-port from file\n;; with-output-to-file    Set current-output-port to file\n;; read-line         Read a line from port\n;; read-all          Read all data from port\n;; read-u8           Read a byte\n;; write-u8          Write a byte\n;; display / write / newline / displayln\n;;\n;; ── String I/O ──────────────────────────────────────────────────\n;; open-input-string    Create port from string\n;; open-output-string   Create string accumulator port\n;; get-output-string    Extract string from output port\n;; call-with-output-string  Create string port, call proc, return string\n;; with-output-to-string    Capture display/write output as string\n;;\n;; ── Threading ───────────────────────────────────────────────────\n;; make-thread / thread-start! / thread-join! / thread-yield!\n;; thread-sleep!     Sleep for N seconds (accepts real numbers)\n;; thread-terminate! Terminate a thread (use with-catch around it)\n;; make-mutex / mutex-lock! / mutex-unlock!\n;; make-condition-variable / condition-variable-signal! / condition-variable-broadcast!\n;; current-thread    Get the current thread object\n;;\n;; ── Time ────────────────────────────────────────────────────────\n;; ##current-time    Current time (Gambit time object)\n;; time->seconds     Convert Gambit time to seconds since epoch\n;; seconds->time     Convert seconds to Gambit time\n;;\n;; ── System ──────────────────────────────────────────────────────\n;; ##command-line    Command line arguments as list\n;; exit              Exit the process\n;; error             Raise an error exception",
+    "notes": "All of these are Gambit builtins available in any Gerbil program without imports. Some (like setenv) are Gambit extensions not in R7RS. For process management, :std/misc/process provides higher-level wrappers (run-process, filter-with-process). For path manipulation, :std/misc/path provides additional utilities. WARNING: (import :std/srfi/19) shadows time->seconds with an incompatible version that returns a date-component, not epoch seconds.",
+    "related": [
+      "open-process-settings",
+      "directory-listing",
+      "gambit-path-builtins",
+      "run-external-process"
+    ]
   }
 ]
