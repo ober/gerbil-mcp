@@ -459,6 +459,65 @@ test:
 `,
     );
 
+    // FFI scaffold fixtures
+    writeFileSync(
+      join(TEST_DIR, 'simple-lib.h'),
+      `#ifndef SIMPLE_LIB_H
+#define SIMPLE_LIB_H
+
+#define MAX_SIZE 1024
+#define ERROR_CODE 0xFF
+
+typedef struct simple_ctx_st simple_ctx_t;
+
+extern simple_ctx_t *simple_ctx_create(void);
+extern void simple_ctx_destroy(simple_ctx_t *ctx);
+extern int simple_process(simple_ctx_t *ctx, const char *input, int flags);
+extern const char *simple_get_name(simple_ctx_t *ctx);
+
+#endif
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'enum-lib.h'),
+      `typedef enum {
+  COLOR_RED = 0,
+  COLOR_GREEN = 1,
+  COLOR_BLUE = 2
+} color_t;
+
+typedef struct widget_st widget_t;
+
+extern widget_t *widget_new(const char *label, color_t color);
+extern void widget_free(widget_t *w);
+extern color_t widget_get_color(widget_t *w);
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'multi-type.h'),
+      `/* Multi-type library */
+typedef struct db_st db_t;
+typedef struct iterator_st iterator_t;
+typedef struct options_st options_t;
+
+extern options_t *options_create(void);
+extern void options_destroy(options_t *opts);
+
+extern db_t *db_open(const char *path, options_t *opts);
+extern void db_close(db_t *db);
+
+extern int db_put(db_t *db, const char *key, const char *value);
+extern const char *db_get(db_t *db, const char *key);
+
+extern iterator_t *db_iterator(db_t *db);
+extern int iterator_next(iterator_t *it);
+extern const char *iterator_key(iterator_t *it);
+extern void iterator_destroy(iterator_t *it);
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -2784,6 +2843,134 @@ test:
       });
       expect(result.isError).toBe(true);
       expect(result.text).toContain('No form found');
+    });
+  });
+
+  // ── FFI scaffold tool ────────────────────────────────────────────────
+
+  describe('FFI scaffold tool', () => {
+    it('parses typedefs and generates c-define-type', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('c-define-type');
+      expect(result.text).toContain('simple_ctx');
+    });
+
+    it('parses function declarations and generates c-lambda', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('define-c-lambda');
+      expect(result.text).toContain('simple_process');
+      expect(result.text).toContain('simple_get_name');
+    });
+
+    it('parses #define constants and generates define-const', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('define-const MAX_SIZE');
+      expect(result.text).toContain('define-const ERROR_CODE');
+    });
+
+    it('detects create/destroy pairs and generates cleanup code', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('create/destroy pair');
+      expect(result.text).toContain('ffi_free_');
+      expect(result.text).toContain('simple_ctx_destroy');
+      expect(result.text).toContain('___SCMOBJ');
+      expect(result.text).toContain('___FIX(___NO_ERR)');
+    });
+
+    it('parses enums and generates define-const for members', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'enum-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('define-const COLOR_RED');
+      expect(result.text).toContain('define-const COLOR_GREEN');
+      expect(result.text).toContain('define-const COLOR_BLUE');
+    });
+
+    it('detects new/free pairs as create/destroy', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'enum-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('create/destroy pair');
+      expect(result.text).toContain('widget_free');
+    });
+
+    it('handles multiple pointer types', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'multi-type.h'),
+      });
+      expect(result.isError).toBe(false);
+      // Should have multiple c-define-type declarations
+      expect(result.text).toContain('c-define-type db_t');
+      expect(result.text).toContain('c-define-type iterator_t');
+      expect(result.text).toContain('c-define-type options_t');
+    });
+
+    it('detects open/close pairs as create/destroy', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'multi-type.h'),
+      });
+      expect(result.isError).toBe(false);
+      // db_open/db_close should be detected
+      expect(result.text).toContain('db_close');
+    });
+
+    it('maps char* to UTF-8-string', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('UTF-8-string');
+    });
+
+    it('respects include_path parameter', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+        include_path: 'mylib/simple-lib.h',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('mylib/simple-lib.h');
+    });
+
+    it('generates module wrapper with module_name', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+        module_name: 'mylib',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('(import :std/foreign)');
+      expect(result.text).toContain('(export ');
+    });
+
+    it('reports error for missing file', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'nonexistent.h'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Failed to read');
+    });
+
+    it('shows parsed summary with counts', async () => {
+      const result = await client.callTool('gerbil_ffi_scaffold', {
+        file_path: join(TEST_DIR, 'simple-lib.h'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('typedef');
+      expect(result.text).toContain('function');
+      expect(result.text).toContain('constant');
     });
   });
 });

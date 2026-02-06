@@ -33,6 +33,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 - **`gerbil_class_info`**: Inspect defclass/defstruct types — slots, fields, inheritance, precedence list.
 - **`gerbil_ffi_inspect`**: Classify a module's FFI exports (C constants, C functions, Gerbil wrappers).
+- **`gerbil_ffi_scaffold`**: Parse a C header file and generate Gambit FFI binding code with `c-define-type`, `c-lambda`, and `define-const` declarations. Recognizes create/destroy pairs for automatic GC cleanup.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 
 ### For Multi-Step Exploration

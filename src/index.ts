@@ -64,6 +64,7 @@ import { registerStaleStaticTool } from './tools/stale-static.js';
 import { registerBalancedReplaceTool } from './tools/balanced-replace.js';
 import { registerWrapFormTool } from './tools/wrap-form.js';
 import { registerSpliceFormTool } from './tools/splice-form.js';
+import { registerFfiScaffoldTool } from './tools/ffi-scaffold.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -130,6 +131,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - For balance-safe editing: use gerbil_balanced_replace instead of string replace. It validates delimiter balance before and after the edit, rejecting changes that break balance. Dry-run by default.
 - To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form (e.g. when, let, begin) with guaranteed matching parentheses. Auto-detects form boundaries. Dry-run by default.
 - To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children. The inverse of wrap. Dry-run by default.
+- To generate FFI bindings: use gerbil_ffi_scaffold to parse a C header file and generate Gambit FFI binding code with c-define-type, c-lambda, and define-const declarations. Recognizes create/destroy pairs for automatic GC cleanup.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -200,6 +202,7 @@ registerStaleStaticTool(server);
 registerBalancedReplaceTool(server);
 registerWrapFormTool(server);
 registerSpliceFormTool(server);
+registerFfiScaffoldTool(server);
 
 registerPrompts(server);
 
