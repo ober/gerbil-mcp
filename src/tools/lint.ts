@@ -70,8 +70,9 @@ export function registerLintTool(server: McpServer): void {
         'style warnings (define vs def, missing transparent:), shadowed standard bindings, ' +
         'hash literal symbol key warnings, channel anti-patterns (spinning try-get, ' +
         'wg-wait visibility gaps), pitfall detection (unquote outside quasiquote, ' +
-        'dot in brackets, missing exported definitions), SRFI-19 time->seconds shadow, ' +
-        'unsafe mutex-lock!/unlock! without unwind-protect, and compilation errors via gxc.',
+        'dot in brackets, missing exported definitions, re-export awareness), ' +
+        'SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, ' +
+        'byte/char port type mismatch (fdopen with char I/O), and compilation errors via gxc.',
       inputSchema: {
         file_path: z
           .string()
@@ -108,6 +109,7 @@ export function registerLintTool(server: McpServer): void {
       checkMissingExportedDefinitions(analysis, diagnostics);
       checkSrfi19TimeShadow(content, analysis, diagnostics);
       checkUnsafeMutexPattern(lines, diagnostics);
+      checkPortTypeMismatch(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -799,14 +801,127 @@ function checkUnsafeMutexPattern(
 }
 
 /**
+ * Detect character I/O functions used with fdopen byte ports.
+ * fdopen returns a byte (binary) port, but functions like display, displayln,
+ * write, read-line etc. expect character ports. This mismatch causes subtle
+ * encoding bugs or runtime errors.
+ */
+function checkPortTypeMismatch(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  const CHAR_IO_FUNCTIONS = new Set([
+    'display', 'displayln', 'write', 'write-char', 'read-char',
+    'read-line', 'newline', 'print', 'println', 'pretty-print',
+    'write-string', 'read',
+  ]);
+
+  const defBoundary = /^\s*\(\s*(def\b|def\*|defmethod|defclass|defstruct)/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    if (!trimmed.includes('fdopen')) continue;
+
+    // Check it's not inside a string or comment
+    const fdIdx = trimmed.indexOf('fdopen');
+    const before = trimmed.slice(0, fdIdx);
+    if (before.includes(';')) continue;
+    const quoteCount = (before.match(/"/g) || []).length;
+    if (quoteCount % 2 !== 0) continue;
+
+    // Check same line for char I/O functions
+    for (const fn of CHAR_IO_FUNCTIONS) {
+      if (trimmed.includes(fn)) {
+        const fnIdx = trimmed.indexOf(fn);
+        // Verify word boundary
+        const leftOk = fnIdx === 0 || /[\s([\]{}'`,;]/.test(trimmed[fnIdx - 1]);
+        const rightIdx = fnIdx + fn.length;
+        const rightOk = rightIdx >= trimmed.length || /[\s)[\]{}'`,;]/.test(trimmed[rightIdx]);
+        if (leftOk && rightOk) {
+          diagnostics.push({
+            line: lineNum,
+            severity: 'warning',
+            code: 'port-type-mismatch',
+            message:
+              `"${fn}" used with fdopen byte port on same line. ` +
+              'fdopen returns a byte port, but character I/O functions expect a character port. ' +
+              'Use open-input-file/open-output-file for character I/O, or wrap with open-buffered-reader.',
+          });
+          break;
+        }
+      }
+    }
+
+    // Try to extract bound variable name from (let ((VAR (fdopen ...))) or (def VAR (fdopen ...))
+    const letMatch = trimmed.match(/\(\s*(\S+)\s+\(fdopen\b/);
+    const defMatch = trimmed.match(/^\(def\s+(\S+)\s+\(fdopen\b/);
+    const varName = letMatch?.[1] || defMatch?.[1];
+
+    if (varName) {
+      // Scan forward for char I/O functions used with this variable
+      const lookAheadEnd = Math.min(i + 30, lines.length);
+      for (let j = i + 1; j < lookAheadEnd; j++) {
+        if (defBoundary.test(lines[j])) break;
+        const fwdLine = lines[j].trimStart();
+        if (fwdLine.startsWith(';')) continue;
+
+        for (const fn of CHAR_IO_FUNCTIONS) {
+          if (fwdLine.includes(fn) && fwdLine.includes(varName)) {
+            diagnostics.push({
+              line: j + 1,
+              severity: 'warning',
+              code: 'port-type-mismatch',
+              message:
+                `"${fn}" used with "${varName}" which is bound to an fdopen byte port (line ${lineNum}). ` +
+                'fdopen returns a byte port, but character I/O functions expect a character port.',
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * Check that all symbols listed in (export ...) forms are actually
  * defined in the file. Catches typos and forgotten definitions.
+ * Aware of re-exports: if a symbol appears in an import statement's text,
+ * it is likely being re-exported and should not be flagged.
  */
 function checkMissingExportedDefinitions(
   analysis: FileAnalysis,
   diagnostics: LintDiagnostic[],
 ): void {
   const definedNames = new Set(analysis.definitions.map((d) => d.name));
+
+  // Build a set of tokens that appear in import statements for re-export detection
+  const importTokens = new Set<string>();
+  // Also track whether there are any bare module imports (could re-export anything)
+  let hasBareModuleImports = false;
+  for (const imp of analysis.imports) {
+    // Extract all symbol-like tokens from raw import text
+    const tokens = imp.raw.match(/[a-zA-Z_!?<>=+\-*/][a-zA-Z0-9_!?<>=+\-*/.:~#]*/g);
+    if (tokens) {
+      for (const t of tokens) {
+        // Skip keywords like import, only-in, except-out, rename-in, etc.
+        if (!['import', 'only-in', 'except-out', 'rename-in', 'rename-out',
+               'prefix-in', 'prefix-out', 'struct-out', 'group-in'].includes(t)) {
+          importTokens.add(t);
+        }
+      }
+    }
+    // Detect bare module imports: (import :foo/bar) without only-in/except-out filters
+    const modPaths = extractModulePaths(imp.raw);
+    if (modPaths.length > 0 && !imp.raw.includes('only-in')) {
+      hasBareModuleImports = true;
+    }
+  }
 
   for (const exp of analysis.exports) {
     const raw = exp.raw;
@@ -842,7 +957,15 @@ function checkMissingExportedDefinitions(
         const start = pos;
         while (pos < inner.length && !/[\s()[\]{}]/.test(inner[pos])) pos++;
         const sym = inner.slice(start, pos);
+
+        // Skip comment tokens (;;), booleans, and defined names
+        if (sym.startsWith(';')) continue;
         if (sym && sym !== '#t' && sym !== '#f' && !definedNames.has(sym)) {
+          // Check if symbol appears explicitly in imports (e.g. only-in)
+          if (importTokens.has(sym)) continue;
+          // If file has bare module imports, the symbol could be a re-export
+          if (hasBareModuleImports) continue;
+
           diagnostics.push({
             line: exp.line,
             severity: 'warning',

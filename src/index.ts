@@ -69,6 +69,9 @@ import { registerFfiScaffoldTool } from './tools/ffi-scaffold.js';
 import { registerProjectDepGraphTool } from './tools/project-dep-graph.js';
 import { registerTestCoverageTool } from './tools/test-coverage.js';
 import { registerModuleCatalogTool } from './tools/module-catalog.js';
+import { registerFfiCallbackDebugTool } from './tools/ffi-callback-debug.js';
+import { registerExampleApiCoverageTool } from './tools/example-api-coverage.js';
+import { registerValidateExampleImportsTool } from './tools/validate-example-imports.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -106,7 +109,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
 - To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
-- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, compilation errors).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions with re-export awareness, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, byte/char port type mismatch, compilation errors).
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess. Handles #! reader directives and suggests cross-checking with gerbil_read_forms on errors.
@@ -140,6 +143,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To visualize project dependencies: use gerbil_project_dep_graph to see which project modules import from which other modules as an ASCII dependency tree. Lists external dependencies separately.
 - To check test coverage: use gerbil_test_coverage to compare a module's exports against its test file and identify untested symbols. Auto-discovers *-test.ss files.
 - To get a module catalog: use gerbil_module_catalog for a compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for :std/sugar, :std/iter. Replaces multiple gerbil_doc calls.
+- To debug FFI callbacks: use gerbil_ffi_callback_debug to analyze c-define/extern linkage in a .ss file. Detects orphan callbacks, missing externs, duplicate C names, and callbacks outside begin-foreign.
+- To check example API coverage: use gerbil_example_api_coverage to see which module exports are referenced in example/doc files. Scans .ss files in a directory or explicit file list.
+- To validate example imports: use gerbil_validate_example_imports to check that imported modules actually export the symbols used in a file. Detects potentially undefined symbols.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -215,6 +221,9 @@ registerFfiScaffoldTool(server);
 registerProjectDepGraphTool(server);
 registerTestCoverageTool(server);
 registerModuleCatalogTool(server);
+registerFfiCallbackDebugTool(server);
+registerExampleApiCoverageTool(server);
+registerValidateExampleImportsTool(server);
 
 registerPrompts(server);
 

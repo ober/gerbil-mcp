@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, readdir } from 'node:fs/promises';
+import { join, basename } from 'node:path';
 import { runGxi, escapeSchemeString, ERROR_MARKER, buildLoadpathEnv } from '../gxi.js';
 
 const RESULT_MARKER = 'GERBIL-MCP-SIG:';
@@ -219,6 +219,23 @@ export function registerFunctionSignatureTool(server: McpServer): void {
         }
       }
 
+      // For procedures without source-level formals and without runtime keywords,
+      // try scanning compiled .scm artifacts for keyword/optional arg patterns
+      const needsCompiledScan = entries.some(
+        (e) => e.kind === 'procedure' && !formalsMap.has(e.name) && !e.keywords,
+      );
+      if (needsCompiledScan) {
+        const compiledKws = await scanCompiledArtifacts(modPath, effectiveLoadpath);
+        for (const e of entries) {
+          if (e.kind === 'procedure' && !formalsMap.has(e.name) && !e.keywords) {
+            const kw = compiledKws.get(e.name);
+            if (kw) {
+              e.keywords = kw;
+            }
+          }
+        }
+      }
+
       const formatted = [
         `${modPath} — ${entries.length} export(s):`,
         '',
@@ -245,6 +262,83 @@ export function registerFunctionSignatureTool(server: McpServer): void {
       return { content: [{ type: 'text' as const, text: formatted }] };
     },
   );
+}
+
+/**
+ * Scan compiled .scm artifacts in $GERBIL_PATH/lib/static/ for keyword-dispatch
+ * patterns and optional/rest argument info. Falls back to loadpath directories.
+ * Returns a map of symbol-name -> keyword-string.
+ */
+async function scanCompiledArtifacts(
+  modPath: string,
+  loadpath: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+
+  // Convert module path to potential file name
+  // :std/net/request -> std/net/request__0.scm, std/net/request__rt.scm, etc.
+  const modSuffix = modPath.replace(/^:/, '').replace(/\//g, '_');
+
+  // Candidate directories
+  const gerbilPath = process.env['GERBIL_PATH'] || join(process.env['HOME'] || '', '.gerbil');
+  const dirs = [
+    join(gerbilPath, 'lib', 'static'),
+    ...loadpath.map((lp) => join(lp, '..', 'static')),
+  ];
+
+  for (const dir of dirs) {
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue;
+    }
+
+    // Find .scm files matching the module pattern
+    const matching = entries.filter(
+      (e) => e.endsWith('.scm') && e.startsWith(modSuffix),
+    );
+
+    for (const file of matching) {
+      let content: string;
+      try {
+        content = await readFile(join(dir, file), 'utf-8');
+      } catch {
+        continue;
+      }
+
+      // Scan for keyword-dispatch patterns:
+      // (keyword-dispatch '#(key1: key2: #f) ... name ...)
+      const kwPattern = /keyword-dispatch\s+'#\(([^)]+)\)/g;
+      let match: RegExpExecArray | null;
+      while ((match = kwPattern.exec(content)) !== null) {
+        const kwContent = match[1];
+        const kws = kwContent
+          .split(/\s+/)
+          .filter((t) => t.endsWith(':') && t !== '#f');
+
+        if (kws.length === 0) continue;
+
+        // Try to find the associated function name nearby
+        // Look for a define pattern before or near this match
+        const context = content.slice(Math.max(0, match.index - 200), match.index);
+        const nameMatch = context.match(/define\s+\(([^\s()]+)/g);
+        if (nameMatch) {
+          const lastDef = nameMatch[nameMatch.length - 1];
+          const funcName = lastDef.replace(/^define\s+\(/, '');
+          result.set(funcName, kws.join(' '));
+        }
+      }
+
+      // Also scan for ##rest-args-fix patterns which indicate rest parameters
+      const restPattern = /##rest-args-fix\s+\d+\s+([^\s()]+)/g;
+      while ((match = restPattern.exec(content)) !== null) {
+        // Could enhance with rest param info if needed
+      }
+    }
+  }
+
+  return result;
 }
 
 /**

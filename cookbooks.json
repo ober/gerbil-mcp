@@ -3854,5 +3854,978 @@
       "os-pipe-create-fd-pair",
       "fcntl-f-dupfd-partial-dup"
     ]
+  },
+  {
+    "id": "qt-offscreen-headless-testing",
+    "title": "Run Qt FFI tests headless with QT_QPA_PLATFORM=offscreen",
+    "tags": [
+      "qt",
+      "test",
+      "headless",
+      "offscreen",
+      "makefile",
+      "segfault",
+      "QT_QPA_PLATFORM"
+    ],
+    "imports": [],
+    "code": ";; Qt6 requires a display to create widgets. For headless testing,\n;; set QT_QPA_PLATFORM=offscreen to use Qt's offscreen plugin.\n;; No xvfb-run needed.\n;;\n;; IMPORTANT: The offscreen plugin causes a benign SIGSEGV at process exit\n;; (after all tests complete and results are reported). This means the\n;; process exits with code 139 even though all tests passed.\n;;\n;; Makefile pattern to handle this:\n;;\n;; test: build\n;; \t@QT_QPA_PLATFORM=offscreen LD_LIBRARY_PATH=$(CURDIR)/vendor:$$LD_LIBRARY_PATH \\\n;; \t\tgerbil test ./... > /tmp/gerbil-qt-test.log 2>&1 || true; \\\n;; \tcat /tmp/gerbil-qt-test.log; \\\n;; \tif grep -q \"FAILURE\" /tmp/gerbil-qt-test.log; then \\\n;; \t\texit 1; \\\n;; \tfi\n;;\n;; This captures output, ignores the exit code, displays results,\n;; and only fails if gerbil test actually reported FAILURE.\n;;\n;; Test file pattern — create QApplication once, share across tests:\n\n(import :std/test :my-project/qt)\n(export qt-test)\n\n(def test-app #f)\n(def (ensure-app!)\n  (unless test-app\n    (set! test-app (qt-app-create))))\n\n(def qt-test\n  (test-suite \"qt\"\n    (test-case \"app create\"\n      (ensure-app!)\n      (check (not (eq? test-app #f)) => #t))\n\n    (test-case \"label round-trip\"\n      (let ((l (qt-label-create \"hello\")))\n        (check (qt-label-text l) => \"hello\")\n        (qt-widget-destroy! l)))\n\n    ;; Do NOT destroy app — let process exit handle it.\n    ;; Explicit qt-app-destroy! can cause double-free with offscreen.\n  ))",
+    "notes": "Qt's offscreen platform plugin (qt6-base-dev includes it on Ubuntu) creates a minimal rendering backend without a display server. The SIGSEGV at exit is a known Qt issue with the offscreen plugin during QApplication destruction — it happens after all test reporting is complete. Do NOT explicitly call qt-app-destroy! in test cleanup when using offscreen — it can cause the segfault to happen mid-test instead of at exit. The Makefile pattern checks for the string \"FAILURE\" in gerbil test output rather than relying on exit code, which elegantly handles the benign crash.",
+    "related": [
+      "write-tests-with-std-test",
+      "ffi-callback-dispatch-table",
+      "qt-application-argc-static"
+    ]
+  },
+  {
+    "id": "ffi-signal-wrapper-returns-void",
+    "title": "FFI signal connection wrappers return void — don't test return value",
+    "tags": [
+      "ffi",
+      "callback",
+      "signal",
+      "void",
+      "return",
+      "test",
+      "qt",
+      "gtk"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: When wrapping C signal-connection functions, the high-level\n;; wrapper typically calls a void C function as its last expression.\n;; In Scheme, this returns #!void — NOT the callback ID.\n;;\n;; Example:\n;; (def (qt-on-clicked! button handler)\n;;   (let ((id (register-qt-void-handler! handler)))\n;;     (raw_qt_push_button_on_clicked button id)))\n;;     ;; ^^^ this is a void c-lambda — returns #!void, not id\n;;\n;; WRONG in tests:\n;; (let ((id (qt-on-clicked! btn (lambda () #t))))\n;;   (check (number? id) => #t))   ;; FAILS: id is #!void\n;;\n;; CORRECT — just verify no crash:\n;; (qt-on-clicked! btn (lambda () #t))\n;; ;; no assertion on return value\n;;\n;; If you NEED the callback ID returned, restructure:\n;; (def (qt-on-clicked! button handler)\n;;   (let ((id (register-qt-void-handler! handler)))\n;;     (raw_qt_push_button_on_clicked button id)\n;;     id))  ;; <-- explicitly return id",
+    "notes": "This bites you when writing tests for FFI callback registration. The register-*-handler! function returns an integer ID, but the void c-lambda called after it returns #!void, which becomes the return value of the let form. (number? #!void) => #f. Fix either by adding an explicit return of id, or by not asserting on the return value in tests. The pattern affects any wrapper where register → connect is done in a let body.",
+    "related": [
+      "ffi-callback-dispatch-table",
+      "multiple-callback-trampolines",
+      "write-tests-with-std-test"
+    ]
+  },
+  {
+    "id": "character-port-from-raw-fd-via-dev-fd",
+    "title": "Create Gambit character port from raw fd via /dev/fd/N",
+    "tags": [
+      "fd",
+      "port",
+      "character",
+      "raw",
+      "dev",
+      "redirect",
+      "pipe",
+      "display",
+      "write"
+    ],
+    "imports": [],
+    "code": ";; fdopen from :std/os/fd creates BYTE ports, which CANNOT be used with\n;; display, write-char, read-char, read-line, etc. (causes type-exception).\n;; Instead, use /dev/fd/N to create proper Gambit character ports from raw fds.\n;; This works on Linux (and most Unix systems).\n\n;; Example: create read/write character ports from pipe fds\n;; (Assuming ffi-pipe-raw returns two raw integer fds)\n(import :gsh/ffi)  ;; for ffi-pipe-raw\n\n(let-values (((read-fd write-fd) (ffi-pipe-raw)))\n  ;; Create a character output port for the write end\n  (let ((out (open-output-file (string-append \"/dev/fd/\" (number->string write-fd)))))\n    (display \"hello from pipe\" out)  ;; display works!\n    (newline out)\n    (force-output out)\n    (close-port out))\n  (ffi-close-fd write-fd)  ;; close raw fd too\n\n  ;; Create a character input port for the read end\n  (let ((in (open-input-file (string-append \"/dev/fd/\" (number->string read-fd)))))\n    (let ((line (read-line in)))  ;; read-line works!\n      (close-port in)\n      (ffi-close-fd read-fd)\n      line)))\n;; => \"hello from pipe\"\n\n;; WRONG — fdopen creates byte ports that fail with display:\n;; (let ((p (fdopen write-fd 'out #t)))\n;;   (display \"hello\" p))  ;; ERROR: Character OUTPUT PORT expected\n\n;; This pattern is essential for:\n;; - Shell command substitution (capture stdout via pipe)\n;; - Shell pipeline builtins (set current-output-port to pipe)\n;; - Any case where Gambit's display/read-line needs to use a raw fd",
+    "notes": "fdopen from :std/os/fd creates Gerbil byte ports (raw I/O), but Gambit's standard I/O functions (display, write, read-char, read-line) require character ports. The /dev/fd/N virtual filesystem on Linux lets you create a proper Gambit character port from any open raw fd. Always close both the Gambit port AND the raw fd when done. This pattern was discovered while implementing shell command substitution and pipeline support.",
+    "related": [
+      "fd-e-extract-raw-fd-from-port",
+      "fdopen-3-arity",
+      "os-pipe-create-fd-pair"
+    ]
+  },
+  {
+    "id": "break-circular-import-with-make-parameter",
+    "title": "Break circular imports with make-parameter callback",
+    "tags": [
+      "circular",
+      "import",
+      "dependency",
+      "parameter",
+      "callback",
+      "module"
+    ],
+    "imports": [],
+    "code": ";; Problem: module A needs to call a function from module B,\n;; but module B imports module A — circular dependency.\n;;\n;; Solution: use make-parameter as a callback slot in a shared module.\n;; The \"upper\" module sets the parameter at startup.\n\n;; --- shared.ss (imported by both) ---\n;; (export #t)\n;; (def *execute-fn* (make-parameter #f))\n\n;; --- lower.ss (needs to call the function) ---\n;; (import :mypackage/shared)\n;; (def (do-eval input env)\n;;   (let ((exec-fn (*execute-fn*)))\n;;     (if exec-fn\n;;       (exec-fn input env)\n;;       (error \"executor not initialized\"))))\n\n;; --- upper.ss (defines the function, imports lower.ss) ---\n;; (import :mypackage/shared :mypackage/lower)\n;; (def (execute-input input env)\n;;   ... uses lower.ss functions ...)\n;;\n;; ;; At startup, wire the callback:\n;; (*execute-fn* (lambda (input env) (execute-input input env)))\n\n;; This pattern is essential for shells, REPLs, and plugin systems\n;; where eval/source/command-substitution need to call back into\n;; the main executor without creating circular imports.",
+    "notes": "The key insight is that make-parameter creates a thread-local mutable binding that can be set at runtime, breaking the compile-time circular dependency. The parameter starts as #f and gets set during initialization. Always check for #f before calling to handle the case where init hasn't run yet. This is the standard Scheme pattern for dependency inversion."
+  },
+  {
+    "id": "ffi-posix-syscall-begin-ffi",
+    "title": "Wrap POSIX syscalls (dup, dup2, open, close, pipe) via begin-ffi",
+    "tags": [
+      "ffi",
+      "begin-ffi",
+      "posix",
+      "syscall",
+      "dup2",
+      "open",
+      "close",
+      "pipe",
+      "c-lambda",
+      "c-declare"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Gerbil lacks built-in dup2, raw open(), and waitpid with WUNTRACED.\n;; Use begin-ffi + c-declare + define-c-lambda to wrap POSIX libc calls.\n\n(import :std/foreign)\n\n(begin-ffi (ffi-dup ffi-dup2 ffi-close-fd ffi-open-raw ffi-isatty)\n\n  ;; Include required C headers in c-declare with heredoc syntax\n  (c-declare #<<END-C\n#include <unistd.h>\n#include <fcntl.h>\n#include <sys/stat.h>\nEND-C\n  )\n\n  ;; Simple 1:1 wrappers — just name the C function\n  (define-c-lambda ffi-dup (int) int \"dup\")\n  (define-c-lambda ffi-dup2 (int int) int \"dup2\")\n  (define-c-lambda ffi-close-fd (int) int \"close\")\n  (define-c-lambda ffi-isatty (int) int \"isatty\")\n\n  ;; C's open() — returns raw integer fd (not a Gambit port!)\n  ;; flags: O_RDONLY=0, O_WRONLY=1, O_RDWR=2\n  ;;        O_CREAT=64, O_TRUNC=512, O_APPEND=1024 (Linux)\n  ;; mode: file permission bits e.g. #o666\n  (define-c-lambda ffi-open-raw (char-string int int) int \"open\")\n)\n\n;; Usage: open a file, dup2 onto stdout, then restore\n;; (let ((saved (ffi-dup 1)))          ;; save real fd 1\n;;   (let ((fd (ffi-open-raw \"/tmp/out.txt\"\n;;               (bitwise-ior 1 64 512)  ;; O_WRONLY|O_CREAT|O_TRUNC\n;;               #o666)))\n;;     (ffi-dup2 fd 1)                  ;; redirect stdout to file\n;;     (ffi-close-fd fd))               ;; close extra fd\n;;   ;; ... run command (inherits redirected fd 1) ...\n;;   (ffi-dup2 saved 1)                 ;; restore stdout\n;;   (ffi-close-fd saved))              ;; close saved copy\n\n;; For multi-value returns (e.g. waitpid), use static vars + helper:\n;; (c-declare \"static int _status; ...\")\n;; (define-c-lambda _do_waitpid (int int) int \"ffi_do_waitpid\")\n;; (define-c-lambda _get_status () int \"ffi_get_status\")",
+    "notes": "Key points: (1) begin-ffi's first arg is the list of Scheme symbols to export from the FFI block. (2) c-declare uses Gambit's heredoc syntax #<<TAG ... TAG for multi-line C code. (3) define-c-lambda maps Scheme types to C: int↔int, char-string↔const char*. (4) For functions returning multiple values (like waitpid with status), use C static vars and multiple c-lambda getters. (5) MUST include <fcntl.h> for open(), otherwise you get 'implicit declaration' warnings. (6) O_* flag values are Linux-specific — for portability, define them in C code using the actual macros.",
+    "related": [
+      "fd-e-extract-raw-fd-from-port",
+      "character-port-from-raw-fd-via-dev-fd",
+      "fcntl-f-dupfd-partial-dup"
+    ]
+  },
+  {
+    "id": "pipeline-fd-closing-pattern",
+    "title": "Pipeline fd management: close write-end in parent to avoid hangs",
+    "tags": [
+      "pipeline",
+      "pipe",
+      "fd",
+      "close",
+      "hang",
+      "EOF",
+      "dup2",
+      "parent",
+      "child"
+    ],
+    "imports": [],
+    "code": ";; CRITICAL PATTERN: When implementing cmd1 | cmd2, the parent process\n;; must close its copy of the pipe write-end IMMEDIATELY after launching\n;; the producer (cmd1). Otherwise cmd2 never sees EOF and hangs forever.\n;;\n;; WRONG — hangs:\n;; (let-values (((rfd wfd) (pipe-raw)))\n;;   (launch cmd1 with stdout→wfd)\n;;   (launch cmd2 with stdin→rfd)\n;;   ;; Parent still holds wfd open!\n;;   ;; cmd2 reads from rfd, never gets EOF, HANGS\n;;   (close wfd)   ;; too late — cmd2 is already blocking\n;;   (close rfd))\n;;\n;; CORRECT — works:\n;; (let-values (((rfd wfd) (pipe-raw)))\n;;   ;; Save original fds\n;;   (let ((saved-stdout (ffi-dup 1)))\n;;     ;; Redirect stdout to pipe write-end\n;;     (ffi-dup2 wfd 1)\n;;     (ffi-close-fd wfd)           ;; close original wfd in parent\n;;     ;; Launch cmd1 (inherits redirected fd 1)\n;;     (launch-cmd1)\n;;     ;; Restore stdout\n;;     (ffi-dup2 saved-stdout 1)\n;;     (ffi-close-fd saved-stdout))\n;;   ;; Now only cmd1 holds the write-end — when cmd1 exits, cmd2 gets EOF\n;;   (let ((saved-stdin (ffi-dup 0)))\n;;     (ffi-dup2 rfd 0)\n;;     (ffi-close-fd rfd)           ;; close original rfd in parent\n;;     (launch-cmd2)\n;;     (ffi-dup2 saved-stdin 0)\n;;     (ffi-close-fd saved-stdin))\n;;   (wait-for-both))\n;;\n;; The key insight: after dup2(wfd, 1), the pipe write-end is now fd 1.\n;; Closing the original wfd means only the child process (cmd1) holds\n;; the write-end. When cmd1 exits, its fd 1 closes, and cmd2 gets EOF.\n;;\n;; For N-command pipelines: create N-1 pipes upfront, close each pipe's\n;; write-end right after launching the command that writes to it, and\n;; close each pipe's read-end right after launching the command that\n;; reads from it. Use set-car!/set-cdr! or similar to track which fds\n;; have been closed to avoid double-close.",
+    "notes": "This is the #1 cause of pipeline hangs in shell implementations. The POSIX rule: a pipe read returns EOF only when ALL write-end file descriptors are closed. If the parent process forks a child and doesn't close its own copy of the write-end, the pipe has 2 writers (parent + child), so closing just the child's copy on exit still leaves the parent's copy open. The reader blocks forever. The dup2 approach (dup2 pipe-fd onto 0/1, then close the original) is cleaner than trying to pass extra fds to children, especially since Gambit's open-process closes all fds > 2 in the child.",
+    "related": [
+      "os-pipe-create-fd-pair",
+      "ffi-posix-syscall-begin-ffi",
+      "character-port-from-raw-fd-via-dev-fd"
+    ]
+  },
+  {
+    "id": "unix-timestamp-to-formatted-date",
+    "title": "Convert Unix timestamp to formatted date string via SRFI-19",
+    "tags": [
+      "srfi-19",
+      "unix",
+      "timestamp",
+      "date",
+      "format",
+      "make-time",
+      "time-utc->date"
+    ],
+    "imports": [
+      ":std/srfi/19"
+    ],
+    "code": "(import :std/srfi/19)\n\n;; Convert a Unix timestamp (integer seconds) to a formatted date string.\n;; Three steps: make-time -> time-utc->date -> date->string\n\n;; Basic pattern:\n(def (format-unix-timestamp unix-ts fmt)\n  (let* ((secs (inexact->exact (floor unix-ts)))\n         (t (make-time time-utc 0 secs))       ;; make-time takes: type nanoseconds seconds\n         (d (time-utc->date t 0)))              ;; 0 = UTC offset\n    (date->string d fmt)))\n\n;; Examples:\n(format-unix-timestamp 1609459200 \"~H:~M\")        ;; => \"00:00\"\n(format-unix-timestamp 1609459200 \"~b ~d\")         ;; => \"Jan 01\"\n(format-unix-timestamp 1609459200 \"~m/~d ~H:~M\")  ;; => \"01/01 00:00\"\n(format-unix-timestamp 1609459200 \"~Y-~m-~d\")      ;; => \"2021-01-01\"\n\n;; Adaptive time axis formatter (choose format based on data range):\n(def (make-time-format-fn range-seconds)\n  (let ((fmt (cond\n               ((>= range-seconds (* 365 86400)) \"~b ~d\")       ;; >= 1 year\n               ((>= range-seconds (* 30 86400))  \"~b ~d\")       ;; >= 30 days\n               ((>= range-seconds (* 7 86400))   \"~m/~d\")       ;; >= 7 days\n               ((>= range-seconds 86400)          \"~m/~d ~H:~M\") ;; >= 1 day\n               (else                              \"~H:~M\"))))    ;; < 1 day\n    (lambda (unix-ts)\n      (format-unix-timestamp unix-ts fmt))))",
+    "notes": "make-time arity is 3: (make-time type nanoseconds seconds). time-utc->date arity is 2: (time-utc->date time tz-offset). The tz-offset 0 means UTC. If SRFI-19 is imported and you also need Gambit's current-time, use ##current-time to bypass the shadow. Common format directives: ~Y (4-digit year), ~m (2-digit month), ~d (2-digit day), ~H (24h hour), ~M (minute), ~b (abbreviated month name like \"Jan\").",
+    "related": [
+      "date-time-formatting-srfi-19",
+      "srfi-19-current-time-shadows-gambit",
+      "current-time-seconds"
+    ]
+  },
+  {
+    "id": "format-tilde-escape-pitfall",
+    "title": "std/format uses tilde as escape — avoid tilde in dynamic strings",
+    "tags": [
+      "format",
+      "tilde",
+      "escape",
+      "string-append",
+      "promql",
+      "hang",
+      "freeze"
+    ],
+    "imports": [
+      ":std/format"
+    ],
+    "code": "(import :std/format)\n\n;; Gerbil's (format) from :std/format uses ~ as the escape character.\n;; If your format string contains literal tildes, format will try to\n;; interpret them as directives and may HANG or crash.\n\n;; WRONG — hangs/crashes because ~\" is interpreted as a format directive:\n;; (format \"{__name__=~\\\"~a.*\\\"}\" \"node_\")  ;; HANGS!\n\n;; WRONG — even ~~ (literal tilde) before a quote can cause issues:\n;; (format \"{__name__=~~\\\"~a.*\\\"}\" \"node_\")  ;; may still hang\n\n;; CORRECT — use string-append instead when the template contains tildes:\n(string-append \"{__name__=~\\\"\" \"node_\" \".*\\\"}\")\n;; => \"{__name__=~\\\"node_.*\\\"}\"\n\n;; RULE OF THUMB:\n;; - Use (format \"~a ~a\" x y) for simple value interpolation\n;; - Use string-append when the template itself contains ~ characters\n;;   (common in PromQL regex match syntax: =~ )\n;; - ~~ produces a literal tilde, but mixing with quotes can confuse the parser\n\n;; Safe format usage:\n(format \"value: ~a, count: ~a\" 42 10)  ;; => \"value: 42, count: 10\"\n(format \"~aK\" 1.5)                      ;; => \"1.5K\"\n(format \"~ae~a\" 1.2 6)                  ;; => \"1.2e6\"",
+    "notes": "This is especially dangerous because format may silently hang rather than error, making it hard to diagnose. PromQL queries commonly use =~ for regex matching, which conflicts with format's ~ escape. Always prefer string-append for building query strings that may contain special characters.",
+    "related": [
+      "string-subst-argument-order"
+    ]
+  },
+  {
+    "id": "sort-filter-not-builtin",
+    "title": "sort, filter, delete-duplicates require imports — not builtins",
+    "tags": [
+      "sort",
+      "filter",
+      "delete-duplicates",
+      "import",
+      "builtin",
+      "srfi-1",
+      "std/sort"
+    ],
+    "imports": [
+      ":std/sort",
+      ":std/srfi/1"
+    ],
+    "code": ";; Common list operations that are NOT builtins and require explicit imports:\n\n;; sort — requires :std/sort\n(import :std/sort)\n(sort '(3 1 2) <)                       ;; => (1 2 3)\n(sort '(\"c\" \"a\" \"b\") string<?)          ;; => (\"a\" \"b\" \"c\")\n\n;; filter — requires :std/srfi/1\n(import :std/srfi/1)\n(filter odd? '(1 2 3 4 5))             ;; => (1 3 5)\n(delete-duplicates '(\"a\" \"b\" \"a\") equal?)  ;; => (\"a\" \"b\")\n\n;; If you want to avoid importing :std/srfi/1 for a one-off dedup,\n;; use a hash-table-based manual approach:\n(def (dedup-strings lst)\n  (let ((seen (make-hash-table)))\n    (let loop ((rest lst) (acc []))\n      (cond\n        ((null? rest) (reverse acc))\n        ((hash-get seen (car rest))\n         (loop (cdr rest) acc))\n        (else\n         (hash-put! seen (car rest) #t)\n         (loop (cdr rest) (cons (car rest) acc)))))))\n(dedup-strings '(\"a\" \"b\" \"a\" \"c\"))  ;; => (\"a\" \"b\" \"c\")\n\n;; THESE ARE builtins (no import needed):\n;; map, for-each, append, reverse, length, assoc, member,\n;; list->vector, vector->list, string->list, list->string,\n;; apply, values, call-with-values, make-hash-table, hash-put!, hash-get,\n;; iota, create-directory*",
+    "notes": "This is a common gotcha — sort and filter feel like they should be builtins but aren't. sort is in :std/sort, filter and delete-duplicates are in :std/srfi/1. The error message is \"Unbound variable: sort\" (or filter). Also note: iota IS a builtin in Gerbil (from Gambit), and create-directory* is also a builtin.",
+    "related": [
+      "sort-a-list",
+      "advanced-list-utilities"
+    ]
+  },
+  {
+    "id": "when-returns-void-in-boolean-context",
+    "title": "Never use (when ...) as a boolean-returning function — use (if ... #t #f)",
+    "tags": [
+      "when",
+      "void",
+      "truthy",
+      "boolean",
+      "bug",
+      "gotcha",
+      "cond",
+      "predicate"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: (when cond body) returns #!void when cond is false.\n;; #!void is TRUTHY in Gerbil! Only #f is falsy.\n;;\n;; This commonly causes infinite loops or wrong branches in cond:\n\n;; WRONG — this function always returns truthy:\n(def (try-consume! state expected)\n  (when (match? state expected)  ;; returns #!void when false = truthy!\n    (advance! state)\n    #t))\n\n;; Used in cond, the wrong branch is always taken:\n(cond\n  ((try-consume! state \"+\") (handle-plus))  ;; ALWAYS taken!\n  ((try-consume! state \"-\") (handle-minus))\n  (else (handle-default)))\n\n;; CORRECT — use if with explicit #f:\n(def (try-consume! state expected)\n  (if (match? state expected)\n    (begin (advance! state) #t)\n    #f))",
+    "notes": "This caused an infinite loop in gsh's arithmetic parser: arith-consume-op! used (when ...) and always returned truthy, causing parse-unary to infinitely recurse on the \"+\" branch. The fix was changing (when ...) to (if ... #t #f). Rule: any function whose return value will be tested for truthiness must NEVER use (when ...) — always use (if ... ... #f).",
+    "related": [
+      "hash-ref-void-truthy",
+      "ffi-isatty-int-truthy"
+    ]
+  },
+  {
+    "id": "qt-modal-dialog-offscreen-hang",
+    "title": "Qt modal dialogs (QFontDialog, QColorDialog) hang in offscreen mode",
+    "tags": [
+      "qt",
+      "modal",
+      "dialog",
+      "offscreen",
+      "hang",
+      "blocking",
+      "QFontDialog",
+      "QColorDialog",
+      "test"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: Qt blocking modal dialogs hang forever in offscreen mode.\n;; QFontDialog::getFont() and QColorDialog::getColor() use exec()\n;; which blocks waiting for user interaction. With QT_QPA_PLATFORM=offscreen,\n;; there is no user — the dialog blocks forever, hanging your test suite.\n;;\n;; AFFECTED METHODS:\n;;   QFontDialog::getFont(bool *ok, QWidget *parent)\n;;   QColorDialog::getColor(QColor initial, QWidget *parent)\n;;   QInputDialog::getText/getInt/getDouble/getItem\n;;   QFileDialog::getOpenFileName/getSaveFileName (sometimes)\n;;   QMessageBox::exec() (sometimes — static methods may work)\n;;\n;; DO NOT test these in offscreen mode:\n;; (test-case \"font dialog\"           ;; HANGS FOREVER\n;;   (let ((font (qt-font-dialog app win)))\n;;     (check (eq? font #f) => #t)))\n;;\n;; CORRECT — skip modal dialog tests in offscreen mode:\n;; ;; Comment explaining why these tests are excluded:\n;; ;; QFontDialog/QColorDialog use blocking exec() — cannot be tested\n;; ;; in offscreen mode (no user to accept/cancel). Test via examples instead.\n;;\n;; WORKAROUND for CI: Test the non-blocking parts separately:\n;; - Test QFont creation, property access, round-trips (non-modal)\n;; - Test QColor creation, channel queries, hex output (non-modal)\n;; - Test the C shim functions directly (create/destroy/query)\n;; - Leave the actual dialog popup for manual example programs\n;;\n;; The API wrappers are typically simple pass-throughs:\n;; (def (qt-font-dialog app parent)\n;;   (let ((result (raw_qt_font_dialog_get_font parent)))\n;;     (if (not result) #f result)))  ;; returns QFont or #f if cancelled",
+    "notes": "This applies to ANY Qt static dialog method that calls exec() internally. The root cause is that exec() enters a modal event loop that processes events until the dialog is accepted or rejected. In offscreen mode, no user can interact with the dialog, so exec() never returns. This is not a bug — it's inherent to blocking dialogs. The only safe approach is to skip these tests in headless/offscreen CI environments and test them manually via example programs.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "qt-application-argc-static"
+    ]
+  },
+  {
+    "id": "qt-event-filter-no-moc",
+    "title": "Qt event filter pattern without MOC (QObject::eventFilter override)",
+    "tags": [
+      "qt",
+      "event",
+      "filter",
+      "eventFilter",
+      "QObject",
+      "MOC",
+      "keyboard",
+      "drag",
+      "drop"
+    ],
+    "imports": [],
+    "code": "// PATTERN: Intercept Qt events via QObject::eventFilter — no MOC needed.\n// This avoids Q_OBJECT macro, moc compilation, and signal/slot overhead.\n// Used for: keyboard events, drag-and-drop, mouse events, focus events.\n//\n// C++ shim pattern (in qt_shim.cpp):\n\nclass KeyPressFilter : public QObject {\n    // No Q_OBJECT macro — pure C++ virtual override\n    qt_callback_void m_callback;\n    long m_callback_id;\n    int m_last_key;\n    int m_last_modifiers;\n    char m_last_text[256];\n\npublic:\n    KeyPressFilter(QObject* parent, qt_callback_void cb, long id)\n        : QObject(parent), m_callback(cb), m_callback_id(id),\n          m_last_key(0), m_last_modifiers(0) {\n        m_last_text[0] = '\\0';\n    }\n\n    // Override eventFilter — this is a normal virtual method, no MOC\n    bool eventFilter(QObject* obj, QEvent* event) override {\n        if (event->type() == QEvent::KeyPress) {\n            QKeyEvent* ke = static_cast<QKeyEvent*>(event);\n            m_last_key = ke->key();\n            m_last_modifiers = static_cast<int>(ke->modifiers());\n            QByteArray utf8 = ke->text().toUtf8();\n            strncpy(m_last_text, utf8.constData(), sizeof(m_last_text) - 1);\n            m_last_text[sizeof(m_last_text) - 1] = '\\0';\n            if (m_callback) m_callback(m_callback_id);\n        }\n        return QObject::eventFilter(obj, event);  // pass to default\n    }\n\n    int lastKey() const { return m_last_key; }\n    int lastModifiers() const { return m_last_modifiers; }\n    const char* lastText() const { return m_last_text; }\n};\n\n// Install on a widget:\n// auto* filter = new KeyPressFilter(widget, callback, id);\n// widget->installEventFilter(filter);\n\n// SAME PATTERN works for DragEnter/Drop events:\n// class DropFilter : public QObject {\n//     bool eventFilter(QObject*, QEvent* event) override {\n//         if (event->type() == QEvent::DragEnter) { ... acceptProposedAction(); }\n//         if (event->type() == QEvent::Drop) { ... get mimeData()->text(); }\n//     }\n// };\n\n// KEY POINTS:\n// 1. No Q_OBJECT macro → no MOC step in build\n// 2. eventFilter is a normal C++ virtual method on QObject\n// 3. Store last event data in member variables → query from Scheme later\n// 4. Fire callback to notify Scheme, then Scheme queries the stored data\n// 5. Return false from eventFilter to let the event propagate normally",
+    "notes": "This pattern is used in gerbil-qt for both keyboard events (KeyPressFilter) and drag-and-drop (DropFilter). The key insight is that QObject::eventFilter is a regular C++ virtual method override — it does NOT require the MOC (Meta-Object Compiler) or the Q_OBJECT macro. This makes it perfect for FFI bindings where running MOC is impractical. The \"fire callback + query\" pattern (instead of passing event data directly in the callback) avoids complex multi-argument callbacks and works with the simple void trampoline.",
+    "related": [
+      "multiple-callback-trampolines",
+      "qt-application-argc-static",
+      "qt-offscreen-headless-testing"
+    ]
+  },
+  {
+    "id": "qt-painter-onto-pixmap",
+    "title": "QPainter draw onto QPixmap then display on QLabel (no paintEvent override)",
+    "tags": [
+      "qt",
+      "QPainter",
+      "QPixmap",
+      "draw",
+      "canvas",
+      "paint",
+      "label",
+      "FFI",
+      "graphics"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: Use QPainter to draw onto a QPixmap, then display via QLabel.\n;; This avoids needing to override QWidget::paintEvent (which requires\n;; a C++ subclass + virtual method override — very complex from FFI).\n;;\n;; Steps:\n;; 1. Create a blank QPixmap (canvas)\n;; 2. Create QPainter targeting that pixmap\n;; 3. Draw shapes, text, etc.\n;; 4. Call painter-end to flush\n;; 5. Set pixmap on a QLabel for display\n;; 6. Destroy painter (separate from pixmap)\n\n;; Example (using gerbil-qt high-level API):\n(let* ((canvas (qt-pixmap-create-blank 400 300))\n       (p (qt-painter-create canvas)))\n\n  ;; Fill background\n  (qt-pixmap-fill! canvas 30 30 30)  ;; dark gray\n\n  ;; Enable antialiasing\n  (qt-painter-set-antialiasing! p #t)\n\n  ;; Draw shapes\n  (qt-painter-set-pen-color! p 255 0 0)\n  (qt-painter-set-pen-width! p 2)\n  (qt-painter-draw-rect! p 10 10 100 80)\n\n  (qt-painter-set-brush-color! p 0 0 255 alpha: 128)\n  (qt-painter-fill-rect! p 50 50 100 80 0 0 255)\n\n  (qt-painter-set-pen-color! p 255 255 255)\n  (qt-painter-draw-text! p 20 180 \"Hello from QPainter!\")\n\n  ;; Save/restore for transforms\n  (qt-painter-save! p)\n  (qt-painter-translate! p 200 150)\n  (qt-painter-rotate! p 45.0)   ;; NOTE: takes double, not int\n  (qt-painter-draw-rect! p -30 -20 60 40)\n  (qt-painter-restore! p)\n\n  ;; CRITICAL: end painting BEFORE using the pixmap elsewhere\n  (qt-painter-end! p)\n  (qt-painter-destroy! p)\n\n  ;; Display on label\n  (qt-label-set-pixmap! label canvas)\n\n  ;; ... later cleanup:\n  ;; (qt-pixmap-destroy! canvas)\n  )\n\n;; C++ shim side (qt_shim.cpp):\n;; QPainter paints onto QPixmap:\n;;   QPainter* painter = new QPainter(pixmap);\n;; QPainter::end() must be called before pixmap is used:\n;;   painter->end();\n;; Safety: qt_painter_destroy calls end() if still active:\n;;   void qt_painter_destroy(QPainter* p) {\n;;       if (p->isActive()) p->end();\n;;       delete p;\n;;   }\n\n;; KEY POINTS:\n;; 1. QPainter is NOT a QWidget — needs explicit destroy\n;; 2. QPixmap is NOT a QWidget — needs explicit destroy\n;; 3. painter->end() MUST be called before pixmap is displayed\n;; 4. rotate() and scale() take double, not int\n;; 5. Brush color alpha controls fill transparency\n;; 6. For animation: repaint by creating new QPainter, drawing, end, set-pixmap",
+    "notes": "This \"paint onto pixmap\" approach is the practical way to do custom drawing from FFI without overriding virtual methods. For animation, create a QTimer callback that repaints the pixmap each frame. The alternative (overriding QWidget::paintEvent) requires a C++ subclass with a virtual method override, which is significantly more complex to wire through FFI. Both QPainter and QPixmap need explicit cleanup since they are not Qt-parented widgets.",
+    "related": [
+      "qt-event-filter-no-moc",
+      "qt-modal-dialog-offscreen-hang",
+      "qt-application-argc-static"
+    ]
+  },
+  {
+    "id": "gxc-exe-in-makefile",
+    "title": "Link executable via gxc -exe in Makefile (workaround for defbuild-script exe deadlock)",
+    "tags": [
+      "exe",
+      "gxc",
+      "makefile",
+      "build",
+      "link",
+      "rpath",
+      "defbuild-script",
+      "deadlock",
+      "workaround"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: defbuild-script exe target deadlocks in the build worker\n;; with \"Completion has already been posted\" error.\n;;\n;; SOLUTION: Remove exe from build.ss, link separately in Makefile.\n;;\n;; ---- build.ss ----\n;; #!/usr/bin/env gxi\n;; (import :std/build-script)\n;; (defbuild-script\n;;   '(\"module-a\"\n;;     \"module-b\"\n;;     \"main\"))  ;; NO exe target here\n;;\n;; ---- Makefile ----\n;; LOCAL_LIB := $(CURDIR)/.gerbil/lib\n;; DEP_LIB ?= $(HOME)/mine/my-dep/.gerbil/lib\n;; export GERBIL_LOADPATH := $(LOCAL_LIB):$(DEP_LIB)\n;;\n;; CAIRO_LDFLAGS := $(shell pkg-config --libs cairo libpng16)\n;; OPENSSL_LDFLAGS := $(shell pkg-config --libs openssl)\n;; OPENSSL_LIBDIR := $(shell pkg-config --variable=libdir openssl)\n;; CAIRO_LIBDIR := $(shell pkg-config --variable=libdir cairo)\n;;\n;; build:\n;; \tgerbil build\n;; \tmkdir -p .gerbil/bin\n;; \tgxc -exe -o .gerbil/bin/my-app \\\n;; \t  -ld-options \"$(CAIRO_LDFLAGS) $(OPENSSL_LDFLAGS) -Wl,-rpath,$(OPENSSL_LIBDIR) -Wl,-rpath,$(CAIRO_LIBDIR)\" \\\n;; \t  main.ss\n;;\n;; KEY POINTS:\n;; 1. LOCAL_LIB must be in GERBIL_LOADPATH so gxc can find same-package modules\n;; 2. -Wl,-rpath,<libdir> embeds library path in binary (no LD_LIBRARY_PATH needed)\n;; 3. Use pkg-config --variable=libdir to get the library directory for rpath\n;; 4. build.ss must be chmod +x",
+    "notes": "The defbuild-script exe target uses a build worker that can deadlock with a \"Completion has already been posted\" error. This workaround compiles modules normally via `gerbil build` then links the exe separately via `gxc -exe` in the Makefile. Critical: the project's own .gerbil/lib must be in GERBIL_LOADPATH for gxc to resolve same-package imports like :mypackage/module.",
+    "related": [
+      "static-exe-with-deps",
+      "openssl-version-mismatch-patchelf",
+      "gerbil-build-loadpath"
+    ]
+  },
+  {
+    "id": "rpath-via-gxc-ld-options",
+    "title": "Embed rpath in gxc -exe to avoid LD_LIBRARY_PATH and patchelf",
+    "tags": [
+      "rpath",
+      "gxc",
+      "ld-options",
+      "openssl",
+      "cairo",
+      "patchelf",
+      "linker",
+      "runtime",
+      "library",
+      "pkg-config"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Compiled Gerbil executable can't find Homebrew/Linuxbrew\n;; shared libraries at runtime:\n;;   error: libcrypto.so.3: version `OPENSSL_3.4.0' not found\n;;\n;; SOLUTION: Pass -Wl,-rpath,<libdir> in gxc -exe -ld-options.\n;; This embeds the library search path directly in the binary at link time.\n;; No patchelf or LD_LIBRARY_PATH needed.\n;;\n;; PATTERN (in Makefile):\n;;\n;; CAIRO_LDFLAGS := $(shell pkg-config --libs cairo libpng16)\n;; OPENSSL_LDFLAGS := $(shell pkg-config --libs openssl)\n;; OPENSSL_LIBDIR := $(shell pkg-config --variable=libdir openssl)\n;; CAIRO_LIBDIR := $(shell pkg-config --variable=libdir cairo)\n;;\n;; build:\n;; \tgerbil build\n;; \tgxc -exe -o .gerbil/bin/my-app \\\n;; \t  -ld-options \"$(CAIRO_LDFLAGS) $(OPENSSL_LDFLAGS) \\\n;; \t    -Wl,-rpath,$(OPENSSL_LIBDIR) -Wl,-rpath,$(CAIRO_LIBDIR)\" \\\n;; \t  main.ss\n;;\n;; PATTERN (in build.ss with defbuild-script):\n;;\n;; (import :std/build-script :std/make)\n;; (defbuild-script\n;;   `(\"my-module\"\n;;     \"main\"\n;;     (exe: \"main\" bin: \"my-app\"\n;;           \"-ld-options\" ,(string-append\n;;                            (ldflags \"cairo\" \"-lcairo\") \" \"\n;;                            (ldflags \"openssl\" \"-lssl -lcrypto\") \" \"\n;;                            \"-Wl,-rpath,\" (pkg-config-libs \"openssl\") \" \"\n;;                            \"-Wl,-rpath,\" (pkg-config-libs \"cairo\")))))\n;;\n;; VERIFY with:\n;;   patchelf --print-rpath .gerbil/bin/my-app\n;;   ldd .gerbil/bin/my-app | grep ssl\n;;\n;; KEY: Use pkg-config --variable=libdir (not --libs) to get the\n;; directory path for -Wl,-rpath. --libs returns \"-L/path -lfoo\"\n;; but rpath needs just the directory \"/path\".",
+    "notes": "This is the preferred approach over patchelf for Gerbil executables. Pass -Wl,-rpath,<libdir> directly to gxc -exe via -ld-options to embed library paths at link time. Use `pkg-config --variable=libdir <pkg>` to get the directory path (not --libs which returns flags). Works for any library installed via Homebrew/Linuxbrew that differs from the system version (commonly openssl, cairo, libpng). On macOS, use -Wl,-rpath,<libdir> as well (same syntax with Apple's ld).",
+    "related": [
+      "openssl-version-mismatch-patchelf",
+      "gxc-exe-in-makefile",
+      "build-ffi-pkg-config",
+      "static-exe-with-deps"
+    ]
+  },
+  {
+    "id": "ffi-double-via-string-trampoline",
+    "title": "Pass double values through string callback trampoline (avoid adding new callback type)",
+    "tags": [
+      "ffi",
+      "double",
+      "float",
+      "callback",
+      "trampoline",
+      "string",
+      "snprintf",
+      "string->number"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: When you have N callback trampoline types (void, string, int, bool)\n;; and need to pass a double/float value, convert to string in C++ and back\n;; in Scheme — avoids adding a 5th trampoline type for a single signal.\n;;\n;; C++ side (in the signal connection wrapper):\n;; void qt_double_spin_box_on_value_changed(void* dsb, qt_callback_string cb, long id) {\n;;     QObject::connect(static_cast<QDoubleSpinBox*>(dsb),\n;;         QOverload<double>::of(&QDoubleSpinBox::valueChanged),\n;;         [cb, id](double value) {\n;;             char buf[64];\n;;             snprintf(buf, sizeof(buf), \"%.17g\", value);  // full precision\n;;             cb(id, buf);  // fire the STRING trampoline with stringified double\n;;         });\n;; }\n;;\n;; Scheme high-level wrapper:\n;; (def (qt-on-double-value-changed! dsb handler)\n;;   (let ((id (register-qt-string-handler!\n;;              (lambda (str) (handler (string->number str))))))\n;;     (raw_qt_double_spin_box_on_value_changed dsb id)))\n;;\n;; The handler receives a proper Scheme number (flonum), not a string.\n;; \"%.17g\" preserves full double precision (17 significant digits).\n;;\n;; Same pattern works for date/time signals:\n;; - QDateEdit::dateChanged → convert QDate to ISO string \"2025-06-15\"\n;; - QTimeEdit::timeChanged → convert QTime to ISO string \"14:30:45\"\n;; These naturally produce strings, so handler receives string directly.\n;;\n;; KEY INSIGHT: Adding a new callback type (double trampoline) requires:\n;; - New c-define, new dispatch table, new register function, new C trampoline\n;; - All for ONE signal type. String conversion is 2 lines of C++ and\n;;   1 line of Scheme, reusing the existing string infrastructure.",
+    "notes": "snprintf \"%.17g\" is the standard way to round-trip a double through a string without precision loss. 17 significant digits is the maximum needed for IEEE 754 double. The Scheme string->number converts back to an exact or inexact number. This pattern is used in gerbil-qt Phase 9 for QDoubleSpinBox::valueChanged(double). The same approach works for any C callback that passes a double — convert to string in the C lambda, fire the string trampoline, convert back in the Scheme wrapper.",
+    "related": [
+      "multiple-callback-trampolines",
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "process-status-reaping-race-job-control",
+    "title": "Gambit process-status reaps child: ffi-waitpid race in job control",
+    "tags": [
+      "process-status",
+      "waitpid",
+      "reap",
+      "race",
+      "job-control",
+      "background",
+      "WNOHANG",
+      "gambit"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: Gambit's (process-status port) blocks until the child exits\n;; and then REAPS it internally (via its own SIGCHLD handler / waitpid).\n;; After process-status returns, the child PID no longer exists for waitpid.\n;;\n;; This means: if you call (process-status port) and then try to call\n;; ffi-waitpid with WNOHANG to poll the child's status, waitpid returns 0\n;; (\"no status change\") because Gambit already reaped the child.\n;;\n;; WRONG pattern (job-wait that never marks jobs as done):\n;;   (for-each\n;;     (lambda (proc)\n;;       (when (eq? (job-process-status proc) 'running)\n;;         (let ((port (job-process-port proc)))\n;;           (when port (process-status port)))))   ;; ← reaps child\n;;     (job-processes job))\n;;   (ffi-waitpid-pid pid WNOHANG)  ;; ← returns 0! child already gone\n;;   ;; job-update-status! never transitions from 'running to 'exited\n;;\n;; CORRECT pattern: extract status directly from process-status return value\n;; and set the process status immediately, bypassing ffi-waitpid:\n(for-each\n  (lambda (proc)\n    (when (eq? (job-process-status proc) 'running)\n      (let ((port (job-process-port proc)))\n        (when port\n          (let ((raw (with-catch (lambda (e) 0)\n                       (lambda () (process-status port)))))\n            ;; Set status DIRECTLY — don't rely on ffi-waitpid afterward\n            (cond\n              ((WIFEXITED raw)\n               (set! (job-process-status proc) 'exited))\n              ((WIFSIGNALED raw)\n               (set! (job-process-status proc) 'signaled))\n              (else\n               (set! (job-process-status proc) 'exited))))))))\n  (job-processes job))",
+    "notes": "This is critical for implementing job control in Gerbil. The root cause is that Gambit's SIGCHLD handler (or process-status itself) calls waitpid internally, consuming the child's exit status. Any subsequent waitpid call — whether via FFI or otherwise — will find no child to reap. The fix is to treat process-status's return value as the definitive status and update your job table immediately. Also applies to job cleanup: after process-status returns, the job should be marked done/killed so it can be removed from the table. Related pattern: use (close-port proc) after process-status to release the Gambit process port.",
+    "related": [
+      "process-status-decode-waitpid",
+      "open-process-settings"
+    ]
+  },
+  {
+    "id": "qt-text-browser-anchor-clicked",
+    "title": "QTextBrowser: must disable openLinks before connecting anchorClicked",
+    "tags": [
+      "qt",
+      "QTextBrowser",
+      "anchorClicked",
+      "setOpenLinks",
+      "hyperlink",
+      "signal",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: QTextBrowser handles link clicks internally by default.\n;; If you connect anchorClicked WITHOUT calling setOpenLinks(false) first,\n;; the signal never fires — Qt intercepts the click and tries to navigate.\n;;\n;; In the C++ shim, the on_anchor_clicked function must:\n;; 1. Call setOpenLinks(false) BEFORE connecting the signal\n;; 2. Convert QUrl to std::string via url.toString().toStdString()\n;; 3. Use string trampoline (ffi_string_trampoline)\n;;\n;; C++ pattern:\n;; void qt_text_browser_on_anchor_clicked(qt_text_browser_t tb, int id,\n;;                                         qt_callback_string callback) {\n;;   auto *browser = static_cast<QTextBrowser*>(tb);\n;;   browser->setOpenLinks(false);  // CRITICAL — must come first\n;;   QObject::connect(browser, &QTextBrowser::anchorClicked,\n;;     [id, callback](const QUrl &url) {\n;;       callback(id, url.toString().toStdString().c_str());\n;;     });\n;; }\n;;\n;; Scheme usage:\n;; (qt-on-anchor-clicked! browser\n;;   (lambda (url) (displayln \"Clicked: \" url)))",
+    "notes": "Without setOpenLinks(false), QTextBrowser silently handles links internally and the anchorClicked signal is never emitted. The QUrl is converted to string via toString().toStdString() in the C++ lambda. If you also want external browser launch, call qt-text-browser-set-open-external-links! separately.",
+    "related": [
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "qt-dialog-button-box-bitwise-flags",
+    "title": "QDialogButtonBox: combine standard buttons with bitwise-ior",
+    "tags": [
+      "qt",
+      "QDialogButtonBox",
+      "bitwise-ior",
+      "buttons",
+      "dialog",
+      "standard-buttons"
+    ],
+    "imports": [],
+    "code": ";; QDialogButtonBox standard button flags are powers of 2 — combine with bitwise-ior.\n;;\n;; Constants (matching Qt::StandardButton enum):\n;; QT_BUTTON_OK       = 0x00000400\n;; QT_BUTTON_CANCEL   = 0x00400000\n;; QT_BUTTON_YES      = 0x00004000\n;; QT_BUTTON_NO       = 0x00010000\n;; QT_BUTTON_APPLY    = 0x02000000\n;; QT_BUTTON_CLOSE    = 0x00200000\n;; QT_BUTTON_RESET    = 0x04000000\n;; QT_BUTTON_HELP     = 0x01000000\n;; QT_BUTTON_SAVE     = 0x00000800\n;; QT_BUTTON_DISCARD  = 0x00800000\n;;\n;; Button roles for custom buttons:\n;; QT_BUTTON_ACCEPT_ROLE = 0, REJECT_ROLE = 1, RESET_ROLE = 7,\n;; APPLY_ROLE = 8, HELP_ROLE = 4\n;;\n;; Create with combined flags:\n;; (qt-button-box-create (bitwise-ior QT_BUTTON_SAVE QT_BUTTON_CANCEL))\n;;\n;; Get individual button handle:\n;; (qt-button-box-button bb QT_BUTTON_SAVE)  ;; returns QPushButton*\n;;\n;; Connect signals:\n;; (qt-on-accepted! bb (lambda () (displayln \"Save clicked\")))\n;; (qt-on-rejected! bb (lambda () (displayln \"Cancel clicked\")))\n;;\n;; The clicked(QAbstractButton*) signal fires for ANY button — use void\n;; trampoline and ignore the button pointer. Query which button was\n;; clicked by checking the button box state in the handler.",
+    "notes": "QDialogButtonBox arranges buttons in platform-correct order (e.g. OK/Cancel on Windows vs Cancel/OK on macOS). The button() method takes a StandardButton constant and returns the QPushButton* handle, which can be used with qt-push-button-set-text! etc. The clicked signal passes QAbstractButton* which we ignore — use accepted/rejected for standard behavior.",
+    "related": [
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "qt-calendar-date-signals",
+    "title": "QCalendarWidget: selectionChanged vs clicked signal patterns",
+    "tags": [
+      "qt",
+      "QCalendarWidget",
+      "calendar",
+      "date",
+      "selectionChanged",
+      "clicked",
+      "signal"
+    ],
+    "imports": [],
+    "code": ";; QCalendarWidget has TWO date-related signals with different patterns:\n;;\n;; 1. selectionChanged() — NO arguments\n;;    Fires when the selected date changes (keyboard nav, API call, click).\n;;    Use void trampoline, then QUERY the date afterward:\n;;    (qt-on-selection-changed! cal\n;;      (lambda ()\n;;        (let ((date (qt-calendar-selected-date-string cal)))\n;;          (displayln \"Selected: \" date))))\n;;\n;; 2. clicked(QDate) — passes the date\n;;    Fires only on mouse click. C++ lambda converts QDate to ISO string:\n;;    date.toString(Qt::ISODate).toStdString().c_str()\n;;    Uses string trampoline:\n;;    (qt-on-calendar-clicked! cal\n;;      (lambda (iso-date)\n;;        (displayln \"Clicked: \" iso-date)))\n;;\n;; Day-of-week constants for setFirstDayOfWeek:\n;; QT_MONDAY=1 QT_TUESDAY=2 QT_WEDNESDAY=3 QT_THURSDAY=4\n;; QT_FRIDAY=5 QT_SATURDAY=6 QT_SUNDAY=7\n;; (These match Qt::DayOfWeek enum values)",
+    "notes": "selectionChanged fires more broadly (any selection change including programmatic), while clicked only fires on user mouse click. For most UIs, selectionChanged + query is the safer pattern. The ISO date string format is \"YYYY-MM-DD\". Individual components available via qt-calendar-selected-year/month/day.",
+    "related": [
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "qt-shortcut-explicit-destroy",
+    "title": "QShortcut needs explicit destroy — QObject but not QWidget",
+    "tags": [
+      "qt",
+      "QShortcut",
+      "shortcut",
+      "keyboard",
+      "destroy",
+      "memory",
+      "QObject"
+    ],
+    "imports": [],
+    "code": ";; QShortcut is a QObject (not a QWidget). Like QTimer, QButtonGroup,\n;; and QSystemTrayIcon, it needs explicit destroy.\n;;\n;; Create with key sequence string + parent widget:\n;; (def sc (qt-shortcut-create \"Ctrl+S\" parent-widget))\n;;\n;; Connect activated signal (void trampoline):\n;; (qt-on-shortcut-activated! sc (lambda () (save-file!)))\n;;\n;; Enable/disable:\n;; (qt-shortcut-set-enabled! sc #f)  ;; disable\n;; (qt-shortcut-enabled? sc)         ;; query\n;;\n;; Change key:\n;; (qt-shortcut-set-key! sc \"Ctrl+Shift+S\")\n;;\n;; MUST destroy explicitly when done:\n;; (qt-shortcut-destroy! sc)\n;;\n;; QObjects that need explicit destroy in gerbil-qt:\n;; - QTimer        → qt-timer-destroy!\n;; - QButtonGroup  → qt-button-group-destroy!\n;; - QSystemTrayIcon → qt-system-tray-icon-destroy!\n;; - QShortcut     → qt-shortcut-destroy!",
+    "notes": "Key sequence strings use Qt format: \"Ctrl+S\", \"Ctrl+Shift+N\", \"Alt+F4\", \"F5\", etc. QShortcut differs from QAction shortcuts — QAction is tied to menus/toolbars, QShortcut is standalone and can be attached to any widget. The parent widget determines the shortcut's context (which window must be active).",
+    "related": [
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "qt-view-signal-thread-local-query",
+    "title": "Qt Model/View: avoid QModelIndex in FFI with thread-local query pattern",
+    "tags": [
+      "qt",
+      "model",
+      "view",
+      "signal",
+      "QModelIndex",
+      "thread-local",
+      "ffi",
+      "callback"
+    ],
+    "imports": [],
+    "code": "// PATTERN: Qt view signals pass QModelIndex — a C++ value type that is\n// impractical to expose through FFI. Instead, capture row/col in thread-local\n// storage in the C++ lambda, fire a void callback, then query from Scheme.\n//\n// C++ shim (qt_shim.cpp):\nstatic thread_local int s_last_view_row = -1;\nstatic thread_local int s_last_view_col = -1;\n\nextern \"C\" void qt_view_on_clicked(void* view,\n                                    void (*callback)(long), long id) {\n    auto* v = static_cast<QAbstractItemView*>(static_cast<QWidget*>(view));\n    QObject::connect(v, &QAbstractItemView::clicked,\n        [callback, id](const QModelIndex& idx) {\n            s_last_view_row = idx.row();\n            s_last_view_col = idx.column();\n            callback(id);  // void trampoline\n        });\n}\n\nextern \"C\" int qt_view_last_clicked_row(void) { return s_last_view_row; }\nextern \"C\" int qt_view_last_clicked_col(void) { return s_last_view_col; }\n\n// Scheme high-level usage:\n// (qt-on-view-clicked! table-view\n//   (lambda ()\n//     (let ((row (qt-view-last-clicked-row))\n//           (col (qt-view-last-clicked-col)))\n//       (displayln \"Clicked: row=\" row \" col=\" col))))\n//\n// ALSO works for: doubleClicked, activated signals (same QModelIndex pattern)\n// selectionChanged connects to QItemSelectionModel::selectionChanged instead",
+    "notes": "This is the same pattern used for keyboard events (Phase 6) — fire void callback, then query stored data. It avoids exposing QModelIndex (a complex C++ value type with model pointer, internal ID, parent reference) to Scheme. Thread-local ensures thread safety. The -1 initial values indicate \"nothing clicked yet\". For selectionChanged, connect to view->selectionModel()->selectionChanged() instead of a view signal.",
+    "related": [
+      "multiple-callback-trampolines",
+      "qt-event-filter-no-moc",
+      "ffi-callback-dispatch-table"
+    ]
+  },
+  {
+    "id": "qt-view-sorting-dynamic-cast",
+    "title": "Qt: setSortingEnabled requires dynamic_cast — not on QAbstractItemView",
+    "tags": [
+      "qt",
+      "sorting",
+      "QTableView",
+      "QTreeView",
+      "dynamic_cast",
+      "QAbstractItemView",
+      "ffi"
+    ],
+    "imports": [],
+    "code": "// GOTCHA: QAbstractItemView does NOT have setSortingEnabled().\n// Only QTableView and QTreeView do. If you write a generic \"view\"\n// function that takes QAbstractItemView*, you must dynamic_cast.\n//\n// C++ shim:\nextern \"C\" void qt_view_set_sorting_enabled(void* view, int val) {\n    // Try QTableView first\n    auto* tv = dynamic_cast<QTableView*>(static_cast<QWidget*>(view));\n    if (tv) { tv->setSortingEnabled(val != 0); return; }\n    // Then QTreeView\n    auto* trv = dynamic_cast<QTreeView*>(static_cast<QWidget*>(view));\n    if (trv) { trv->setSortingEnabled(val != 0); }\n    // QListView doesn't support sorting — silently ignored\n}\n\n// This pattern applies to other view-specific methods too.\n// QHeaderView access also needs dynamic_cast to find the right header:\nstatic QHeaderView* get_header(void* view, int horizontal) {\n    if (horizontal) {\n        auto* tv = dynamic_cast<QTableView*>(static_cast<QWidget*>(view));\n        if (tv) return tv->horizontalHeader();\n        auto* trv = dynamic_cast<QTreeView*>(static_cast<QWidget*>(view));\n        if (trv) return trv->header();  // tree only has horizontal header\n    } else {\n        auto* tv = dynamic_cast<QTableView*>(static_cast<QWidget*>(view));\n        if (tv) return tv->verticalHeader();\n        // QTreeView has no vertical header\n    }\n    return nullptr;\n}",
+    "notes": "This is a common Qt API asymmetry — many methods that feel like they belong on QAbstractItemView are actually only on concrete subclasses. setSortingEnabled, horizontalHeader, verticalHeader are all examples. The dynamic_cast approach works because our void* handles are still valid QObject pointers with RTTI. Use nullptr return for graceful degradation when a view type doesn't support the operation.",
+    "related": [
+      "qt-view-signal-thread-local-query",
+      "qt-event-filter-no-moc"
+    ]
+  },
+  {
+    "id": "lexer-raw-char-bypass-tokenizer",
+    "title": "Read raw characters from lexer input bypassing shell tokenization",
+    "tags": [
+      "lexer",
+      "parser",
+      "raw",
+      "character",
+      "bypass",
+      "arithmetic",
+      "tokenizer"
+    ],
+    "imports": [],
+    "code": ";; When building a shell parser, arithmetic expressions inside (( )) and\n;; for (( )) contain operators like <, >, |, & that the shell lexer would\n;; incorrectly treat as redirection/pipe/background operators.\n;;\n;; Solution: read raw characters directly from the lexer's input string,\n;; bypassing shell tokenization entirely.\n;;\n;; Given a lexer struct with (input pos len) fields:\n\n(defstruct lexer (input pos len ...) transparent: #t)\n\n;; Helper: get current char from lexer, or #f at end\n(def (lexer-raw-char lex)\n  (if (>= (lexer-pos lex) (lexer-len lex))\n    #f\n    (string-ref (lexer-input lex) (lexer-pos lex))))\n\n;; Helper: advance lexer position by 1\n(def (lexer-raw-advance! lex)\n  (set! (lexer-pos lex) (+ 1 (lexer-pos lex))))\n\n;; CRITICAL: clear any peeked tokens from parser AND lexer\n;; before switching to raw reading — stale tokens would cause\n;; the lexer to re-read already-consumed input.\n(def (parser-clear-peeked! ps)\n  (set! (parser-state-peeked ps) #f)\n  (set! (lexer-peeked (parser-state-lexer ps)) #f))\n\n;; Example: read arithmetic expression until )) tracking nested parens\n(def (read-arith-body ps)\n  (parser-clear-peeked! ps)\n  (let ((lex (parser-state-lexer ps))\n        (buf (open-output-string)))\n    (let loop ((depth 0))\n      (let ((ch (lexer-raw-char lex)))\n        (cond\n          ((not ch) (error \"parse error: expected '))\"))\n          ((char=? ch #\\x28)  ;; open paren: (\n           (lexer-raw-advance! lex)\n           (display ch buf)\n           (loop (+ depth 1)))\n          ((char=? ch #\\x29)  ;; close paren: )\n           (if (> depth 0)\n             (begin (lexer-raw-advance! lex)\n                    (display ch buf)\n                    (loop (- depth 1)))\n             ;; depth=0: check for second )\n             (begin\n               (lexer-raw-advance! lex)\n               (let ((ch2 (lexer-raw-char lex)))\n                 (if (and ch2 (char=? ch2 #\\x29))\n                   (begin (lexer-raw-advance! lex)\n                          (get-output-string buf))  ;; done!\n                   (begin (display \")\" buf)\n                          (loop depth)))))))\n          (else\n           (lexer-raw-advance! lex)\n           (display ch buf)\n           (loop depth)))))))",
+    "notes": "Key insight: shell lexers treat < > | & as operators, but inside arithmetic expressions these are comparison/bitwise operators. Reading raw chars avoids this conflict. Always clear peeked tokens before switching from token-based to raw reading. After raw reading completes, the lexer position is past the consumed text, so subsequent token reads continue from the right place. Track nested paren depth so (a+b)*(c+d) inside (( )) doesn't prematurely close. Use char->integer hex codes (#\\x28 = '(', #\\x29 = ')') to avoid Gerbil reader issues with #\\\\( and #\\\\) character literals.",
+    "related": [
+      "avoid-bracket-char-literals"
+    ]
+  },
+  {
+    "id": "break-continue-exception-levels-pattern",
+    "title": "Handle break/continue exceptions with levels for nested loops",
+    "tags": [
+      "break",
+      "continue",
+      "exception",
+      "loop",
+      "nested",
+      "levels",
+      "with-catch"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; Shell-style break/continue with nested loop levels.\n;; \"break 2\" breaks out of 2 enclosing loops, not just 1.\n;;\n;; Define exception types with a 'levels' field:\n(defstruct break-exception (levels) transparent: #t)\n(defstruct continue-exception (levels) transparent: #t)\n\n;; Builtins create exceptions:\n;; (raise (make-break-exception 1))      ;; break (1 level)\n;; (raise (make-break-exception 2))      ;; break 2\n;; (raise (make-continue-exception 1))   ;; continue\n\n;; Each loop catches break/continue and decrements levels.\n;; If levels > 1 after decrement, re-raise for outer loop.\n(def (execute-loop body-fn update-fn test-fn env)\n  (let loop ((status 0))\n    (if (not (test-fn))\n      status\n      (with-catch\n       (lambda (e)\n         (cond\n           ((break-exception? e)\n            (if (> (break-exception-levels e) 1)\n              ;; Decrement and re-raise for outer loop\n              (raise (make-break-exception (- (break-exception-levels e) 1)))\n              ;; levels=1: break THIS loop, return current status\n              status))\n           ((continue-exception? e)\n            (if (> (continue-exception-levels e) 1)\n              ;; Decrement and re-raise for outer loop\n              (raise (make-continue-exception (- (continue-exception-levels e) 1)))\n              ;; levels=1: skip rest of body, run update, continue loop\n              (begin (update-fn) (loop status))))\n           (else (raise e))))\n       (lambda ()\n         (let ((new-status (body-fn)))\n           (update-fn)\n           (loop new-status)))))))\n\n;; WRONG — using (values 'break ...) with with-catch:\n;; with-catch returns the handler's return value, but 'values'\n;; returns a multiple-value object, not a pair. Checking with\n;; (pair? result) won't work. Use the exception levels pattern instead.",
+    "notes": "Critical: with-catch returns the handler's return value as a single value. Do NOT use (values 'break status) inside a with-catch handler — the result is a multiple-value object that can't be inspected with pair?. Instead, the handler should either: (1) re-raise a decremented exception, (2) return a status value and loop, or (3) return a status value to exit the loop. The continue handler should run any update expression before looping, since continue skips the rest of the body but the loop update still needs to happen (e.g., i++ in a C-style for loop)."
+  },
+  {
+    "id": "qt-graphics-scene-view-items",
+    "title": "QGraphicsScene/View: create scene, add movable items, display in view",
+    "tags": [
+      "qt",
+      "graphics",
+      "scene",
+      "view",
+      "diagram",
+      "item",
+      "movable",
+      "selectable"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: QGraphicsScene is a 2D scene graph. Add shapes as items,\n;; configure their visual properties and interaction flags, then display\n;; the scene in a QGraphicsView widget.\n;;\n;; Scene OWNS items — destroying scene destroys all items.\n;; QGraphicsItem is NOT a QWidget — items live in scene, not widget tree.\n;; QGraphicsScene is NOT a QWidget — needs explicit destroy.\n;; QGraphicsView IS a QWidget — parent-child ownership applies.\n\n(import :gerbil-qt/qt)\n\n(with-qt-app app\n  (let* ((scene (qt-graphics-scene-create 0 0 800 600))\n         (view (qt-graphics-view-create scene)))\n\n    ;; Add shapes — each returns an item handle\n    (let ((rect (qt-graphics-scene-add-rect! scene 50 50 120 80))\n          (circle (qt-graphics-scene-add-ellipse! scene 250 80 100 100))\n          (line (qt-graphics-scene-add-line! scene 170 90 250 130))\n          (text (qt-graphics-scene-add-text! scene \"Hello Scene\")))\n\n      ;; Style items\n      (qt-graphics-item-set-brush! rect 100 150 255)     ;; blue fill\n      (qt-graphics-item-set-pen! rect 40 80 180 2)       ;; dark blue outline, 2px\n      (qt-graphics-item-set-brush! circle 100 220 100)   ;; green fill\n      (qt-graphics-item-set-pen! line 80 80 80 2)        ;; gray line\n\n      ;; Make items movable and selectable (combine flags with bitwise-ior)\n      (qt-graphics-item-set-flags! rect\n        (bitwise-ior QT_ITEM_MOVABLE QT_ITEM_SELECTABLE))\n      (qt-graphics-item-set-flags! circle\n        (bitwise-ior QT_ITEM_MOVABLE QT_ITEM_SELECTABLE))\n\n      ;; Position, z-order, tooltip\n      (qt-graphics-item-set-pos! text 200 20)\n      (qt-graphics-item-set-zvalue! line -1.0)   ;; behind shapes\n      (qt-graphics-item-set-tooltip! rect \"Drag me!\")\n\n      ;; Configure the view\n      (qt-graphics-view-set-render-hint! view QT_RENDER_ANTIALIASING)\n      (qt-graphics-view-set-drag-mode! view QT_DRAG_RUBBER_BAND)\n      (qt-graphics-scene-set-background! scene 245 245 245)\n\n      ;; Zoom and center\n      (qt-graphics-view-scale! view 1.5 1.5)\n      (qt-graphics-view-center-on! view 200 150)\n\n      ;; Remove/clear\n      ;; (qt-graphics-scene-remove-item! scene rect)  ;; removes + deletes\n      ;; (qt-graphics-scene-clear! scene)              ;; removes all items\n      ;; (qt-graphics-scene-items-count scene)         ;; number of items\n\n      ;; View is a QWidget — add to layouts normally\n      ;; (qt-layout-add-widget! layout view)\n\n      (qt-widget-show! view)\n      (qt-app-exec! app)\n\n      ;; Cleanup: destroy view first (QWidget), then scene\n      (qt-widget-destroy! view)\n      (qt-graphics-scene-destroy! scene))))",
+    "notes": "QGraphicsScene coordinates use double (exact->inexact conversion in high-level API). Item flag constants: QT_ITEM_MOVABLE (0x1), QT_ITEM_SELECTABLE (0x2), QT_ITEM_FOCUSABLE (0x4). Drag modes: QT_DRAG_NONE (0), QT_DRAG_SCROLL (1), QT_DRAG_RUBBER_BAND (2). Render hints: QT_RENDER_ANTIALIASING (0x01). set_pen uses dynamic_cast to QAbstractGraphicsShapeItem or QGraphicsLineItem. set_brush only works on shape items (not lines). remove_item does both removeItem + delete in C++. Can also add pixmap items via qt-graphics-scene-add-pixmap!.",
+    "related": [
+      "qt-paint-widget-custom-paintevent",
+      "qt-painter-draw-pixmap",
+      "qt-event-filter-no-moc"
+    ]
+  },
+  {
+    "id": "qt-paint-widget-custom-paintevent",
+    "title": "PaintWidget: custom QWidget with paintEvent override for live Scheme-driven painting",
+    "tags": [
+      "qt",
+      "paint",
+      "widget",
+      "paintEvent",
+      "custom",
+      "draw",
+      "canvas",
+      "resize"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: PaintWidget is a custom QWidget subclass that overrides paintEvent()\n;; and fires a Scheme callback. Inside the callback, use qt-paint-widget-painter\n;; to get the active QPainter, then draw with existing QPainter API functions.\n;;\n;; This is BETTER than paint-onto-pixmap for:\n;; - Proper resize handling (repaint at new size)\n;; - Hardware-accelerated rendering\n;; - No intermediate pixmap allocation\n;;\n;; CRITICAL: The painter is only valid INSIDE the paint callback.\n;; Do NOT store it for later use.\n\n(import :gerbil-qt/qt)\n\n(with-qt-app app\n  (let ((canvas (qt-paint-widget-create)))\n    ;; Set minimum size for the paint area\n    (qt-widget-set-minimum-size! canvas 400 300)\n\n    ;; Register paint callback — fires during every paintEvent\n    (qt-paint-widget-on-paint! canvas\n      (lambda ()\n        (let ((painter (qt-paint-widget-painter canvas))\n              (w (qt-paint-widget-width canvas))\n              (h (qt-paint-widget-height canvas)))\n          (when painter  ;; painter is only non-#f inside paintEvent\n            ;; Background (uses actual widget dimensions — responds to resize!)\n            (qt-painter-set-brush-color! painter 30 30 50)\n            (qt-painter-fill-rect! painter 0 0 w h)\n\n            ;; Draw shapes using existing QPainter API\n            (qt-painter-set-antialiasing! painter #t)\n            (qt-painter-set-pen-color! painter 255 100 100)\n            (qt-painter-set-pen-width! painter 2)\n            (qt-painter-draw-ellipse! painter 50 50 (- w 100) (- h 100))\n\n            (qt-painter-set-pen-color! painter 200 200 200)\n            (qt-painter-draw-text! painter 20 30 \"Resize me!\")))))\n\n    ;; Request a repaint (triggers paintEvent → callback)\n    (qt-paint-widget-update! canvas)\n\n    ;; PaintWidget IS a QWidget — add to layouts normally\n    ;; (qt-layout-add-widget! layout canvas)\n\n    (qt-widget-show! canvas)\n    (qt-app-exec! app)\n    (qt-widget-destroy! canvas)))\n\n;; C++ IMPLEMENTATION PATTERN (for reference):\n;; class PaintWidget : public QWidget {\n;;     qt_callback_void m_callback;\n;;     long m_callback_id;\n;;     QPainter* m_painter;  // only valid during paintEvent\n;; protected:\n;;     void paintEvent(QPaintEvent*) override {\n;;         QPainter painter(this);     // stack-allocated, auto end()\n;;         m_painter = &painter;        // temporarily expose to Scheme\n;;         m_callback(m_callback_id);   // fire Scheme callback\n;;         m_painter = nullptr;         // invalidate\n;;     }\n;; };\n;;\n;; NO Q_OBJECT macro or MOC needed — just overrides a virtual method.\n;; ffi_paint_widget_trampoline defined in c-declare (same compilation unit).\n;; In offscreen mode, paint callback may not fire even after update()+processEvents.",
+    "notes": "PaintWidget is a QWidget — parent-child ownership applies, no explicit destroy needed if parented. The paint callback is a void trampoline — uses the same callback dispatch system as all other signals. qt-paint-widget-painter returns #f (null pointer) outside of the paint callback. Width/height use integer (int), but scene coordinates use double. For animation, call qt-paint-widget-update! from a QTimer callback. Unlike paint-onto-pixmap, PaintWidget automatically repaints at the correct size when the window is resized. The QPainter is stack-allocated in paintEvent and auto-destroyed — no explicit end()/destroy() needed.",
+    "related": [
+      "qt-graphics-scene-view-items",
+      "qt-painter-draw-pixmap",
+      "qt-event-filter-no-moc",
+      "multiple-callback-trampolines"
+    ]
+  },
+  {
+    "id": "qt-graphics-item-dynamic-cast-pen-brush",
+    "title": "QGraphicsItem set_pen/set_brush uses dynamic_cast for polymorphic item types",
+    "tags": [
+      "qt",
+      "graphics",
+      "item",
+      "pen",
+      "brush",
+      "dynamic_cast",
+      "shape",
+      "line"
+    ],
+    "imports": [],
+    "code": "// C++ PATTERN: QGraphicsItem is the base class, but setPen()/setBrush()\n// are on DIFFERENT subclasses. You must dynamic_cast to the right type.\n//\n// setPen() exists on:\n//   - QAbstractGraphicsShapeItem (covers rect, ellipse, polygon, path)\n//   - QGraphicsLineItem (separate class, not a shape!)\n//\n// setBrush() exists on:\n//   - QAbstractGraphicsShapeItem ONLY (not lines — lines have no fill)\n//\n// QGraphicsTextItem has NEITHER setPen nor setBrush.\n\nextern \"C\" void qt_graphics_item_set_pen(void* item,\n                                          int r, int g, int b, int width) {\n    auto* gi = static_cast<QGraphicsItem*>(item);\n    QPen pen(QColor(r, g, b));\n    pen.setWidth(width);\n    // Try shape item first (covers rect, ellipse, polygon, path)\n    if (auto* shape = dynamic_cast<QAbstractGraphicsShapeItem*>(gi))\n        shape->setPen(pen);\n    else if (auto* line = dynamic_cast<QGraphicsLineItem*>(gi))\n        line->setPen(pen);\n    // Text items: silently ignore (no pen)\n}\n\nextern \"C\" void qt_graphics_item_set_brush(void* item, int r, int g, int b) {\n    auto* gi = static_cast<QGraphicsItem*>(item);\n    if (auto* shape = dynamic_cast<QAbstractGraphicsShapeItem*>(gi))\n        shape->setBrush(QColor(r, g, b));\n    // Lines and text items: silently ignore (no brush)\n}\n\n// Works because:\n// 1. void* handles are still valid QGraphicsItem pointers with RTTI\n// 2. dynamic_cast returns nullptr for wrong types → graceful fallback\n// 3. Covers all items returned by scene->addRect/addEllipse/addLine/addText",
+    "notes": "This pattern is used in gerbil-qt's C++ shim for qt_graphics_item_set_pen and qt_graphics_item_set_brush. The same dynamic_cast approach is used for Qt views (setSortingEnabled, header access) where methods exist on subclasses but not the base class. Always use dynamic_cast with nullptr checks for graceful degradation. The #include chain for these classes: QGraphicsRectItem, QGraphicsEllipseItem (both inherit QAbstractGraphicsShapeItem), QGraphicsLineItem (inherits QGraphicsItem directly), QGraphicsTextItem (inherits QGraphicsObject).",
+    "related": [
+      "qt-graphics-scene-view-items",
+      "qt-view-sorting-dynamic-cast"
+    ]
+  },
+  {
+    "id": "gambit-sendto-socket-fd-type-caching",
+    "title": "Gambit caches fd type at port creation — sendto fails after dup2 changes fd to non-socket",
+    "tags": [
+      "gambit",
+      "sendto",
+      "dup2",
+      "socket",
+      "fd",
+      "port",
+      "ENOTSOCK",
+      "redirect",
+      "os-exception"
+    ],
+    "imports": [],
+    "code": ";; CRITICAL GOTCHA: Gambit caches whether a port's underlying fd is a socket\n;; at port creation time. If the port was created on a socket fd, Gambit uses\n;; sendto() for writes. If you later dup2() a regular file fd onto that fd\n;; number, Gambit still uses sendto(), which fails with ENOTSOCK.\n;;\n;; This manifests as: #<os-exception> when writing to stdout after dup2.\n;;\n;; Example scenario: shell running under `timeout` or piped input\n;; - At startup, fd 1 is a socket (from timeout's socketpair)\n;; - Gambit creates stdout port → marks it as \"socket\" → uses sendto(1, ...)\n;; - Shell does: exec 5>file.txt; echo hello >&5\n;;   which does: dup2(5, 1) → fd 1 now points to file\n;; - Gambit still uses sendto(1, ...) → ENOTSOCK!\n;;\n;; STRACE EVIDENCE:\n;;   dup2(5, 1)                      = 1       ;; fd 1 is now a regular file\n;;   sendto(1, \"hello\\n\", 6, 0, NULL, 0) = -1 ENOTSOCK\n;;\n;; FIX: After dup2(source, dest) where dest is 0/1/2 and source is a high fd\n;; (not a standard Gambit port), create a FRESH Gambit port via /dev/fd/N:\n;;\n;;   (ffi-dup2 source-fd dest-fd)\n;;   (when (and (<= 0 dest-fd 2) (> source-fd 2))\n;;     (let ((new-port (open-output-file\n;;                       [path: (string-append \"/dev/fd/\" (number->string dest-fd))\n;;                        append: #t])))\n;;       (current-output-port new-port)))  ;; or current-error-port for fd 2\n;;\n;; The new port opens /dev/fd/1, which creates a NEW internal fd (e.g., fd 7)\n;; pointing to the same file. Gambit detects fd 7 as a regular file and uses\n;; write() instead of sendto().\n;;\n;; IMPORTANT: When restoring the original fd, you MUST:\n;; 1. force-output and close-port the new port FIRST\n;; 2. Then dup2 to restore the original fd\n;; 3. Then restore the original Gambit port\n;; Otherwise the new port's internal fd leaks or flushes at wrong times.",
+    "notes": "Discovered via strace while debugging gsh (Gerbil shell). When gsh is run under `timeout` command, fd 0/1/2 are socketpairs. Gambit detects this at startup and uses sendto/recvfrom for I/O instead of read/write. After dup2(file_fd, 1), sendto fails with ENOTSOCK. The fix requires creating a fresh port so Gambit re-detects the fd type. This issue does NOT occur when fds are files/pipes from the start (e.g., running from a terminal).",
+    "related": [
+      "character-port-from-raw-fd-via-dev-fd",
+      "fd-e-extract-raw-fd-from-port",
+      "pipeline-fd-management-close-write-end"
+    ]
+  },
+  {
+    "id": "qt-widget-set-font-arity",
+    "title": "qt-widget-set-font! takes (widget, font-object) — NOT (widget, family, size)",
+    "tags": [
+      "qt",
+      "font",
+      "widget",
+      "set-font",
+      "arity",
+      "gotcha",
+      "gerbil-qt"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-widget-set-font! takes exactly 2 arguments:\n;;   (qt-widget-set-font! widget font-object)\n;;\n;; It does NOT take (widget family-string point-size).\n;; You must create a QFont object first, then pass it.\n;;\n;; WRONG — will fail at runtime with wrong number of arguments:\n;; (qt-widget-set-font! my-label \"Monospace\" 10)  ;; ERROR!\n;;\n;; CORRECT — create a QFont object, apply it, then destroy it:\n(import :gerbil-qt/qt)\n\n(let ((mono (qt-font-create \"Monospace\" point-size: 10)))\n  (qt-widget-set-font! my-label mono)\n  (qt-widget-set-font! my-input mono)    ;; reuse for multiple widgets\n  (qt-font-destroy! mono))               ;; cleanup when done\n\n;; qt-font-create signature:\n;;   (qt-font-create family [point-size: N] [weight: W] [italic: BOOL])\n;;\n;; Common font families: \"Monospace\", \"Sans Serif\", \"Serif\"\n;;\n;; After qt-widget-set-font!, Qt copies the font data internally,\n;; so it's safe to destroy the QFont object immediately.",
+    "notes": "This is a common mistake because many GUI toolkits allow (set-font widget \"family\" size) as a convenience. In gerbil-qt, fonts are always QFont objects. The qt-font-create function uses keyword arguments for optional properties. After applying to a widget, Qt copies the font internally — the QFont object can be safely destroyed. This applies to ALL widgets: labels, buttons, text edits, plain text edits, line edits, etc.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "qt-shortcut-explicit-destroy"
+    ]
+  },
+  {
+    "id": "qt-progress-dialog-timer-driven",
+    "title": "QProgressDialog with QTimer for non-blocking progress updates",
+    "tags": [
+      "qt",
+      "progress",
+      "dialog",
+      "timer",
+      "cancel",
+      "gerbil-qt",
+      "async"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Use QTimer to drive QProgressDialog updates without blocking the UI.\n;; QProgressDialog is modal but non-blocking when driven by timer events.\n;;\n;; Key APIs:\n;;   qt-progress-dialog-create label cancel-text min max [parent: widget]\n;;   qt-progress-dialog-set-value! pd value\n;;   qt-progress-dialog-set-label-text! pd text\n;;   qt-progress-dialog-canceled? pd         ;; check if user clicked Cancel\n;;   qt-progress-dialog-set-minimum-duration! pd ms  ;; delay before showing (0 = immediate)\n;;   qt-progress-dialog-set-auto-close! pd bool      ;; auto-close at 100%\n;;   qt-progress-dialog-set-auto-reset! pd bool       ;; auto-reset value at 100%\n;;   qt-progress-dialog-reset! pd                     ;; reset to initial state\n\n(import :gerbil-qt/qt :std/format)\n\n;; Create dialog (range 0-100)\n(let ((pd (qt-progress-dialog-create \"Processing...\" \"Cancel\" 0 100 parent: win)))\n  (qt-progress-dialog-set-minimum-duration! pd 0)  ;; show immediately\n  (qt-progress-dialog-set-auto-close! pd #f)       ;; don't auto-close\n  (qt-progress-dialog-set-auto-reset! pd #f)       ;; don't auto-reset\n  (qt-widget-show! pd)\n\n  ;; Drive with timer\n  (let ((step 0)\n        (timer (qt-timer-create)))\n    (qt-on-timeout! timer\n      (lambda ()\n        (if (or (>= step 100) (qt-progress-dialog-canceled? pd))\n          (begin\n            (qt-timer-stop! timer)\n            (qt-timer-destroy! timer)\n            (if (qt-progress-dialog-canceled? pd)\n              (displayln \"Canceled!\")\n              (displayln \"Done!\"))\n            (qt-progress-dialog-reset! pd)\n            (qt-widget-close! pd))\n          (begin\n            (set! step (+ step 2))\n            (qt-progress-dialog-set-value! pd step)\n            (qt-progress-dialog-set-label-text! pd\n              (format \"Processing item ~a of 100...\" step))))))\n    (qt-timer-start! timer 50)))  ;; 50ms interval",
+    "notes": "QProgressDialog is a QWidget — if parented, Qt handles cleanup. auto-close and auto-reset default to #t; set both to #f if you want explicit control. The timer pattern is essential because calling a blocking loop would freeze the GUI. qt-progress-dialog-canceled? checks if the Cancel button was clicked. Always call qt-timer-stop! and qt-timer-destroy! when done. The dialog should be shown with qt-widget-show! after configuration.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "qt-shortcut-explicit-destroy"
+    ]
+  },
+  {
+    "id": "qt-system-tray-icon-pattern",
+    "title": "QSystemTrayIcon with custom icon, context menu, and balloon messages",
+    "tags": [
+      "qt",
+      "tray",
+      "system-tray",
+      "icon",
+      "balloon",
+      "notification",
+      "gerbil-qt",
+      "context-menu"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: QSystemTrayIcon — system tray with icon, context menu, and notifications.\n;;\n;; IMPORTANT: Check qt-system-tray-available? before creating!\n;; Not all platforms/desktop environments support system tray.\n;;\n;; QSystemTrayIcon is NOT a QWidget — needs explicit destroy.\n\n(import :gerbil-qt/qt)\n\n;; 1. Check availability\n(when (qt-system-tray-available?)\n\n  ;; 2. Create a custom icon (pixmap → icon)\n  (let* ((pix (qt-pixmap-create-blank 32 32))\n         (_ (qt-pixmap-fill! pix 52 152 219))  ;; blue background\n         (icon (qt-icon-create-from-pixmap pix))\n         (tray (qt-system-tray-icon-create icon)))\n\n    ;; 3. Set tooltip\n    (qt-system-tray-icon-set-tooltip! tray \"My App\")\n\n    ;; 4. Create context menu (right-click menu)\n    ;; Use a QMenu from the menu bar as context menu\n    (let ((ctx-menu (qt-menu-bar-add-menu (qt-main-window-menu-bar win) \"ctx\"))\n          (show-action (qt-action-create \"Show Window\" win))\n          (quit-action (qt-action-create \"Quit\" win)))\n      (qt-on-triggered! show-action\n        (lambda () (qt-widget-show-normal! win)))\n      (qt-on-triggered! quit-action\n        (lambda ()\n          (qt-system-tray-icon-hide! tray)\n          (qt-app-quit! app)))\n      (qt-menu-add-action! ctx-menu show-action)\n      (qt-menu-add-separator! ctx-menu)\n      (qt-menu-add-action! ctx-menu quit-action)\n      (qt-system-tray-icon-set-context-menu! tray ctx-menu))\n\n    ;; 5. Handle tray activation (click events)\n    (qt-on-tray-activated! tray\n      (lambda (reason)\n        (cond\n          ((= reason QT_TRAY_TRIGGER) (qt-widget-show-normal! win))\n          ((= reason QT_TRAY_DOUBLE_CLICK) (displayln \"double click\"))\n          ((= reason QT_TRAY_CONTEXT) (displayln \"right click\"))\n          ((= reason QT_TRAY_MIDDLE_CLICK) (displayln \"middle click\")))))\n\n    ;; 6. Show balloon notification\n    (qt-system-tray-icon-show-message! tray\n      \"Title\" \"Message body\"\n      icon-type: QT_TRAY_INFO   ;; QT_TRAY_INFO, QT_TRAY_WARNING, QT_TRAY_CRITICAL\n      timeout: 3000)             ;; milliseconds\n\n    ;; 7. Show/hide tray icon\n    (qt-system-tray-icon-show! tray)\n    ;; (qt-system-tray-icon-hide! tray)\n\n    ;; 8. Cleanup — MUST destroy explicitly\n    ;; (qt-system-tray-icon-destroy! tray)\n    ;; (qt-icon-destroy! icon)\n    ;; (qt-pixmap-destroy! pix)\n    ))",
+    "notes": "QSystemTrayIcon activation reason constants: QT_TRAY_TRIGGER (single click), QT_TRAY_DOUBLE_CLICK, QT_TRAY_CONTEXT (right-click), QT_TRAY_MIDDLE_CLICK. Balloon icon types: QT_TRAY_INFO, QT_TRAY_WARNING, QT_TRAY_CRITICAL, QT_TRAY_NO_ICON. Always check qt-system-tray-available? first — Wayland/some Linux DEs don't support it. The tray icon, underlying QIcon, and QPixmap all need explicit destroy since they're not QWidgets. qt-widget-show-normal! restores a minimized window.",
+    "related": [
+      "qt-shortcut-explicit-destroy",
+      "qt-widget-set-font-arity"
+    ]
+  },
+  {
+    "id": "qt-input-dialog-all-types",
+    "title": "QInputDialog: get-text, get-int, get-double, get-item (all return #f on cancel)",
+    "tags": [
+      "qt",
+      "input",
+      "dialog",
+      "get-text",
+      "get-int",
+      "get-double",
+      "get-item",
+      "gerbil-qt"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: QInputDialog static methods — all return #f if user cancels.\n;;\n;; All four variants use keyword arguments for optional parameters.\n;; parent: is optional but recommended (centers dialog over parent window).\n\n(import :gerbil-qt/qt)\n\n;; Text input\n(let ((result (qt-input-dialog-get-text \"Title\" \"Prompt:\"\n                default: \"initial value\" parent: win)))\n  (if result\n    (displayln \"Got: \" result)\n    (displayln \"Cancelled\")))\n\n;; Integer input (with range and step)\n(let ((result (qt-input-dialog-get-int \"Title\" \"Pick a number:\"\n                value: 42 min: 0 max: 100 step: 5 parent: win)))\n  (if result\n    (displayln \"Got: \" result)   ;; result is an integer\n    (displayln \"Cancelled\")))\n\n;; Double input (with range and decimal places)\n(let ((result (qt-input-dialog-get-double \"Title\" \"Temperature:\"\n                value: 98.6 min: -100.0 max: 200.0 decimals: 2 parent: win)))\n  (if result\n    (displayln \"Got: \" result)   ;; result is a flonum\n    (displayln \"Cancelled\")))\n\n;; Item selection (dropdown list)\n(let ((result (qt-input-dialog-get-item \"Title\" \"Choose:\"\n                [\"Option A\" \"Option B\" \"Option C\"]\n                current: 0 parent: win)))\n  (if result\n    (displayln \"Got: \" result)   ;; result is the selected string\n    (displayln \"Cancelled\")))",
+    "notes": "All QInputDialog methods are blocking/modal — they hang in offscreen mode (QT_QPA_PLATFORM=offscreen). Only test these in interactive example programs, not in CI tests. The return value is the actual typed/selected value on accept, or #f on cancel. get-item takes a list of strings and returns the selected string (not the index). get-double uses the string trampoline internally (snprintf \"%.17g\") to pass double values through FFI.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "qt-progress-dialog-timer-driven"
+    ]
+  },
+  {
+    "id": "github-actions-ci-gerbil-ffi",
+    "title": "GitHub Actions CI workflow for Gerbil FFI projects",
+    "tags": [
+      "github",
+      "actions",
+      "CI",
+      "workflow",
+      "build",
+      "test",
+      "FFI",
+      "gerbil"
+    ],
+    "imports": [],
+    "code": ";; .github/workflows/ci.yml — GitHub Actions CI for a Gerbil FFI project\n;;\n;; This YAML workflow builds Gerbil from source, installs system C library\n;; dependencies, builds the project, and runs tests.\n;;\n;; Key points:\n;; - Gerbil must be built from source (no apt package)\n;; - Cache the Gerbil installation to speed up subsequent runs\n;; - Set GERBIL_HOME, GERBIL_LOADPATH, and PATH for gerbil/gxi/gxc\n;; - For Qt projects: QT_QPA_PLATFORM=offscreen for headless testing\n;; - For FFI projects: PKG_CONFIG_PATH must include system pkgconfig dir\n;;\n;; name: CI\n;; on:\n;;   push:\n;;     branches: [master]\n;;   pull_request:\n;;     branches: [master]\n;;\n;; jobs:\n;;   build-and-test:\n;;     runs-on: ubuntu-24.04\n;;     steps:\n;;       - uses: actions/checkout@v4\n;;\n;;       - name: Install system dependencies\n;;         run: |\n;;           sudo apt-get update\n;;           sudo apt-get install -y \\\n;;             libgambit \\       # Gambit Scheme runtime\n;;             autoconf git \\    # needed to build Gerbil\n;;             pkg-config g++ \\  # needed for FFI compilation\n;;             <your-c-library-dev-package>\n;;\n;;       - name: Cache Gerbil installation\n;;         uses: actions/cache@v4\n;;         id: cache-gerbil\n;;         with:\n;;           path: ~/gerbil\n;;           key: gerbil-v0.19-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}\n;;\n;;       - name: Install Gerbil\n;;         if: steps.cache-gerbil.outputs.cache-hit != 'true'\n;;         run: |\n;;           cd /tmp\n;;           git clone https://github.com/mighty-gerbils/gerbil.git\n;;           cd gerbil/src\n;;           ./configure --prefix=$HOME/gerbil\n;;           make -j$(nproc)\n;;           make install\n;;\n;;       - name: Set up environment\n;;         run: |\n;;           echo \"$HOME/gerbil/bin\" >> $GITHUB_PATH\n;;           echo \"GERBIL_HOME=$HOME/gerbil\" >> $GITHUB_ENV\n;;           echo \"GERBIL_LOADPATH=$HOME/.gerbil/lib\" >> $GITHUB_ENV\n;;\n;;       - name: Build\n;;         run: make build\n;;\n;;       - name: Test\n;;         run: make test",
+    "notes": "Gerbil is not available as an apt package — must be built from source. The libgambit package provides the Gambit runtime that Gerbil compiles against. Cache the ~/gerbil directory to avoid rebuilding on every CI run (saves ~3-5 minutes). For Qt FFI projects, add `env: QT_QPA_PLATFORM: offscreen` to the Test step and `qt6-base-dev` to system dependencies. For other C libraries, add the appropriate `-dev` package. The cache key includes the workflow file hash so cache invalidates when CI config changes.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "build-ffi-module-with-pkg-config"
+    ]
+  },
+  {
+    "id": "lsp-handler-test-pattern",
+    "title": "LSP handler integration test pattern with state setup and validation",
+    "tags": [
+      "lsp",
+      "test",
+      "handler",
+      "integration",
+      "validate-response",
+      "make-document",
+      "state"
+    ],
+    "imports": [
+      ":std/test",
+      ":lsp/lsp/types",
+      ":lsp/lsp/state",
+      ":lsp/lsp/analysis/document",
+      ":lsp/lsp/analysis/parser",
+      ":lsp/lsp/analysis/symbols",
+      ":lsp/lsp/validation"
+    ],
+    "code": ";; Pattern for testing LSP handlers with proper state setup and cleanup.\n;; 1. Create document + parse + extract symbols + set state\n;; 2. Build LSP params hash\n;; 3. Call handler\n;; 4. Verify response structure + validate against LSP schema\n;; 5. Cleanup state\n\n(test-case \"handle-X: integration test\"\n  (let* ((uri \"file:///test-example.ss\")\n         (text \"(def (add a b) (+ a b))\\n(add 1 2)\")\n         (doc (make-document uri 1 text \"gerbil\"))\n         (forms (parse-source text))\n         (syms (extract-symbols forms)))\n    ;; Setup state\n    (set-document! uri doc)\n    (set-file-symbols! uri syms)\n    ;; Call handler\n    (let* ((params (hash (\"textDocument\" (hash (\"uri\" uri)))\n                         (\"position\" (hash (\"line\" 1) (\"character\" 1)))))\n           (result (handle-hover params)))\n      (check (hash-table? result) => #t)\n      ;; Validate against LSP schema\n      (let ((violations (validate-response \"textDocument/hover\" result)))\n        (check (null? violations) => #t)))\n    ;; Cleanup\n    (remove-document! uri)\n    (remove-file-symbols! uri)))\n\n;; For \"missing document\" tests, handlers return void, empty list, or empty vector:\n(test-case \"handle-X: empty for missing document\"\n  (let* ((params (hash (\"textDocument\" (hash (\"uri\" \"file:///nonexistent.ss\")))\n                       (\"position\" (hash (\"line\" 0) (\"character\" 0)))))\n         (result (handle-some-handler params)))\n    (check (or (void? result)\n               (null? result)\n               (and (vector? result) (= (vector-length result) 0))) => #t)))",
+    "notes": "Key points: (1) make-document takes (uri version text language-id). (2) make-sym-info takes 7 args: (name kind line col end-line end-col detail). (3) Handlers for missing documents return void, empty list [], or empty vector — NOT a standardized response, so test for all three. (4) validate-response from :lsp/lsp/validation checks responses against LSP protocol schemas. (5) Always cleanup with remove-document! and remove-file-symbols! to avoid polluting state between tests.",
+    "related": [
+      "write-tests-with-std-test"
+    ]
+  },
+  {
+    "id": "qt-action-create-parent-keyword",
+    "title": "qt-action-create requires parent: keyword arg, not positional",
+    "tags": [
+      "qt",
+      "action",
+      "create",
+      "parent",
+      "keyword",
+      "menu",
+      "toolbar"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-action-create takes parent: as a KEYWORD argument.\n;; Passing parent as a positional arg silently creates a broken action.\n;;\n;; WRONG — parent passed as positional arg:\n;; (qt-action-create \"Open\" win)  ;; BROKEN! \"win\" treated as unknown positional\n;;\n;; CORRECT — use parent: keyword:\n(qt-action-create \"Open\" parent: win)\n(qt-action-create \"&File\" parent: menu-bar)\n(qt-action-create \"Cut\" parent: toolbar)\n\n;; Full signature:\n;;   (qt-action-create text [parent: widget] [checkable: bool])\n;;\n;; Common usage with menu bar:\n(let* ((menu-bar (qt-main-window-menu-bar win))\n       (file-menu (qt-menu-bar-add-menu! menu-bar \"&File\"))\n       (open-action (qt-action-create \"&Open\" parent: win)))\n  (qt-menu-add-action! file-menu open-action)\n  (qt-on-action-triggered! open-action\n    (lambda () (displayln \"Open!\"))))",
+    "notes": "This mistake appeared in multiple example files (mdi.ss, dockable.ss, trayapp.ss). The error is silent — the action is created but may not work correctly because the second positional arg is misinterpreted. Always use parent: keyword."
+  },
+  {
+    "id": "qt-layout-requires-parent-widget",
+    "title": "qt-hbox-layout-create and qt-vbox-layout-create require a parent widget",
+    "tags": [
+      "qt",
+      "layout",
+      "hbox",
+      "vbox",
+      "parent",
+      "widget",
+      "create"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-hbox-layout-create and qt-vbox-layout-create require\n;; a parent widget argument. They cannot be called with 0 arguments.\n;;\n;; WRONG — no parent widget:\n;; (qt-hbox-layout-create)  ;; ERROR: wrong number of arguments\n;;\n;; CORRECT — pass a container widget:\n(let* ((container (qt-widget-create))\n       (hbox (qt-hbox-layout-create container)))\n  (qt-layout-add-widget! hbox (qt-label-create \"Left\"))\n  (qt-layout-add-widget! hbox (qt-line-edit-create))\n  ;; Add the container (not the layout) to the parent layout:\n  (qt-layout-add-widget! parent-vbox container))\n\n;; Pattern: filter bar with label + input\n(let* ((filter-row (qt-widget-create))\n       (filter-hbox (qt-hbox-layout-create filter-row))\n       (filter-label (qt-label-create \"Filter:\"))\n       (filter-edit (qt-line-edit-create)))\n  (qt-layout-add-widget! filter-hbox filter-label)\n  (qt-layout-add-widget! filter-hbox filter-edit)\n  ;; Add the container widget to the main layout\n  (qt-layout-add-widget! main-vbox filter-row))",
+    "notes": "When adding a sub-layout to a parent layout, you add the CONTAINER WIDGET (not the layout itself) via qt-layout-add-widget!. The layout is associated with the container via the parent arg to qt-hbox-layout-create. This pattern is used whenever you need a horizontal row inside a vertical layout."
+  },
+  {
+    "id": "qt-with-qt-app-syntax",
+    "title": "with-qt-app macro syntax: bare symbol, not parenthesized",
+    "tags": [
+      "qt",
+      "with-qt-app",
+      "macro",
+      "syntax",
+      "application",
+      "main"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: with-qt-app binds a BARE symbol, not a parenthesized form.\n;;\n;; WRONG — parenthesized binding:\n;; (with-qt-app (app)    ;; ERROR! Syntax error\n;;   (qt-widget-show! win)\n;;   (qt-app-exec! app))\n;;\n;; CORRECT — bare symbol:\n(with-qt-app app\n  (let ((win (qt-main-window-create)))\n    (qt-main-window-set-title! win \"Hello\")\n    (qt-widget-show! win)\n    (qt-app-exec! app)))\n\n;; The macro expands to something like:\n;; (let ((app (qt-app-create)))\n;;   (dynamic-wind void\n;;     (lambda () body ...)\n;;     (lambda () (qt-app-destroy! app))))",
+    "notes": "Common mistake when coming from other Scheme macros like with-exception-handler or parameterize that use parenthesized binding forms. The with-qt-app macro takes a single bare identifier followed by body expressions."
+  },
+  {
+    "id": "qt-mutator-bang-convention",
+    "title": "All gerbil-qt mutator functions end with ! (bang)",
+    "tags": [
+      "qt",
+      "mutator",
+      "bang",
+      "convention",
+      "set",
+      "naming"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; CONVENTION: ALL gerbil-qt functions that modify state end with !\n;; Missing the ! is a common source of \"unbound identifier\" errors.\n;;\n;; WRONG — missing bangs:\n;; (qt-main-window-set-title win \"Hello\")       ;; UNBOUND\n;; (qt-widget-resize win 800 600)                ;; UNBOUND\n;; (qt-main-window-set-central-widget win panel) ;; UNBOUND\n;; (qt-app-exec app)                             ;; UNBOUND\n;;\n;; CORRECT — all mutators have !:\n(qt-main-window-set-title! win \"Hello\")\n(qt-widget-resize! win 800 600)\n(qt-main-window-set-central-widget! win panel)\n(qt-app-exec! app)\n\n;; Pattern: functions WITHOUT ! are pure queries:\n;; (qt-widget-width w)        ;; query — no !\n;; (qt-label-text label)      ;; query — no !\n;; (qt-check-box-checked? cb) ;; predicate — no !\n;;\n;; Functions WITH ! modify state:\n;; (qt-widget-show! w)        ;; side effect — has !\n;; (qt-label-set-text! l t)   ;; mutation — has !\n;; (qt-widget-destroy! w)     ;; destruction — has !",
+    "notes": "This Scheme convention (! for side effects) is strictly followed throughout gerbil-qt. When you get an \"unbound identifier\" error for a qt-* function, first check whether you forgot the trailing !. Common offenders: qt-app-exec!, qt-widget-resize!, qt-main-window-set-title!, qt-main-window-set-central-widget!."
+  },
+  {
+    "id": "qt-on-return-pressed-not-line-edit-return",
+    "title": "Use qt-on-return-pressed! (not qt-on-line-edit-return!) for Enter key in QLineEdit",
+    "tags": [
+      "qt",
+      "line-edit",
+      "return",
+      "enter",
+      "pressed",
+      "callback",
+      "signal"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: The signal for Enter key in QLineEdit is qt-on-return-pressed!\n;; There is NO function called qt-on-line-edit-return!\n;;\n;; WRONG — does not exist:\n;; (qt-on-line-edit-return! input (lambda (text) (handle text)))\n;;\n;; CORRECT — void callback (no text argument):\n(qt-on-return-pressed! input\n  (lambda ()\n    (let ((text (qt-line-edit-text input)))\n      (displayln \"User entered: \" text)\n      (qt-line-edit-clear! input))))\n\n;; The callback takes NO arguments (void trampoline).\n;; To get the text, call qt-line-edit-text inside the callback.",
+    "notes": "The callback is a void trampoline (no arguments), not a string trampoline. You must explicitly read the line edit's text inside the callback using qt-line-edit-text. This matches Qt's returnPressed() signal which also carries no arguments."
+  },
+  {
+    "id": "qt-status-bar-text-via-main-window",
+    "title": "Set status bar text via qt-main-window-set-status-bar-text!, not qt-status-bar-show-message!",
+    "tags": [
+      "qt",
+      "status",
+      "bar",
+      "message",
+      "main-window",
+      "text"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: There is no qt-main-window-status-bar function to get a\n;; QStatusBar object. Instead, use qt-main-window-set-status-bar-text!\n;; which operates directly on the main window.\n;;\n;; WRONG — these don't exist:\n;; (def sb (qt-main-window-status-bar win))     ;; UNBOUND\n;; (qt-status-bar-show-message! sb \"Ready\")     ;; UNBOUND\n;;\n;; CORRECT — set status bar text via main window:\n(qt-main-window-set-status-bar-text! win \"Ready\")\n(qt-main-window-set-status-bar-text! win \"File saved successfully\")\n\n;; Use in callbacks:\n(qt-on-action-triggered! save-action\n  (lambda ()\n    (save-file!)\n    (qt-main-window-set-status-bar-text! win \"Saved!\")))",
+    "notes": "In gerbil-qt, the status bar is not exposed as a separate object. All status bar operations go through the main window. Qt automatically creates the status bar on first use. The message persists until replaced by another call."
+  },
+  {
+    "id": "qt-patchelf-rpath-install-makefile",
+    "title": "Use patchelf --add-rpath in Makefile install for vendored .so libraries",
+    "tags": [
+      "qt",
+      "patchelf",
+      "rpath",
+      "install",
+      "makefile",
+      "vendor",
+      "shared-library",
+      "ffi"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: gxc/Gambit drops extra -Wl,-rpath options passed via -ld-options.\n;; Only the FIRST rpath survives compilation. If your project has a vendored\n;; .so (e.g. libqt_shim.so) and you want both a local AND install rpath,\n;; the install rpath gets dropped.\n;;\n;; SOLUTION: Use patchelf --add-rpath in the Makefile install target\n;; to patch the compiled .o1 files AFTER build.\n;;\n;; ---- Makefile pattern ----\n;; INSTALL_DIR = $(HOME)/.gerbil/lib/gerbil-qt\n;;\n;; install: build\n;; \t@mkdir -p $(INSTALL_DIR)\n;; \tcp -f .gerbil/lib/gerbil-qt/* $(INSTALL_DIR)/\n;; \tcp -f vendor/libqt_shim.so $(INSTALL_DIR)/\n;; \t@if command -v patchelf >/dev/null 2>&1; then \\\n;; \t\tfor f in $(INSTALL_DIR)/libqt~0.o*; do \\\n;; \t\t\tpatchelf --add-rpath $(INSTALL_DIR) \"$$f\" 2>/dev/null || true; \\\n;; \t\tdone; \\\n;; \tfi\n;; ---- end ----\n;;\n;; KEY DIFFERENCES from --set-rpath:\n;; - --add-rpath APPENDS to existing RUNPATH (preserves build-time paths)\n;; - --set-rpath REPLACES the entire RUNPATH (may break build-time paths)\n;;\n;; Verify with:\n;;   patchelf --print-rpath ~/.gerbil/lib/gerbil-qt/libqt~0.o1\n;;   # Should show: /path/to/vendor:/home/user/.gerbil/lib/gerbil-qt",
+    "notes": "The existing patchelf recipes use --set-rpath which replaces the entire RUNPATH. For FFI libraries with vendored .so files, --add-rpath is better because it preserves the build-time rpath (pointing to vendor/) while adding the install location. The `command -v patchelf` guard makes the install target work even without patchelf installed (just won't patch rpath). The libqt~0.o* glob matches Gambit's compiled output naming convention."
+  },
+  {
+    "id": "qt-splitter-create-requires-orientation",
+    "title": "qt-splitter-create requires orientation as positional arg",
+    "tags": [
+      "qt",
+      "splitter",
+      "create",
+      "orientation",
+      "QT_VERTICAL",
+      "QT_HORIZONTAL",
+      "arity"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-splitter-create requires orientation as a mandatory positional arg.\n;; Calling (qt-splitter-create) with 0 args fails with arity mismatch.\n;;\n;; WRONG:\n;; (qt-splitter-create)  ;; ERROR: arity mismatch\n;;\n;; CORRECT — pass orientation constant:\n(qt-splitter-create QT_VERTICAL)     ;; top/bottom split\n(qt-splitter-create QT_HORIZONTAL)   ;; left/right split\n\n;; Full signature:\n;;   (qt-splitter-create orientation [parent: widget])\n;;\n;; Constants: QT_VERTICAL = 2, QT_HORIZONTAL = 1\n;;\n;; Example: table view above, detail panel below\n(let ((splitter (qt-splitter-create QT_VERTICAL)))\n  (qt-splitter-add-widget! splitter table-view)\n  (qt-splitter-add-widget! splitter detail-panel)\n  (qt-splitter-set-sizes! splitter '(500 250))\n  splitter)",
+    "notes": "The orientation is positional (not a keyword), and parent: is a keyword. This is unlike most other create functions in gerbil-qt where all args are keywords. The compile error message is cryptic: 'Illegal lambda application; arity mismatch' with detail 3."
+  },
+  {
+    "id": "qt-toolbar-create-requires-title",
+    "title": "qt-toolbar-create requires title as positional arg",
+    "tags": [
+      "qt",
+      "toolbar",
+      "create",
+      "title",
+      "arity",
+      "main-window"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-toolbar-create requires a title string as positional arg.\n;; Calling (qt-toolbar-create) with 0 args fails with arity mismatch.\n;;\n;; WRONG:\n;; (qt-toolbar-create)  ;; ERROR: arity mismatch\n;;\n;; CORRECT:\n(qt-toolbar-create \"Main\")\n(qt-toolbar-create \"Tools\" parent: win)\n\n;; Full signature:\n;;   (qt-toolbar-create title [parent: widget])\n;;\n;; Example with main window:\n(let ((toolbar (qt-toolbar-create \"Main\")))\n  (qt-toolbar-set-movable! toolbar #f)\n  (let ((action (qt-action-create \"Save\")))\n    (qt-toolbar-add-action! toolbar action))\n  (qt-toolbar-add-separator! toolbar)\n  (qt-toolbar-add-widget! toolbar (qt-line-edit-create))\n  (qt-main-window-add-toolbar! win toolbar))",
+    "notes": "Title is positional (not keyword), parent: is keyword. Similar pattern to qt-action-create which also requires text as positional.",
+    "related": [
+      "qt-action-create-requires-parent-keyword"
+    ]
+  },
+  {
+    "id": "qt-file-dialog-open-directory-signature",
+    "title": "qt-file-dialog-open-directory takes parent positional, caption/dir as keywords",
+    "tags": [
+      "qt",
+      "file-dialog",
+      "directory",
+      "open",
+      "caption",
+      "dialog"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; qt-file-dialog-open-directory signature:\n;;   (qt-file-dialog-open-directory parent [caption: string] [dir: string])\n;;\n;; parent is a required positional arg (the parent window)\n;; caption: defaults to \"Open Directory\"\n;; dir: defaults to \"\" (current directory)\n;;\n;; WRONG — passing caption as positional:\n;; (qt-file-dialog-open-directory win \"Choose Folder\")  ;; ERROR: arity mismatch\n;;\n;; CORRECT — caption as keyword:\n(qt-file-dialog-open-directory win caption: \"Choose Folder\")\n(qt-file-dialog-open-directory win caption: \"Open Database\" dir: \"/home\")\n\n;; Returns a string path, or empty string if canceled\n(let ((path (qt-file-dialog-open-directory win caption: \"Open Database\")))\n  (when (and (string? path) (> (string-length path) 0))\n    (displayln \"Selected: \" path)))",
+    "notes": "Similar pattern for qt-file-dialog-open-file and qt-file-dialog-save-file which take parent positional plus keyword args for caption, dir, and filter."
+  },
+  {
+    "id": "qt-form-layout-spanning-widget",
+    "title": "Use qt-form-layout-add-spanning-widget! for single-widget rows (not add-row-widget!)",
+    "tags": [
+      "qt",
+      "form-layout",
+      "spanning",
+      "checkbox",
+      "widget",
+      "row"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-form-layout-add-row-widget! takes 3 args: (layout label-widget field-widget)\n;; It adds a row with TWO widgets (label + field), not a spanning single widget.\n;;\n;; To add a SINGLE widget that spans the entire row (e.g. a checkbox or button bar),\n;; use qt-form-layout-add-spanning-widget! which takes 2 args: (layout widget)\n;;\n;; WRONG — for adding a checkbox that spans the whole row:\n;; (qt-form-layout-add-row-widget! layout my-checkbox)  ;; ERROR: arity mismatch (expects 3 args)\n;;\n;; CORRECT:\n(qt-form-layout-add-spanning-widget! layout my-checkbox)\n\n;; Example: complete form with labels, fields, and a spanning checkbox\n(let* ((dlg (qt-dialog-create parent: win))\n       (layout (qt-form-layout-create parent: dlg))\n       (name-edit (qt-line-edit-create))\n       (email-edit (qt-line-edit-create))\n       (newsletter-check (qt-check-box-create \"Subscribe to newsletter\")))\n  (qt-form-layout-add-row! layout \"Name:\" name-edit)\n  (qt-form-layout-add-row! layout \"Email:\" email-edit)\n  (qt-form-layout-add-spanning-widget! layout newsletter-check)\n  (qt-dialog-exec! dlg))",
+    "notes": "qt-form-layout-add-row! takes (layout label-string field-widget) for string labels. qt-form-layout-add-row-widget! takes (layout label-widget field-widget) for widget labels. qt-form-layout-add-spanning-widget! takes (layout widget) for a widget spanning the full row."
+  },
+  {
+    "id": "qt-standard-model-create-keyword-args",
+    "title": "qt-standard-model-create uses rows: cols: parent: keyword args",
+    "tags": [
+      "qt",
+      "model",
+      "standard-model",
+      "create",
+      "rows",
+      "cols",
+      "table"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; qt-standard-model-create signature:\n;;   (qt-standard-model-create [rows: n] [cols: n] [parent: widget])\n;; All args are KEYWORD (not positional). Defaults: rows: 0, cols: 0, parent: #f\n;;\n;; WRONG — positional args:\n;; (qt-standard-model-create 0 8)  ;; ERROR\n;;\n;; CORRECT — keyword args:\n(qt-standard-model-create rows: 0 cols: 8)\n\n;; Set column headers one at a time:\n;;   (qt-standard-model-set-horizontal-header! model column-index text)\n(let ((model (qt-standard-model-create rows: 0 cols: 3)))\n  (qt-standard-model-set-horizontal-header! model 0 \"Name\")\n  (qt-standard-model-set-horizontal-header! model 1 \"Value\")\n  (qt-standard-model-set-horizontal-header! model 2 \"Type\")\n  model)\n\n;; qt-standard-item-create uses text: keyword:\n;;   (qt-standard-item-create [text: string])\n;; Default: text: \"\"\n(qt-standard-item-create text: \"Hello\")\n\n;; Populate model row by row:\n(qt-standard-model-set-row-count! model 1)\n(qt-standard-model-set-item! model 0 0 (qt-standard-item-create text: \"Alice\"))\n(qt-standard-model-set-item! model 0 1 (qt-standard-item-create text: \"42\"))\n(qt-standard-model-set-item! model 0 2 (qt-standard-item-create text: \"user\"))",
+    "notes": "qt-standard-model-set-horizontal-header! takes (model col text) — sets one header at a time, not a list. qt-standard-item-create takes text: keyword (not positional). The text defaults to empty string."
   }
 ]

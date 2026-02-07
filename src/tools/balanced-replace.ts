@@ -10,6 +10,71 @@ import { z } from 'zod';
 import { readFile, writeFile } from 'node:fs/promises';
 import { checkBalance } from './check-balance.js';
 
+/**
+ * Count delimiters in a text fragment, respecting strings and comments.
+ * Returns a map of delimiter -> count.
+ */
+function countDelimiters(text: string): Record<string, number> {
+  const counts: Record<string, number> = {
+    '(': 0, ')': 0, '[': 0, ']': 0, '{': 0, '}': 0,
+  };
+  let i = 0;
+  const len = text.length;
+
+  while (i < len) {
+    const ch = text[i];
+
+    // String literal — skip contents
+    if (ch === '"') {
+      i++;
+      while (i < len && text[i] !== '"') {
+        if (text[i] === '\\') i++;
+        i++;
+      }
+      if (i < len) i++; // skip closing quote
+      continue;
+    }
+
+    // Line comment — skip to end of line
+    if (ch === ';') {
+      while (i < len && text[i] !== '\n') i++;
+      continue;
+    }
+
+    // Block comment #| ... |#
+    if (ch === '#' && i + 1 < len && text[i + 1] === '|') {
+      let depth = 1;
+      i += 2;
+      while (i < len && depth > 0) {
+        if (text[i] === '#' && i + 1 < len && text[i + 1] === '|') { depth++; i += 2; }
+        else if (text[i] === '|' && i + 1 < len && text[i + 1] === '#') { depth--; i += 2; }
+        else i++;
+      }
+      continue;
+    }
+
+    // Character literal #\x — skip to avoid counting #\( etc.
+    if (ch === '#' && i + 1 < len && text[i + 1] === '\\') {
+      i += 2;
+      if (i < len && /[a-zA-Z]/.test(text[i])) {
+        while (i < len && /[a-zA-Z0-9]/.test(text[i])) i++;
+      } else if (i < len) {
+        i++;
+      }
+      continue;
+    }
+
+    // Count delimiter
+    if (ch in counts) {
+      counts[ch]++;
+    }
+
+    i++;
+  }
+
+  return counts;
+}
+
 export function registerBalancedReplaceTool(server: McpServer): void {
   server.registerTool(
     'gerbil_balanced_replace',
@@ -87,32 +152,41 @@ export function registerBalancedReplaceTool(server: McpServer): void {
 
       // Decision logic
       if (originalBalance.ok && !newBalance.ok) {
-        // Edit broke balance — reject
-        const errorDetails = newBalance.errors
-          .map((err) => {
-            switch (err.kind) {
-              case 'unclosed':
-                return `  Unclosed '${err.char}' at line ${err.line}, col ${err.col}${err.context ? ` (near '${err.context}')` : ''}`;
-              case 'unexpected':
-                return `  Unexpected closer '${err.char}' at line ${err.line}, col ${err.col}`;
-              case 'mismatch':
-                return `  Mismatched '${err.char}' at line ${err.line}, col ${err.col} — expected '${err.expected}'`;
-            }
-          })
-          .join('\n');
+        // Check if the fragments have matching imbalance (net delimiter change is zero)
+        const oldCounts = countDelimiters(old_string);
+        const newCounts = countDelimiters(new_string);
+        const delims = ['(', ')', '[', ']', '{', '}'] as const;
+        const netZero = delims.every((d) => newCounts[d] - oldCounts[d] === 0);
 
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text:
-                `REJECTED: This edit would break delimiter balance.\n\n` +
-                `Balance errors in result:\n${errorDetails}\n\n` +
-                `The file was NOT modified. Fix the new_string to maintain balanced delimiters.`,
-            },
-          ],
-          isError: true,
-        };
+        if (!netZero) {
+          // Edit broke balance — reject
+          const errorDetails = newBalance.errors
+            .map((err) => {
+              switch (err.kind) {
+                case 'unclosed':
+                  return `  Unclosed '${err.char}' at line ${err.line}, col ${err.col}${err.context ? ` (near '${err.context}')` : ''}`;
+                case 'unexpected':
+                  return `  Unexpected closer '${err.char}' at line ${err.line}, col ${err.col}`;
+                case 'mismatch':
+                  return `  Mismatched '${err.char}' at line ${err.line}, col ${err.col} — expected '${err.expected}'`;
+              }
+            })
+            .join('\n');
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text:
+                  `REJECTED: This edit would break delimiter balance.\n\n` +
+                  `Balance errors in result:\n${errorDetails}\n\n` +
+                  `The file was NOT modified. Fix the new_string to maintain balanced delimiters.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        // Net change is zero — allow the edit with a note
       }
 
       // Compute a summary

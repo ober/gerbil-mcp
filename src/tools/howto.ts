@@ -29,6 +29,8 @@ export interface Recipe {
   code: string;
   notes?: string;
   related?: string[];
+  deprecated?: boolean;
+  superseded_by?: string;
 }
 
 export const RECIPES: Recipe[] = [
@@ -509,6 +511,10 @@ export function registerHowtoTool(server: McpServer): void {
           // Code: weight 1
           if (recipe.code.toLowerCase().includes(word)) score += 1;
         }
+        // Deprioritize deprecated recipes
+        if (recipe.deprecated) {
+          score = Math.round(score * 0.1);
+        }
         return { recipe, score };
       });
 
@@ -538,7 +544,14 @@ export function registerHowtoTool(server: McpServer): void {
 
       for (const { recipe } of matches) {
         sections.push('');
-        sections.push(`## ${recipe.title}`);
+        if (recipe.deprecated) {
+          sections.push(`## [DEPRECATED] ${recipe.title}`);
+          if (recipe.superseded_by) {
+            sections.push(`Superseded by: "${recipe.superseded_by}"`);
+          }
+        } else {
+          sections.push(`## ${recipe.title}`);
+        }
         if (recipe.imports.length > 0) {
           sections.push(`Imports: ${recipe.imports.join(' ')}`);
         }

@@ -38,9 +38,15 @@ export function registerHowtoAddTool(server: McpServer): void {
           .array(z.string())
           .optional()
           .describe('Related recipe IDs'),
+        supersedes: z
+          .string()
+          .optional()
+          .describe(
+            'If provided, marks the recipe with this ID as deprecated and sets its superseded_by to the new recipe ID.',
+          ),
       },
     },
-    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related }) => {
+    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related, supersedes }) => {
       const cookbook_path = explicitPath || REPO_COOKBOOK_PATH;
       // Read existing file or start fresh
       let recipes: Recipe[] = [];
@@ -87,6 +93,18 @@ export function registerHowtoAddTool(server: McpServer): void {
         recipes[existingIdx] = recipe;
       } else {
         recipes.push(recipe);
+      }
+
+      // Mark superseded recipe as deprecated
+      if (supersedes) {
+        const supersededIdx = recipes.findIndex((r) => r.id === supersedes);
+        if (supersededIdx >= 0) {
+          recipes[supersededIdx] = {
+            ...recipes[supersededIdx],
+            deprecated: true,
+            superseded_by: id,
+          };
+        }
       }
 
       // Write back

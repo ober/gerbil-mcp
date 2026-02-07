@@ -9,14 +9,14 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### Before Writing Code
 
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
-- **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors.
+- **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
 - **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax. Combines stdout/stderr for complete error output.
 - **`gerbil_doc`**: Look up any symbol for type, arity, qualified name, and related symbols.
 
 ### When Exploring or Debugging
 
-- **`gerbil_eval`**: Test expressions interactively to verify assumptions and reproduce issues.
+- **`gerbil_eval`**: Test expressions interactively to verify assumptions and reproduce issues. Cleanly captures stdout output separately from the return value using `parameterize`.
 - **`gerbil_apropos`**: Search for symbols by substring when you're unsure of exact names.
 - **`gerbil_list_std_modules`**: Discover available standard library modules, optionally filtered by prefix.
 - **`gerbil_find_definition`**: Locate where a symbol is defined (source file, module, kind, arity). Use `source_preview: true` to include a code preview.
@@ -34,6 +34,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_class_info`**: Inspect defclass/defstruct types — slots, fields, inheritance, precedence list, and exact constructor signature with positional argument order (annotates inherited fields).
 - **`gerbil_ffi_inspect`**: Classify a module's FFI exports (C constants, C functions, Gerbil wrappers).
 - **`gerbil_ffi_scaffold`**: Parse a C header file and generate Gambit FFI binding code with `c-define-type`, `c-lambda`, and `define-const` declarations. Recognizes create/destroy pairs for automatic GC cleanup.
+- **`gerbil_ffi_callback_debug`**: Static analysis of FFI `c-define`/`extern` linkage in `.ss` files. Detects orphan callbacks (c-define without matching extern), missing callbacks (extern without c-define), duplicate C names, and c-define outside `begin-foreign` blocks.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 
 ### For Multi-Step Exploration
@@ -58,7 +59,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Code Quality
 
-- **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions, and compilation errors.
+- **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions (re-export aware), port-type mismatches (fdopen byte ports used with char I/O), and compilation errors.
 - **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
 - **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
@@ -81,7 +82,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures.
 - **`gerbil_generate_module`**: Create new modules by applying word-boundary-aware substitutions to a template file. Useful for mechanical variations of an existing module pattern.
 - **`gerbil_scaffold_test`**: Generate a `:std/test` skeleton from a module's exports.
-- **`gerbil_balanced_replace`**: Like Edit/string-replace but validates delimiter balance before and after. Rejects edits that would break balance. Dry-run by default.
+- **`gerbil_balanced_replace`**: Like Edit/string-replace but validates delimiter balance before and after. Rejects edits that would break balance, but tolerates matching imbalance where old and new fragments have the same net delimiter change. Dry-run by default.
 - **`gerbil_wrap_form`**: Wrap lines in a new Scheme form (e.g. `when`, `let`, `begin`) with guaranteed matching parentheses. Auto-detects form boundaries when `end_line` is omitted. Dry-run by default.
 - **`gerbil_splice_form`**: Remove a wrapper form while keeping selected children (inverse of wrap). Child indices are 1-based. Default: keep all children except the head. Dry-run by default.
 
@@ -92,14 +93,17 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_project_dep_graph`**: Visualize project module dependency graph as an ASCII tree. Shows which project modules import from which others. External dependencies listed separately.
 - **`gerbil_test_coverage`**: Compare a module's exports against its test file to identify untested symbols. Auto-discovers `*-test.ss` files. Reports coverage percentage.
 - **`gerbil_module_catalog`**: Compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for `:std/sugar`, `:std/iter`. Replaces multiple `gerbil_doc` calls.
+- **`gerbil_example_api_coverage`**: Check which module exports are referenced in example/doc files. Scans a directory of `.ss` files and reports per-export coverage with file references and overall coverage percentage.
+- **`gerbil_validate_example_imports`**: Validate that imported modules actually export the symbols used in a Gerbil source file. Hybrid static+runtime analysis that detects symbols used but not available from any import or local definition.
 
 ### For Recipes and Idioms
 
 - **`gerbil_howto`**: Search curated Gerbil idioms and code examples by keyword. Covers common tasks like file I/O, JSON, HTTP, hash tables, iteration, error handling, concurrency, testing, and more. Use this **before writing Gerbil code** for common patterns — it returns verified, working examples with correct imports. The server automatically loads both built-in recipes and any accumulated recipes from previous sessions.
   - Example queries: `"json parse"`, `"file read"`, `"channel thread"`, `"hash iterate"`, `"error handling"`
   - Optionally pass `cookbook_path` to merge in additional project-specific recipes from a JSON file.
-- **`gerbil_howto_add`**: Save new Gerbil recipes directly to the gerbil-mcp server's cookbook. No path needed — recipes are written to the server's own `cookbooks.json` and become available to all future sessions across all projects. Each recipe needs an `id` (kebab-case), `title`, `tags` (search keywords), `imports`, and `code`. Optional: `notes` and `related` recipe IDs.
+- **`gerbil_howto_add`**: Save new Gerbil recipes directly to the gerbil-mcp server's cookbook. No path needed — recipes are written to the server's own `cookbooks.json` and become available to all future sessions across all projects. Each recipe needs an `id` (kebab-case), `title`, `tags` (search keywords), `imports`, and `code`. Optional: `notes`, `related` recipe IDs, and `supersedes` (ID of an older recipe to mark as deprecated).
   - If a recipe with the same `id` already exists, it is replaced (update semantics)
+  - Use `supersedes` to deprecate an older recipe — sets `deprecated: true` and `superseded_by` on the old recipe. Deprecated recipes are deprioritized in search results and shown with a `[DEPRECATED]` marker.
   - Optionally pass `cookbook_path` to write to a different file instead.
 - **`gerbil_file_summary`**: Quick structural overview of a `.ss` file — imports, exports, and definitions grouped by kind — without reading the entire file. Faster than `gerbil_load_file` when you only need the shape of a module.
 

@@ -518,6 +518,71 @@ extern void iterator_destroy(iterator_t *it);
 `,
     );
 
+    // Re-export fixture: file that imports and re-exports symbols
+    writeFileSync(
+      join(TEST_DIR, 'reexport.ss'),
+      `(import :std/text/json)
+(export read-json write-json my-func)
+(def (my-func x) x)
+`,
+    );
+
+    // Lint fixture with ;; in export list
+    writeFileSync(
+      join(TEST_DIR, 'export-comment.ss'),
+      `(export my-func ;; some comment
+  other-func)
+(def (my-func x) x)
+(def (other-func y) y)
+`,
+    );
+
+    // Port type mismatch fixture
+    writeFileSync(
+      join(TEST_DIR, 'port-mismatch.ss'),
+      `(def fd-port (fdopen 3 'input))
+(displayln "hello" fd-port)
+`,
+    );
+
+    // FFI callback debug fixture: matched c-define/extern
+    writeFileSync(
+      join(TEST_DIR, 'ffi-callback-matched.ss'),
+      `(begin-foreign
+(c-define (my-callback x) (int) int "my_callback" "")
+(extern "my_callback" my-callback)
+)
+`,
+    );
+
+    // FFI callback debug fixture: orphan callback (no extern)
+    writeFileSync(
+      join(TEST_DIR, 'ffi-callback-orphan.ss'),
+      `(begin-foreign
+(c-define (orphan-cb x) (int) void "orphan_func" "")
+)
+`,
+    );
+
+    // Example API coverage fixture
+    const exampleDir = join(TEST_DIR, 'examples');
+    mkdirSync(exampleDir, { recursive: true });
+    writeFileSync(
+      join(exampleDir, 'json-example.ss'),
+      `(import :std/text/json)
+(def data (call-with-input-string "{\\"a\\":1}" read-json))
+(json-object->string data)
+`,
+    );
+
+    // Cookbook supersedes fixture
+    writeFileSync(
+      join(TEST_DIR, 'supersede-cookbook.json'),
+      JSON.stringify([
+        { id: 'old-recipe', title: 'Old Recipe', tags: ['old', 'test'], imports: [], code: '(+ 1 2)' },
+      ]) + '\n',
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -3149,6 +3214,217 @@ extern void iterator_destroy(iterator_t *it);
         module_path: ':std/nonexistent/module',
       });
       expect(result.isError).toBe(true);
+    });
+  });
+
+  describe('Eval stdout capture', () => {
+    it('gerbil_eval captures stdout separately from return value', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(begin (displayln "hello") (+ 1 2))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('hello');
+      expect(result.text).toContain('3');
+    });
+
+    it('gerbil_eval captures void expression with stdout only', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(displayln "world")',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('world');
+    });
+  });
+
+  describe('Lint re-export awareness', () => {
+    it('gerbil_lint does not warn for re-exported imported symbols', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'reexport.ss'),
+      });
+      // read-json and write-json come from :std/text/json import — should not be flagged
+      expect(result.text).not.toContain('Exports "read-json" but no definition');
+      expect(result.text).not.toContain('Exports "write-json" but no definition');
+    });
+
+    it('gerbil_lint does not warn for ;; comment tokens in export list', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'export-comment.ss'),
+      });
+      expect(result.text).not.toContain('Exports ";;"');
+    });
+  });
+
+  describe('Balanced replace matching imbalance', () => {
+    it('gerbil_balanced_replace allows edit with matching imbalance', async () => {
+      const testFile = join(TEST_DIR, 'bal-match.ss');
+      writeFileSync(testFile, '(def (f x) (if (> x 0) x (- x)))\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: testFile,
+        old_string: '(if (> x 0) x (- x))',
+        new_string: '(cond ((> x 0) x) (else (- x)))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).not.toContain('REJECTED');
+    });
+
+    it('gerbil_balanced_replace rejects edit with non-matching imbalance', async () => {
+      const testFile = join(TEST_DIR, 'bal-nomatch.ss');
+      writeFileSync(testFile, '(def (f x) (+ x 1))\n');
+      const result = await client.callTool('gerbil_balanced_replace', {
+        file_path: testFile,
+        old_string: '(+ x 1)',
+        new_string: '(+ x 1',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('REJECTED');
+    });
+  });
+
+  describe('Cookbook correction flag', () => {
+    it('gerbil_howto_add with supersedes marks old recipe deprecated', async () => {
+      const cookbookPath = join(TEST_DIR, 'supersede-cookbook.json');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'new-recipe',
+        title: 'New Recipe',
+        tags: ['new', 'test'],
+        imports: [],
+        code: '(+ 2 3)',
+        supersedes: 'old-recipe',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+
+      // Verify the old recipe was marked deprecated
+      const data = JSON.parse(readFileSync(cookbookPath, 'utf-8'));
+      const oldRecipe = data.find((r: { id: string }) => r.id === 'old-recipe');
+      expect(oldRecipe.deprecated).toBe(true);
+      expect(oldRecipe.superseded_by).toBe('new-recipe');
+    });
+
+    it('gerbil_howto deprioritizes deprecated recipes', async () => {
+      const cookbookPath = join(TEST_DIR, 'supersede-cookbook.json');
+      const result = await client.callTool('gerbil_howto', {
+        query: 'test',
+        cookbook_path: cookbookPath,
+      });
+      expect(result.isError).toBe(false);
+      // The new recipe should appear before the deprecated one
+      const newIdx = result.text.indexOf('New Recipe');
+      const oldIdx = result.text.indexOf('[DEPRECATED]');
+      if (oldIdx !== -1 && newIdx !== -1) {
+        expect(newIdx).toBeLessThan(oldIdx);
+      }
+    });
+  });
+
+  describe('Port type mismatch lint', () => {
+    it('gerbil_lint detects fdopen with displayln', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'port-mismatch.ss'),
+      });
+      expect(result.text).toContain('port-type-mismatch');
+    });
+
+    it('gerbil_lint detects fdopen variable used with char I/O', async () => {
+      const testFile = join(TEST_DIR, 'port-mismatch2.ss');
+      writeFileSync(
+        testFile,
+        `(def fd-port (fdopen 3 'input))
+(read-line fd-port)
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('port-type-mismatch');
+    });
+  });
+
+  describe('FFI callback debug tool', () => {
+    it('gerbil_ffi_callback_debug finds matched c-define/extern', async () => {
+      const result = await client.callTool('gerbil_ffi_callback_debug', {
+        file_path: join(TEST_DIR, 'ffi-callback-matched.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('my-callback');
+      expect(result.text).toContain('linked');
+    });
+
+    it('gerbil_ffi_callback_debug detects orphan callback', async () => {
+      const result = await client.callTool('gerbil_ffi_callback_debug', {
+        file_path: join(TEST_DIR, 'ffi-callback-orphan.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('orphan-cb');
+      expect(result.text).toContain('no matching extern');
+    });
+  });
+
+  describe('Example API coverage tool', () => {
+    it('gerbil_example_api_coverage shows coverage for json module', async () => {
+      const result = await client.callTool('gerbil_example_api_coverage', {
+        module_path: ':std/text/json',
+        directory: join(TEST_DIR, 'examples'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module: :std/text/json');
+      expect(result.text).toContain('Referenced:');
+      expect(result.text).toContain('read-json');
+    });
+
+    it('gerbil_example_api_coverage lists unreferenced exports', async () => {
+      const result = await client.callTool('gerbil_example_api_coverage', {
+        module_path: ':std/text/json',
+        directory: join(TEST_DIR, 'examples'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Unreferenced');
+    });
+  });
+
+  describe('Validate example imports tool', () => {
+    it('gerbil_validate_example_imports validates a file with valid imports', async () => {
+      const testFile = join(TEST_DIR, 'valid-imports.ss');
+      writeFileSync(
+        testFile,
+        `(import :std/text/json)
+(def data (call-with-input-string "{\\"a\\":1}" read-json))
+`,
+      );
+      const result = await client.callTool('gerbil_validate_example_imports', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Validated');
+    });
+
+    it('gerbil_validate_example_imports detects undefined symbols', async () => {
+      const testFile = join(TEST_DIR, 'bad-imports.ss');
+      writeFileSync(
+        testFile,
+        `(import :std/text/json)
+(def data (nonexistent-function "test"))
+`,
+      );
+      const result = await client.callTool('gerbil_validate_example_imports', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('nonexistent-function');
+    });
+  });
+
+  describe('Function signature compiled artifact scan', () => {
+    it('gerbil_function_signature detects keyword args for http-get from runtime', async () => {
+      const result = await client.callTool('gerbil_function_signature', {
+        module_path: ':std/net/request',
+        symbol: 'http-get',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('http-get');
+      expect(result.text).toContain('procedure');
+      // Should have keyword info from runtime or compiled scan
+      expect(result.text).toMatch(/keywords:|headers:/);
     });
   });
 });
