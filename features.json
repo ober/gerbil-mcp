@@ -1,20 +1,36 @@
 [
   {
-    "id": "qt-gap-audit-for-chat-apps",
-    "title": "Audit and document gerbil-qt API gaps for common app patterns",
-    "description": "During planning for a chat application GUI, we discovered ~14 missing Qt functions in gerbil-qt that are essential for real-world apps: scrollToBottom (QTextBrowser/QTextEdit), QTextBrowser::append for incremental HTML, QListWidget item data roles (store IDs alongside display text), setMinimumWidth/Height/setMaximumWidth/Height for size constraints, QLabel::setWordWrap, setCursor for hand cursor on clickable elements, and QTextEdit::toHtml. A gerbil-mcp tool could automatically compare Qt's commonly-used API surface against gerbil-qt's exports and report coverage gaps organized by app type (chat, editor, dashboard, etc.).",
+    "id": "run-tests-loadpath-auto",
+    "title": "Auto-detect GERBIL_LOADPATH in gerbil_run_tests for project test files",
+    "description": "When running test files via gerbil_run_tests with file_path, the tool fails with 'Datum or EOF expected' if compiled modules require GERBIL_LOADPATH to be set (e.g., for :clan/text/yaml or other external dependencies). The tool should auto-detect GERBIL_LOADPATH from gerbil.pkg depend: entries (like gerbil_build_and_report already does) and from the project's .gerbil/lib directory.",
+    "impact": "high",
+    "tags": [
+      "test",
+      "loadpath",
+      "gerbil_run_tests",
+      "depend",
+      "auto-detect"
+    ],
+    "use_case": "Running test files for projects that have external dependencies (e.g., :clan/text/yaml) listed in gerbil.pkg depend: entries. Currently must fall back to running tests via bash with manual GERBIL_LOADPATH.",
+    "example_scenario": "gerbil_run_tests with file_path webex/gui-theme-test.ss fails because the module imports :ober/webex/gui-theme which transitively depends on :clan/text/yaml (via util.ss). The compiled module needs ~/.gerbil/lib on GERBIL_LOADPATH but gerbil_run_tests doesn't set it. Had to fall back to: GERBIL_LOADPATH=$HOME/.gerbil/lib:.gerbil/lib gxi webex/gui-theme-test.ss",
+    "estimated_token_reduction": "~300 tokens per test run (eliminates fallback to bash + manual GERBIL_LOADPATH construction)",
+    "votes": 2
+  },
+  {
+    "id": "build-and-report-auto-retry-on-lock",
+    "title": "Auto-retry gerbil_build_and_report with clean on lock errors",
+    "description": "When gerbil_build_and_report encounters a `__with-lock` error (stale .gerbil lock files from a previous build), it should automatically attempt a clean build (remove .gerbil/ directory, then retry). Currently the tool reports a cryptic lock error and the user must manually run `make clean && make build` via bash. The tool should detect lock errors in the output and offer a `clean_retry` option or auto-retry.",
     "impact": "medium",
     "tags": [
-      "qt",
-      "gap",
-      "audit",
-      "widget",
-      "coverage",
-      "api"
+      "build",
+      "lock",
+      "retry",
+      "clean",
+      "stale"
     ],
-    "use_case": "When planning a new gerbil-qt application, quickly identify which Qt features are available vs. need to be added to the C++ shim, FFI layer, and high-level API before starting implementation.",
-    "example_scenario": "Planning a Webex chat client required checking ~20 individual Qt functions across qt.ss, qt_shim.h, and libqt.ss using grep. Took multiple tool calls to verify each function's availability. A single 'qt gap audit' tool call could have reported all missing functions at once.",
-    "estimated_token_reduction": "~2000 tokens per planning session (eliminates 10+ grep/search calls to check individual function availability)",
-    "votes": 1
+    "use_case": "When rapidly iterating on code changes, stale lock files from a previous (possibly interrupted) build cause gerbil_build_and_report to fail. This requires falling back to bash for `make clean && make build`, losing the structured diagnostics.",
+    "example_scenario": "gerbil_build_and_report returned: `ERROR: __with-lock -- ... ERROR IN slack/gui/theme.ss@5.9-5.22`. The actual issue was a stale lock file from a previous build, not a code error. Required manual `make clean && make build` via bash (2 extra tool calls, loss of structured output).",
+    "estimated_token_reduction": "~200 tokens per occurrence (eliminates bash fallback for clean+rebuild)",
+    "votes": 0
   }
 ]

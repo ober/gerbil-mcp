@@ -6,8 +6,9 @@ After modifying any `.ss` (Gerbil Scheme) source files, always run the build com
 
 When a Gerbil MCP server is available, you MUST use its tools extensively instead of guessing about Gerbil APIs, syntax, or behavior. Gerbil is a niche Scheme dialect with limited training data — always verify with live tools rather than relying on memory.
 
-### Before Writing Code
+### Before Writing Code — Cookbook First!
 
+- **`gerbil_howto`** (**MUST call FIRST**): Before writing ANY non-trivial Gerbil code, search the cookbook for relevant patterns. The cookbook contains verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g., `"dialog create"`, `"layout parent"`, `"shortcut keyboard"`, `"hash iterate"`). **Skipping this step has repeatedly caused bugs that were already solved in the cookbook.**
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
 - **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.

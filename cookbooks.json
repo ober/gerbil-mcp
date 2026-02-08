@@ -5043,5 +5043,254 @@
       "build-ffi-pkg-config",
       "gerbil-build-loadpath"
     ]
+  },
+  {
+    "id": "string-contains-returns-index-not-boolean",
+    "title": "string-contains returns index (not #t) — wrap in number? for tests",
+    "tags": [
+      "string-contains",
+      "srfi-13",
+      "test",
+      "check",
+      "truthy",
+      "index",
+      "boolean"
+    ],
+    "imports": [
+      ":std/srfi/13",
+      ":std/test"
+    ],
+    "code": ";; GOTCHA: string-contains returns the index of the match, NOT #t.\n;; In :std/test, (check expr => (not #f)) evaluates (not #f) to #t,\n;; then compares with equal? — so (check (string-contains s \"foo\") => (not #f))\n;; FAILS because 34 != #t.\n\n;; WRONG — fails because string-contains returns an index (integer):\n;; (check (string-contains \"hello world\" \"world\") => (not #f))  ;; 6 != #t\n;; (check (string-contains css \"QWidget\") => (not #f))          ;; 34 != #t\n\n;; CORRECT — wrap in number? to get a proper boolean:\n(check (number? (string-contains \"hello world\" \"world\")) => #t)\n(check (number? (string-contains \"hello world\" \"missing\")) => #f)\n\n;; ALSO CORRECT — use ? predicate check syntax:\n;; (check (string-contains \"hello world\" \"world\") ? number?)\n\n;; Same issue applies to string-contains-ci from :std/srfi/13:\n(check (number? (string-contains-ci \"Hello World\" \"hello\")) => #t)",
+    "notes": "string-contains and string-contains-ci (from :std/srfi/13) return the starting index of the match as an integer, or #f if not found. Since integers are truthy in Gerbil, you can use them in if/when/cond directly. But in :std/test check assertions, you need exact equality — so wrap with number? or use the ? predicate syntax. This commonly bites when writing tests for CSS/HTML content that contains known substrings.",
+    "related": [
+      "write-tests-with-std-test",
+      "ffi-type-predicate-returns-sublist"
+    ]
+  },
+  {
+    "id": "ssxi-optimizer-arity-workaround",
+    "title": "Disable ssxi optimizer to fix arity mismatch in complex import graphs",
+    "tags": [
+      "ssxi",
+      "optimizer",
+      "arity",
+      "mismatch",
+      "declare",
+      "compile",
+      "gerbil-qt",
+      "keyword"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: The Gerbil ssxi optimizer can generate incorrect arity for\n;; functions that use keyword-dispatch (like gerbil-qt widget creation)\n;; when the module imports certain other modules. The same calls compile\n;; fine in modules with fewer imports.\n;;\n;; SYMPTOM: Compilation error:\n;;   \"Illegal lambda application; arity mismatch\"\n;;   SyntaxError during gxc compilation\n;;\n;; Example: (qt-dialog-create parent: win) works in gui-header.ss\n;; (which imports only :gerbil-qt/qt, ./gui-theme, ./gui-state)\n;; but FAILS in gui-auth.ss (which also imports ./types, ./util, ./client).\n;;\n;; WORKAROUND: Add this declaration at the top of the affected module,\n;; after the import form:\n\n(declare (not optimize-dead-definitions))\n\n;; This disables the ssxi optimizer's dead-definition elimination pass,\n;; which is where the incorrect arity inference occurs.\n;;\n;; Full module template:\n;; (import\n;;   :gerbil-qt/qt\n;;   ./types\n;;   ./util\n;;   ./client)\n;;\n;; (export #t)\n;;\n;; ;; Disable ssxi optimizer to prevent arity mismatch\n;; (declare (not optimize-dead-definitions))\n;;\n;; (def (my-function parent)\n;;   (let ((dlg (qt-dialog-create parent: parent)))  ;; now compiles OK\n;;     ...))",
+    "notes": "This is a known quirk of the Gerbil ssxi optimizer. It affects modules that import both keyword-dispatch-heavy modules (like :gerbil-qt/qt) AND other project modules. The optimizer incorrectly infers arities for keyword-dispatch calls based on the combined import context. The workaround has no significant performance impact for GUI code. You can also try a clean build (make clean && make build) as stale .ssxi files can cause similar issues.",
+    "related": [
+      "qt-splitter-create-requires-orientation"
+    ]
+  },
+  {
+    "id": "hash-table-predicate-not-hash",
+    "title": "Use hash-table? (not hash?) to check for hash tables",
+    "tags": [
+      "hash-table?",
+      "hash?",
+      "predicate",
+      "type-check",
+      "unbound"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: Gerbil uses hash-table? to check if a value is a hash table.\n;; There is NO hash? predicate — it causes an \"unbound identifier\" error.\n\n;; WRONG — unbound identifier:\n;; (hash? my-value)  ;; ERROR: Unbound identifier hash?\n\n;; CORRECT:\n(hash-table? (hash (\"a\" 1)))  ;; => #t\n(hash-table? '())             ;; => #f\n(hash-table? 42)              ;; => #f\n\n;; Common pattern in tests:\n;; (check (hash-table? (state-ref 'rooms)) => #t)\n\n;; Note: (hash ...) creates a hash table, but hash? doesn't exist.\n;; The constructor and predicate have different naming conventions:\n;;   Constructor:  (hash (\"key\" value) ...)\n;;   Predicate:    (hash-table? obj)\n;;   Type name:    HashTable (for class-info)",
+    "notes": "This catches many people coming from other Lisp dialects where the predicate matches the constructor name. In Gerbil: hash creates, hash-table? checks. Also note: hash-eq creates an eq?-based hash table, and the same hash-table? predicate works for both kinds.",
+    "related": [
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "void-initial-callback-avoids-compiler-type-error",
+    "title": "Use (void) not #f for mutable callback variables to avoid compiler type errors",
+    "tags": [
+      "void",
+      "callback",
+      "compiler",
+      "type",
+      "mutable",
+      "def",
+      "procedure",
+      "initial"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: When defining a mutable global that will hold a callback procedure,\n;; do NOT initialize it to #f. The Gerbil compiler performs static analysis\n;; and may see the #f value at compile time, causing errors when the variable\n;; is later called as a procedure in a lambda.\n;;\n;; WRONG — compiler sees #f (boolean::t) and rejects the call:\n;; (def *my-callback* #f)\n;; (qt-on-triggered! action\n;;   (lambda () (when *my-callback* (*my-callback*))))\n;; => ERROR: (%#call (%#ref *my-callback*)) detail: boolean::t\n;;\n;; CORRECT — use (void) as initial value + procedure? check:\n(def *my-callback* (void))\n\n;; Later, set it to an actual procedure:\n;; (set! *my-callback* (lambda () (do-something)))\n\n;; When calling, check with procedure?:\n;; (when (procedure? *my-callback*) (*my-callback*))",
+    "notes": "This issue occurs specifically with Gerbil's AOT compiler (gxc). The compiler statically analyzes known values and can determine that #f is boolean::t, which cannot be called as a procedure. Using (void) avoids this because #!void is not typed as narrowly. The procedure? check at the call site is needed regardless since the initial value is not callable. This pattern is common when avoiding circular imports — module A defines the callback slot, module B sets it at init time.",
+    "related": [
+      "hash-ref-returns-void-truthy"
+    ]
+  },
+  {
+    "id": "hash-ref-default-not-used-when-key-exists-empty",
+    "title": "hash-ref default is ignored when key exists with [] or #f value",
+    "tags": [
+      "hash-ref",
+      "default",
+      "empty-list",
+      "state",
+      "fallback",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: hash-ref's default is only used when the KEY IS MISSING.\n;; If the key exists with a falsy or empty value, the default is NOT used.\n;;\n;; This commonly bites with state stores that initialize all keys upfront.\n\n;; Example: state hash initialized with all keys\n(def *state* (hash (room-order [\"r1\" \"r2\" \"r3\"])\n                   (filtered-room-order [])))  ;; key exists, value is []\n\n;; WRONG — expects fallback to room-order, but gets [] because key exists:\n(def (get-rooms)\n  (hash-ref *state* 'filtered-room-order\n    (hash-ref *state* 'room-order [])))\n;; => []  (NOT [\"r1\" \"r2\" \"r3\"] — default is never used!)\n\n;; The key 'filtered-room-order EXISTS with value [], so hash-ref\n;; returns [] immediately without consulting the default expression.\n\n;; CORRECT — check if the value is empty, not just missing:\n(def (get-rooms)\n  (let ((filtered (hash-ref *state* 'filtered-room-order [])))\n    (if (pair? filtered)\n      filtered\n      (hash-ref *state* 'room-order []))))\n\n;; ALSO CORRECT — initialize with #f instead of []:\n;; (def *state* (hash (filtered-room-order #f)))\n;; Then hash-ref returns #f, and (or #f default) works.\n;; But this changes the type contract.\n\n;; GENERAL RULE: hash-ref default is a KEY-ABSENCE default, not a\n;; VALUE-ABSENCE default. If you need fallback for empty/falsy values,\n;; check the value explicitly after retrieval.",
+    "notes": "This commonly manifests in reactive state stores (like gui-state.ss) where all keys are initialized upfront with defaults. The pattern (hash-ref state 'key1 (hash-ref state 'key2 default)) looks like it chains fallbacks, but the first hash-ref always returns the initialized value (even []) because the key exists. Tests that only set key2 (the \"real\" data) but not key1 (the \"filtered\" view) fail silently because key1 returns [] instead of falling through. Fix: either check (pair? result) for list values, or initialize optional keys to #f instead of [].",
+    "related": [
+      "hash-table-operations",
+      "hash-ref-void-truthy"
+    ]
+  },
+  {
+    "id": "qt-dialog-create-parent-keyword",
+    "title": "qt-dialog-create takes parent: as keyword argument, not positional",
+    "tags": [
+      "qt",
+      "dialog",
+      "create",
+      "parent",
+      "keyword",
+      "arity",
+      "modal"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-dialog-create takes parent: as a KEYWORD argument.\n;; Arity is 1 (keyword dispatch), not 0 or 2.\n;;\n;; WRONG — positional parent arg:\n;; (qt-dialog-create *main-window*)\n;; => ERROR: Illegal lambda application; arity mismatch\n;;\n;; WRONG — no parent (creates orphan dialog):\n;; (qt-dialog-create)\n;; => ERROR: Illegal lambda application; arity mismatch\n;;\n;; CORRECT — use parent: keyword:\n(let ((dlg (qt-dialog-create parent: *main-window*)))\n  (qt-dialog-set-title! dlg \"My Dialog\")\n  (qt-widget-set-minimum-size! dlg 400 300)\n\n  ;; Add content via layout\n  (let ((layout (qt-vbox-layout-create dlg)))\n    (qt-layout-add-widget! layout (qt-label-create \"Hello\"))\n    (let ((close-btn (qt-push-button-create \"Close\")))\n      (qt-on-clicked! close-btn (lambda () (qt-dialog-accept! dlg)))\n      (qt-layout-add-widget! layout close-btn)))\n\n  ;; Show as modal dialog (blocks until closed)\n  (qt-dialog-exec! dlg))",
+    "notes": "The parent: keyword makes the dialog modal relative to the parent window. qt-dialog-exec! shows the dialog and blocks until the user closes it (via qt-dialog-accept! or qt-dialog-reject! or the X button). Use qt-dialog-set-title! to set the title bar text. The dialog's layout is created with (qt-vbox-layout-create dlg) — passing the dialog as parent to the layout constructor.",
+    "related": [
+      "qt-hbox-vbox-layout-require-parent",
+      "qt-action-parent-keyword"
+    ]
+  },
+  {
+    "id": "qt-system-tray-icon-create-bus-error",
+    "title": "qt-system-tray-icon-create: icon is positional, parent is keyword (bus error gotcha)",
+    "tags": [
+      "system",
+      "tray",
+      "icon",
+      "create",
+      "bus error",
+      "crash",
+      "SIGBUS",
+      "parent",
+      "keyword",
+      "positional"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; GOTCHA: qt-system-tray-icon-create takes icon as POSITIONAL arg, parent as KEYWORD.\n;; Passing a QWidget as the first positional arg causes a Bus Error (SIGBUS)\n;; because the C shim dereferences it as a const QIcon& reference.\n;;\n;; WRONG — causes Bus error: 10 (SIGBUS):\n;; (qt-system-tray-icon-create win)  ;; win treated as icon, not parent!\n;;\n;; CORRECT — create a QIcon first, pass parent: as keyword:\n(let* ((icon (qt-icon-create \"\"))  ;; empty/null icon\n       (tray (qt-system-tray-icon-create icon parent: win)))\n  (qt-system-tray-icon-set-tooltip! tray \"My App\")\n  (qt-system-tray-icon-show! tray)\n  tray)\n\n;; Or with a real icon from a pixmap:\n;; (let* ((pix (qt-pixmap-create-blank 32 32))\n;;        (_ (qt-pixmap-fill! pix 52 152 219))\n;;        (icon (qt-icon-create-from-pixmap pix))\n;;        (tray (qt-system-tray-icon-create icon parent: win)))\n;;   ...)",
+    "notes": "The crash occurs because qt_system_tray_icon_create(icon, parent) passes the first arg as const QIcon& to the QSystemTrayIcon C++ constructor. A QWidget pointer dereferenced as QIcon reads garbage memory → SIGBUS. The empty string icon path creates a null QIcon which is safe to pass. Always check (qt-system-tray-available?) before creating.",
+    "related": [
+      "qt-system-tray-icon-full",
+      "qt-action-create-requires-parent-keyword"
+    ]
+  },
+  {
+    "id": "qt-list-widget-item-data-user-role",
+    "title": "Store hidden data on QListWidget items using Qt::UserRole",
+    "tags": [
+      "qt",
+      "list-widget",
+      "item-data",
+      "user-role",
+      "hidden-data",
+      "setData"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; QListWidget items can carry hidden string data via Qt::UserRole.\n;; This is useful for storing IDs, keys, or metadata alongside display text.\n;;\n;; qt-list-widget-set-item-data! stores a string on the item at the given row.\n;; qt-list-widget-item-data retrieves the stored string (or \"\" if none).\n;; The display text (qt-list-widget-item-text) is unaffected.\n\n(import :gerbil-qt/qt)\n\n(let ((l (qt-list-widget-create)))\n  ;; Add visible items\n  (qt-list-widget-add-item! l \"Alice\")\n  (qt-list-widget-add-item! l \"Bob\")\n\n  ;; Attach hidden data (e.g. database IDs)\n  (qt-list-widget-set-item-data! l 0 \"user-id-1001\")\n  (qt-list-widget-set-item-data! l 1 \"user-id-1002\")\n\n  ;; Retrieve hidden data\n  (qt-list-widget-item-data l 0)  ;; => \"user-id-1001\"\n  (qt-list-widget-item-data l 1)  ;; => \"user-id-1002\"\n\n  ;; Display text is unchanged\n  (qt-list-widget-item-text l 0)  ;; => \"Alice\"\n\n  ;; Use in selection handler:\n  (qt-on-current-row-changed! l\n    (lambda (row)\n      (when (>= row 0)\n        (let ((id (qt-list-widget-item-data l row)))\n          (displayln \"Selected user: \" id)))))\n\n  (qt-widget-destroy! l))",
+    "notes": "Data is stored using Qt::UserRole (256). Only string data is supported. Returns \"\" for items with no data set or invalid row indices. The C++ shim uses QVariant::toString() so non-string QVariant data will be coerced to string.",
+    "related": [
+      "qt-on-return-pressed-not-on-line-edit-return"
+    ]
+  },
+  {
+    "id": "qt-scroll-to-bottom-text-edit-browser",
+    "title": "Scroll QTextEdit or QTextBrowser to bottom (chat-style auto-scroll)",
+    "tags": [
+      "qt",
+      "scroll",
+      "bottom",
+      "text-edit",
+      "text-browser",
+      "chat",
+      "auto-scroll"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; For chat apps or log viewers, scroll to the bottom after appending text.\n;; Works on both QTextEdit and QTextBrowser.\n;; Internally uses verticalScrollBar()->setValue(verticalScrollBar()->maximum()).\n\n(import :gerbil-qt/qt)\n\n;; QTextEdit example (chat input area):\n(let ((e (qt-text-edit-create)))\n  (qt-text-edit-append! e \"Message 1\")\n  (qt-text-edit-append! e \"Message 2\")\n  (qt-text-edit-append! e \"Message 3\")\n  (qt-text-edit-scroll-to-bottom! e)\n  (qt-widget-destroy! e))\n\n;; QTextBrowser example (chat history display):\n(let ((tb (qt-text-browser-create)))\n  (qt-text-browser-set-html! tb \"<p>Welcome to the chat</p>\")\n  (qt-text-browser-append! tb \"User1: Hello!\")\n  (qt-text-browser-append! tb \"User2: Hi there!\")\n  (qt-text-browser-scroll-to-bottom! tb)\n  (qt-widget-destroy! tb))",
+    "notes": "Call scroll-to-bottom! AFTER appending content. QTextBrowser also has qt-text-browser-append! (which QTextEdit already had as qt-text-edit-append!). Both append functions add rich text (HTML-aware) — plain text is auto-escaped.",
+    "related": [
+      "qt-list-widget-item-data-user-role"
+    ]
+  },
+  {
+    "id": "qt-widget-min-max-width-height-cursor",
+    "title": "Set individual min/max width/height and cursor shape on any widget",
+    "tags": [
+      "qt",
+      "widget",
+      "minimum-width",
+      "maximum-height",
+      "cursor",
+      "pointing-hand",
+      "size-constraint"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Individual min/max width/height setters (vs the combined set-minimum-size!).\n;; Useful when you only want to constrain one dimension.\n;;\n;; (qt-widget-set-minimum-width! w pixels)\n;; (qt-widget-set-minimum-height! w pixels)\n;; (qt-widget-set-maximum-width! w pixels)\n;; (qt-widget-set-maximum-height! w pixels)\n;;\n;; Compare with existing combined versions:\n;; (qt-widget-set-minimum-size! w width height)\n;; (qt-widget-set-maximum-size! w width height)\n\n(import :gerbil-qt/qt)\n\n;; Example: sidebar with fixed width but flexible height\n(let ((sidebar (qt-widget-create)))\n  (qt-widget-set-minimum-width! sidebar 200)\n  (qt-widget-set-maximum-width! sidebar 300)\n  ;; height is unconstrained\n\n  ;; Cursor shape constants:\n  ;; QT_CURSOR_ARROW (0) — default arrow\n  ;; QT_CURSOR_CROSS (2) — crosshair\n  ;; QT_CURSOR_WAIT (3) — hourglass/spinner\n  ;; QT_CURSOR_IBEAM (4) — text I-beam\n  ;; QT_CURSOR_POINTING_HAND (13) — clickable hand\n  ;; QT_CURSOR_FORBIDDEN (14) — not-allowed circle\n  ;; QT_CURSOR_BUSY (16) — arrow + spinner\n\n  ;; Set cursor on any widget (e.g. clickable label):\n  (qt-widget-set-cursor! sidebar QT_CURSOR_POINTING_HAND)\n\n  ;; Restore default cursor:\n  (qt-widget-unset-cursor! sidebar)\n\n  (qt-widget-destroy! sidebar))",
+    "notes": "Cursor constants map to Qt::CursorShape enum values. setCursor works on any QWidget subclass. unsetCursor restores the cursor inherited from the parent widget. For busy indicators, QT_CURSOR_BUSY shows an arrow with a spinner (non-blocking) while QT_CURSOR_WAIT shows just a spinner (suggests blocking).",
+    "related": [
+      "qt-scroll-to-bottom-text-edit-browser"
+    ]
+  },
+  {
+    "id": "qt-text-edit-to-html",
+    "title": "Get HTML content from QTextEdit or QTextBrowser with toHtml",
+    "tags": [
+      "qt",
+      "text-edit",
+      "text-browser",
+      "html",
+      "toHtml",
+      "rich-text",
+      "export"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Get the full HTML representation of text content.\n;; Works on both QTextEdit (qt-text-edit-html) and QTextBrowser (qt-text-browser-html).\n;; Even plain text gets wrapped in HTML tags by Qt.\n\n(import :gerbil-qt/qt)\n\n;; QTextEdit: get HTML\n(let ((e (qt-text-edit-create)))\n  (qt-text-edit-set-text! e \"Hello World\")\n  (let ((html (qt-text-edit-html e)))\n    ;; html contains full HTML document with <html><head><body> tags\n    ;; e.g. \"<!DOCTYPE HTML PUBLIC ...><html><head>...</head><body>\n    ;;       <p style=\\\"...\\\">Hello World</p></body></html>\"\n    (displayln html))\n  (qt-widget-destroy! e))\n\n;; QTextBrowser: get HTML\n(let ((tb (qt-text-browser-create)))\n  (qt-text-browser-set-html! tb \"<b>Bold</b> and <i>italic</i>\")\n  (let ((html (qt-text-browser-html tb)))\n    (displayln html))\n  (qt-widget-destroy! tb))\n\n;; Compare with plain text getters:\n;; (qt-text-edit-text e)         ;; plain text only (strips HTML)\n;; (qt-text-edit-html e)         ;; full HTML document\n;; (qt-text-browser-plain-text tb)  ;; plain text only\n;; (qt-text-browser-html tb)       ;; full HTML document",
+    "notes": "Qt always wraps content in a full HTML document structure even for plain text input. The HTML includes inline CSS styles for font, margins, etc. Useful for saving rich text content or clipboard operations. The string-returning FFI uses s_return_buf + const-cast wrapper pattern.",
+    "related": [
+      "qt-scroll-to-bottom-text-edit-browser"
+    ]
+  },
+  {
+    "id": "qt-label-word-wrap",
+    "title": "Enable word wrapping on QLabel for long text",
+    "tags": [
+      "qt",
+      "label",
+      "word-wrap",
+      "text",
+      "wrap",
+      "multi-line"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; By default, QLabel does NOT word-wrap — long text is clipped.\n;; Enable word wrapping for multi-line labels or chat message bubbles.\n\n(import :gerbil-qt/qt)\n\n(let ((label (qt-label-create \"This is a very long text that should wrap to multiple lines when the widget is narrower than the text.\")))\n  (qt-label-set-word-wrap! label #t)   ;; enable wrapping\n  ;; (qt-label-set-word-wrap! label #f)  ;; disable wrapping (default)\n  (qt-widget-set-maximum-width! label 200)  ;; constrain width to see wrapping\n  (qt-widget-destroy! label))",
+    "notes": "Takes a boolean (#t/#f), internally converted to int (1/0) for the C FFI. Word wrap respects the widget's width — combine with qt-widget-set-maximum-width! or layout constraints to control wrap point. Useful for chat message display, status labels, and description text.",
+    "related": [
+      "qt-widget-min-max-width-height-cursor"
+    ]
   }
 ]
