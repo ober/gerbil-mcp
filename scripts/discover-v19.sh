@@ -170,10 +170,85 @@ echo "=== Running claude -p (model: $MODEL) ==="
 claude_args=(
   -p "$prompt"
   --model "$MODEL"
+  --verbose
+  --output-format stream-json
   --allowedTools "Bash(git:*),Bash(ls:*),Read,Glob,Grep,mcp__gerbil__*"
 )
 if [[ -n "$MAX_BUDGET" ]]; then
   claude_args+=(--max-budget-usd "$MAX_BUDGET")
 fi
 
-claude "${claude_args[@]}"
+# Stream output and show progress: tool calls, results, and assistant text
+claude "${claude_args[@]}" | while IFS= read -r line; do
+  type=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('type',''))" 2>/dev/null || true)
+  case "$type" in
+    assistant)
+      # Show assistant text as it arrives
+      text=$(echo "$line" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for c in d.get('message',{}).get('content',[]):
+  if c.get('type')=='text': print(c['text'])
+" 2>/dev/null || true)
+      if [[ -n "$text" ]]; then
+        echo "$text"
+      fi
+      ;;
+    tool_use)
+      # Show which tool is being called
+      tool=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool',''))" 2>/dev/null || true)
+      input_preview=$(echo "$line" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+inp=d.get('input',{})
+# Show a short preview of the input
+parts=[]
+for k,v in list(inp.items())[:3]:
+  s=str(v)
+  if len(s)>60: s=s[:60]+'...'
+  parts.append(f'{k}={s}')
+print(', '.join(parts))
+" 2>/dev/null || true)
+      echo "  >> [tool] $tool($input_preview)"
+      ;;
+    tool_result)
+      # Show a brief snippet of the result
+      content=$(echo "$line" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+t=d.get('content','')
+if isinstance(t,list):
+  t=' '.join(c.get('text','') for c in t if isinstance(c,dict))
+t=str(t).strip()
+if len(t)>120: t=t[:120]+'...'
+print(t)
+" 2>/dev/null || true)
+      is_error=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('is_error','false'))" 2>/dev/null || true)
+      if [[ "$is_error" == "true" || "$is_error" == "True" ]]; then
+        echo "  << [result] ERROR: $content"
+      else
+        echo "  << [result] $content"
+      fi
+      ;;
+    result)
+      # Final result — show full text
+      text=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))" 2>/dev/null || true)
+      if [[ -n "$text" ]]; then
+        echo ""
+        echo "=== Final Result ==="
+        echo "$text"
+      fi
+
+      # Show cost info if present
+      cost=$(echo "$line" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+c=d.get('cost_usd')
+if c: print(f'Cost: \${c:.4f}')
+" 2>/dev/null || true)
+      if [[ -n "$cost" ]]; then
+        echo "$cost"
+      fi
+      ;;
+  esac
+done

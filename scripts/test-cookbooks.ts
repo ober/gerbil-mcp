@@ -176,10 +176,15 @@ async function main(): Promise<void> {
     };
 
     // Syntax-check in batches
+    const totalBatches = Math.ceil(recipes.length / DEFAULT_BATCH_SIZE);
     let syntaxPass = 0;
     let syntaxFail = 0;
+    let batchNum = 0;
     for (let i = 0; i < recipes.length; i += DEFAULT_BATCH_SIZE) {
+      batchNum++;
       const batch = recipes.slice(i, i + DEFAULT_BATCH_SIZE);
+      const batchIds = batch.map((r) => r.id);
+      process.stdout.write(`  [syntax ${batchNum}/${totalBatches}] checking ${batchIds.join(', ')}...`);
       let batchResults = await runVerifyBatch(batch, gxiPath, { timeout: 60_000 });
 
       // If any recipe didn't get a result (batch crash), retry individually
@@ -187,6 +192,7 @@ async function main(): Promise<void> {
         (r) => !r.passed && (r.error?.includes('batch crash') || r.error?.includes('batch failed')),
       );
       if (needsRetry.length > 0 && needsRetry.length < batch.length) {
+        process.stdout.write(' retrying individually...');
         for (const failed of needsRetry) {
           const recipe = batch.find((r) => r.id === failed.id);
           if (recipe) {
@@ -197,14 +203,22 @@ async function main(): Promise<void> {
         }
       }
 
+      const batchPassed = batchResults.filter((r) => r.passed).length;
+      const batchFailed = batchResults.filter((r) => !r.passed).length;
       for (const r of batchResults) {
         result.syntaxResults.set(r.id, { passed: r.passed, error: r.error });
         if (r.passed) syntaxPass++;
         else syntaxFail++;
       }
+      const failedIds = batchResults.filter((r) => !r.passed).map((r) => r.id);
+      if (failedIds.length > 0) {
+        console.log(` ${batchPassed} ok, ${batchFailed} FAIL [${failedIds.join(', ')}]`);
+      } else {
+        console.log(` ${batchPassed} ok`);
+      }
     }
 
-    console.log(`  Syntax: ${syntaxPass} passed, ${syntaxFail} failed`);
+    console.log(`  Syntax total: ${syntaxPass} passed, ${syntaxFail} failed`);
 
     // Compile-check (only for syntax-passing recipes)
     if (!args.noCompile) {
@@ -215,13 +229,21 @@ async function main(): Promise<void> {
 
         let compilePass = 0;
         let compileFail = 0;
-        for (const recipe of syntaxPassed) {
+        const compileTotal = syntaxPassed.length;
+        for (let ci = 0; ci < syntaxPassed.length; ci++) {
+          const recipe = syntaxPassed[ci];
+          process.stdout.write(`  [compile ${ci + 1}/${compileTotal}] ${recipe.id}...`);
           const cr = await runCompileCheck(recipe, gxcPath, tempDir, { timeout: 30_000 });
           result.compileResults.set(cr.id, { passed: cr.passed, error: cr.error });
-          if (cr.passed) compilePass++;
-          else compileFail++;
+          if (cr.passed) {
+            compilePass++;
+            console.log(' ok');
+          } else {
+            compileFail++;
+            console.log(` FAIL: ${cr.error?.slice(0, 80) || 'unknown'}`);
+          }
         }
-        console.log(`  Compile: ${compilePass} passed, ${compileFail} failed`);
+        console.log(`  Compile total: ${compilePass} passed, ${compileFail} failed`);
       }
     }
 

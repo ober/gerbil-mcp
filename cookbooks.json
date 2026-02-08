@@ -2798,7 +2798,9 @@
       "workgroup-thread-pool",
       "completion-async-value"
     ],
-    "gerbil_version": "v0.18.1-173"
+    "gerbil_version": "v0.18.1-173",
+    "deprecated": true,
+    "superseded_by": "barrier-synchronization-v19"
   },
   {
     "id": "completion-async-value",
@@ -2822,7 +2824,9 @@
       "barrier-synchronization",
       "channel-based-communication"
     ],
-    "gerbil_version": "v0.18.1-173"
+    "gerbil_version": "v0.18.1-173",
+    "deprecated": true,
+    "superseded_by": "completion-async-value-v19"
   },
   {
     "id": "rwlock-readers-writer",
@@ -6509,5 +6513,286 @@
       "gambit-ffi-shim-split-pattern"
     ],
     "gerbil_version": "v0.18.1-173"
+  },
+  {
+    "id": "barrier-synchronization-v19",
+    "title": "Barrier synchronization for N threads to reach a checkpoint",
+    "tags": [
+      "barrier",
+      "synchronization",
+      "thread",
+      "sync",
+      "wait",
+      "coordination"
+    ],
+    "imports": [
+      ":std/sync/barrier"
+    ],
+    "code": "(import :std/sync/barrier)\n\n;; Create a barrier for N threads\n(def b (make-barrier 3))\n\n;; Each thread signals when it reaches the checkpoint\n(for (i (in-range 3))\n  (spawn (lambda ()\n    (thread-sleep! (* i 0.1))  ;; simulate varying work\n    (displayln \"thread \" i \" reached barrier\")\n    (barrier-post! b)           ;; signal \"I'm done\"\n    (displayln \"thread \" i \" past barrier\"))))\n\n;; Main thread waits for all 3 to post\n(barrier-wait! b)\n(displayln \"all threads reached the barrier\")\n\n;; Error propagation: if any thread fails, all waiters get the error\n(def b2 (make-barrier 2))\n(spawn (lambda ()\n  (with-barrier-error b2\n    (error \"worker failed!\"))))\n;; barrier-wait! will re-raise the error\n(with-catch\n  (lambda (e) (displayln \"barrier error: \" (error-message e)))\n  (lambda () (barrier-wait! b2)))",
+    "notes": "Barriers use a mutex + condition variable internally. barrier-post! increments a counter and broadcasts when it reaches the limit. barrier-wait! blocks until all expected threads have posted. with-barrier-error catches exceptions in the body and propagates them to all waiters via barrier-error!. Once a barrier fires (or errors), it cannot be reused — create a new one.",
+    "related": [
+      "workgroup-thread-pool",
+      "completion-async-value-v19"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "completion-async-value-v19",
+    "title": "Completion: one-shot async value/error container",
+    "tags": [
+      "completion",
+      "async",
+      "future",
+      "promise",
+      "one-shot",
+      "thread",
+      "sync"
+    ],
+    "imports": [
+      ":std/sync/completion"
+    ],
+    "code": "(import :std/sync/completion)\n\n;; Create a completion (like a one-shot promise/future)\n(def c (make-completion))\n\n;; Producer thread posts a value or error\n(spawn (lambda ()\n  (thread-sleep! 0.5)  ;; simulate async work\n  (completion-post! c 42)))\n\n;; Consumer blocks until value is available\n(def result (completion-wait! c))  ;; => 42\n\n;; Error propagation\n(def c2 (make-completion))\n(spawn (lambda ()\n  (completion-error! c2 (make-error \"async failure\"))))\n;; completion-wait! will raise the posted error\n(with-catch\n  (lambda (e) (displayln \"got error: \" (error-message e)))\n  (lambda () (completion-wait! c2)))\n\n;; with-completion-error: catch body errors and propagate to completion\n(def c3 (make-completion))\n(spawn (lambda ()\n  (with-completion-error c3\n    (let (result (risky-computation))\n      (completion-post! c3 result)))))\n;; If risky-computation throws, the error is posted to c3\n\n;; Pattern: async operation with timeout\n(def c4 (make-completion))\n(spawn (lambda ()\n  (let (data (fetch-remote-data))\n    (completion-post! c4 data))))\n;; Poll with timeout (using mutex-unlock! internally)\n(completion-wait! c4)  ;; blocks until ready",
+    "notes": "Completions are one-shot: once a value or error is posted, it cannot be changed. Attempting to post twice raises an error. Multiple threads can wait on the same completion — all will be woken when the value is posted. completion-wait! returns the posted value or re-raises the posted error. This is simpler than channels for single-result async operations.",
+    "related": [
+      "barrier-synchronization-v19",
+      "channel-communication-v19"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "channel-communication-v19",
+    "title": "Channel-based communication between threads",
+    "tags": [
+      "channel",
+      "communication",
+      "thread",
+      "producer",
+      "consumer",
+      "queue",
+      "sync"
+    ],
+    "imports": [
+      ":std/sync/channel"
+    ],
+    "code": "(import :std/sync/channel)\n(def ch (make-channel))\n\n;; Producer:\n(spawn (lambda ()\n  (for-each (lambda (x) (channel-put ch x)) '(1 2 3))\n  (channel-close ch)))\n\n;; Consumer — iterate until closed:\n(let loop ()\n  (let ((val (channel-try-get ch eof)))\n    (unless (eof-object? val)\n      (displayln \"got: \" val)\n      (loop))))",
+    "notes": "Use channel-get for blocking reads. Avoid spinning on channel-try-get in a tight loop — use channel-get instead.",
+    "related": [
+      "spawn-thread",
+      "barrier-synchronization-v19",
+      "completion-async-value-v19"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "concurrency-pattern-decision-guide-v19",
+    "title": "Concurrency pattern decision guide — choose the right primitive",
+    "tags": [
+      "concurrency",
+      "thread",
+      "channel",
+      "barrier",
+      "completion",
+      "actor",
+      "pattern",
+      "guide",
+      "sync"
+    ],
+    "imports": [],
+    "code": ";; Concurrency Pattern Decision Guide for Gerbil Scheme v0.19\n;;\n;; Use case                          → Primitive               → Module\n;; ─────────────────────────────────────────────────────────────────────\n;; Fire-and-forget task              → spawn                   → (builtin)\n;; Multiple producers/consumers      → channel                 → :std/sync/channel\n;; One-shot async result (future)    → completion              → :std/sync/completion\n;; Wait for N tasks to finish        → barrier                 → :std/sync/barrier\n;; Thread pool with task queue       → workgroup (wg)          → :std/misc/wg\n;; Shared mutable state (simple)     → atom                    → :std/misc/atom\n;; Read-heavy shared state           → rwlock                  → :std/sync/rwlock\n;; Message passing / RPC             → actor                   → :std/actor\n;; Race multiple events              → sync/select             → :std/event\n;; Exclusive critical section        → mutex + unwind-protect  → (builtin)\n;;\n;; Quick decision tree:\n;; 1. Need to pass data between threads?\n;;    - Stream of values → channel\n;;    - Single result    → completion\n;; 2. Need to coordinate threads?\n;;    - Wait for all    → barrier or wg\n;;    - Wait for first  → sync/select\n;; 3. Need shared mutable state?\n;;    - Read-heavy      → rwlock\n;;    - Read/write even → atom\n;; 4. Need structured message passing?\n;;    - Request/reply   → actor (->>)\n;;    - Fire-and-forget → actor (->)",
+    "notes": "This is a reference guide, not executable code. Each primitive listed here has its own cookbook recipe with working examples. Search for the specific pattern name (e.g., \"channel\", \"barrier\", \"workgroup\") to find detailed examples. NOTE: In v0.19, sync primitives moved: barrier/channel/completion/rwlock are now in :std/sync/, not :std/misc/. List utilities moved to :std/list/. Some modules remain in :std/misc/ or moved to v0.19-TODO/misc/.",
+    "related": [
+      "channel-communication-v19",
+      "barrier-synchronization-v19",
+      "completion-async-value-v19",
+      "workgroup-thread-pool",
+      "atom-atomic-reference",
+      "actor-message-passing",
+      "event-sync-select"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "alist-operations-v19",
+    "title": "Association list operations (get, set, remove, convert)",
+    "tags": [
+      "alist",
+      "association-list",
+      "assoc",
+      "assq",
+      "asetq",
+      "aremq",
+      "plist",
+      "list"
+    ],
+    "imports": [
+      ":std/list/alist"
+    ],
+    "code": "(import :std/list/alist)\n\n;; An alist is a list of (key . value) pairs\n(def al '((a . 1) (b . 2) (c . 3)))\n\n;; Lookup: use standard Scheme assq/assv/assoc\n(assq 'b al)   ;; => (b . 2)\n(cdr (assq 'b al))  ;; => 2\n\n;; Prepend a new key-value pair (standard cons-based)\n(acons 'd 4 al)\n;; => ((d . 4) (a . 1) (b . 2) (c . 3))\n\n;; Functional set: returns NEW alist with updated binding\n;; Signature: (asetq alist key value)\n(asetq al 'b 99)\n;; => ((a . 1) (b . 99) (c . 3))\n\n;; Functional remove: returns NEW alist without key\n;; Signature: (aremq key alist)\n(aremq 'b al)\n;; => ((a . 1) (c . 3))\n\n;; Destructive set: modifies the alist IN PLACE\n;; Signature: (asetq! alist key value)\n(def al2 (list (cons 'x 10) (cons 'y 20)))\n(asetq! al2 'y 99)\nal2  ;; => ((x . 10) (y . 99))\n\n;; Convert keyword plist to alist\n(plist->alist '(name: \"Alice\" age: 30 city: \"NYC\"))\n;; => ((name: . \"Alice\") (age: . 30) (city: . \"NYC\"))\n\n;; Predicate\n(alist? al)   ;; => #t\n(alist? '())  ;; => #t\n(alist? 42)   ;; => #f\n\n;; Variants by comparison:\n;;   asetq/aremq  — use eq?  (symbols, fixnums)\n;;   asetv/aremv  — use eqv? (chars, numbers)\n;;   aset/arem    — use equal? (strings, lists)",
+    "notes": "GOTCHA: asetq and aremq have DIFFERENT argument orders! asetq is (asetq alist key value) but aremq is (aremq key alist). The ! variants (asetq!, aremq!) are destructive — they modify the alist in place. The non-! variants are functional — they return a new alist. Use asetq/aremq for symbol keys (eq?), asetv/aremv for char/number keys (eqv?), aset/arem for string/list keys (equal?). For hash-table-like performance with many entries, prefer hash tables instead.",
+    "related": [
+      "hash-table-create",
+      "plist-keyword-config",
+      "config-keyword-plist"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "defobject-cache-object-pooling",
+    "title": "Object pooling with defobject-cache",
+    "tags": [
+      "object",
+      "cache",
+      "pool",
+      "reuse",
+      "defobject-cache",
+      "performance",
+      "memory"
+    ],
+    "imports": [
+      ":std/object"
+    ],
+    "code": "(import :std/object)\n\n;; Define a class that will be pooled\n(defclass MyBuffer ()\n  (data)\n  constructor: :init!)\n\n(defmethod {:init! MyBuffer}\n  (lambda (self)\n    (set! self.data (make-u8vector 4096 0))))\n\n;; Define reset function to prepare object for reuse\n(def (reset-buffer! (buf : MyBuffer))\n  (u8vector-fill! buf.data 0))\n\n;; Create object pool using defobject-cache\n;; Generates: buffer-cache.get (allocates or reuses), buffer-cache.put! (returns to pool)\n(defobject-cache buffer-cache MyBuffer make-MyBuffer reset-buffer!)\n\n;; Usage: get from pool\n(def buf1 (buffer-cache.get))  ;; new MyBuffer\n(displayln \"got buffer\")\n\n;; Use it...\n(u8vector-set! buf1.data 0 42)\n\n;; Return to pool when done\n(buffer-cache.put! buf1)  ;; calls reset-buffer! and adds to cache\n\n;; Next get reuses the same object\n(def buf2 (buffer-cache.get))  ;; reuses buf1\n(displayln (u8vector-ref buf2.data 0))  ;; => 0 (reset cleared it)",
+    "notes": "defobject-cache creates a thread-safe object pool with a mutex-protected free list. The .get method either allocates a new object (via the constructor function) or pops from the cache. The .put! method calls the reset function then pushes to the cache. This reduces GC pressure for frequently allocated/deallocated objects like buffers, parsers, or formatters. The cache grows unbounded — it doesn't evict old objects. Best for workloads with bounded concurrency where the cache naturally stabilizes at the high-water mark.",
+    "related": [
+      "object-pooling",
+      "gc-optimization",
+      "do-with-lock"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "logging-with-std-log-v19",
+    "title": "Structured logging with :std/log",
+    "tags": [
+      "log",
+      "logging",
+      "debug",
+      "info",
+      "warn",
+      "error",
+      "critical",
+      "level"
+    ],
+    "imports": [
+      ":std/log/default"
+    ],
+    "code": "(import :std/log/default)\n\n;; Simple logging at different levels\n(log.info \"Server started\" port: 8080)\n(log.debug \"Processing request\" method: \"GET\" path: \"/api/users\")\n(log.warn \"High memory usage\" usage: 85.5 threshold: 80.0)\n(log.error \"Database connection failed\" db: \"postgres\" error: err)\n(log.critical \"Disk full\" mount: \"/var\" available: 0)\n\n;; With formatted strings (printf-style)\n(log.infof \"Server started on port ~a\" 8080)\n(log.debugf \"Processing ~a ~a\" \"GET\" \"/api/users\")\n(log.warnf \"Memory usage: ~a% (threshold: ~a%)\" 85.5 80.0)\n\n;; Log levels (from least to most verbose):\n;; CRITICAL = -1  (always logged, system failures)\n;; ERROR    =  0  (errors that need attention)\n;; WARN     =  1  (warnings, degraded performance)\n;; INFO     =  2  (normal operation milestones)\n;; DEBUG    =  3  (detailed diagnostic info)\n;; VERBOSE  =  4  (trace-level debugging)\n\n;; Control logging level via environment variable:\n;; export GERBIL_LOG_LEVEL=INFO     # default level\n;; export GERBIL_LOG_LEVEL=INFO:myapp/db:DEBUG  # per-source override\n;; export GERBIL_LOG_LEVEL=WARN:myapp/*:DEBUG   # subsystem wildcard",
+    "notes": "The :std/log system in v0.19 provides structured logging with log levels, per-source configuration, and formatted output. Messages are only generated if the log level is enabled (lazy evaluation). Use keyword arguments (port: 8080) for structured data, or *f variants (log.infof) for printf-style formatted strings. The log level can be set globally via GERBIL_LOG_LEVEL environment variable, with per-source overrides (source:level) and wildcard subsystems (prefix/*:level). The default logger logs to stderr via console sink. Logs include timestamp, level, source (typically module name), message, and structured data as an alist.",
+    "related": [
+      "debug-logging",
+      "structured-logging",
+      "error-handling"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "iterator-api-changes-v19",
+    "title": "Iterator API changes in v0.19: renamed and removed functions",
+    "tags": [
+      "iter",
+      "iterator",
+      "in-range",
+      "in-iota",
+      "migration",
+      "v0.19",
+      "breaking-change"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": "(import :std/iter)\n\n;; === RENAMED in v0.19 ===\n\n;; OLD (v0.18): in-iota\n;; NEW (v0.19): in-range\n(for (i (in-range 5))\n  (displayln i))  ;; 0 1 2 3 4\n\n;; in-range with start and optional step\n(for (i (in-range 2 10 2))\n  (displayln i))  ;; 2 4 6 8\n\n;; NEW in v0.19: in-range-inclusive (includes end)\n(for (i (in-range-inclusive 1 5))\n  (displayln i))  ;; 1 2 3 4 5\n\n;; OLD (v0.18): in-naturals\n;; NEW (v0.19): in-integers (infinite sequence)\n(for/fold (sum 0) ((i (in-integers)) (count 0))\n  (if (< count 5)\n    (values (+ sum i) (+ count 1))\n    (break sum)))  ;; => 10 (0+1+2+3+4)\n\n;; NEW in v0.19: in-number-series (arithmetic series)\n(for (x (in-number-series 1.0 0.5 10))\n  (displayln x))  ;; 1.0, 1.5, 2.0, ... up to 10 items\n\n;; === REMOVED in v0.19 ===\n;; These no longer exist in :std/iter:\n;;   in-input-port, in-input-lines, in-input-chars, in-input-bytes\n;; Likely moved to :std/io or :std/io/bio modules\n\n;; === NEW in v0.19 ===\n;; in-list, in-vector — explicit list/vector iterators\n(for (x (in-list '(a b c)))\n  (displayln x))  ;; a b c\n\n(for (x (in-vector #(1 2 3)))\n  (displayln x))  ;; 1 2 3\n\n;; Existing iterators still work:\n;; in-hash, in-hash-keys, in-hash-values, in-coroutine\n;; for, for*, for/collect, for/fold",
+    "notes": "Breaking changes in :std/iter for v0.19: (1) in-iota renamed to in-range with consistent semantics. (2) in-naturals renamed to in-integers. (3) in-input-port and related port iterators removed from :std/iter (likely moved to :std/io modules — check there if needed). (4) New: in-range-inclusive (includes end point), in-number-series (arithmetic series), in-list, in-vector (explicit collection iterators). The module was reorganized into :std/iter/api, :std/iter/interface, :std/iter/iterators, :std/iter/macros but :std/iter still re-exports everything.",
+    "related": [
+      "for-collect-iteration",
+      "for-fold-accumulation",
+      "hash-iteration"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "format-printf-fprintf-v19",
+    "title": "Format strings with printf/fprintf (v0.19 new API)",
+    "tags": [
+      "format",
+      "printf",
+      "fprintf",
+      "eprintf",
+      "string",
+      "output",
+      "v0.19"
+    ],
+    "imports": [
+      "std/format"
+    ],
+    "code": "(import :std/format)\n\n;; NEW in v0.19: :std/format provides printf/fprintf/eprintf/format\n;; These take the port as an explicit argument (no parameterize needed)\n\n;; printf: format to stdout\n(printf \"Hello ~a!\\n\" \"world\")\n;; => Hello world!\n\n;; fprintf: format to a specific port (arity 3: port fmt args...)\n(call-with-output-string\n  (lambda (port)\n    (fprintf port \"Name: ~a, Age: ~a\" \"Alice\" 30)))\n;; => \"Name: Alice, Age: 30\"\n\n;; eprintf: format to stderr\n(eprintf \"Warning: ~a\\n\" \"disk full\")\n\n;; format: format to string (arity 2: fmt args...)\n(format \"Value: ~a, Count: ~a\" 42 10)\n;; => \"Value: 42, Count: 10\"\n\n;; Common format directives:\n;;   ~a  - any value (display format)\n;;   ~s  - S-expression (write format)\n;;   ~%  - newline\n;;   ~~  - literal tilde\n\n;; Multiple arguments:\n(format \"~a + ~a = ~a\" 2 3 5)\n;; => \"2 + 3 = 5\"\n\n;; Works with all types:\n(format \"List: ~a, Hash: ~a\" '(1 2 3) (hash (\"x\" 10)))\n;; => \"List: (1 2 3), Hash: #&lt;table #1&gt;\"",
+    "notes": "This is a MAJOR improvement over v0.18 where :std/format required parameterize for string output. In v0.19, fprintf takes the port as a direct argument, and format returns a string. This matches Common Lisp conventions. The old :std/format used ~ escape but had limited directives and required parameterize. The new API is cleaner and more intuitive.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "list-builder-v19",
+    "title": "Efficient O(1) list building with with-list-builder (v0.19 location)",
+    "tags": [
+      "list",
+      "builder",
+      "collect",
+      "performance",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/list/list-builder"
+    ],
+    "code": "(import :std/list/list-builder)\n\n;; with-list-builder provides O(1) append to a growing list\n;; Avoids O(n^2) from repeated (append lst (list new-item))\n(with-list-builder (push! peek)\n  (push! 'a)\n  (push! 'b)\n  (push! 'c)\n  (peek))  ;; => (a b c)\n\n;; Functional form:\n(call-with-list-builder\n  (lambda (push! peek)\n    (for (x (in-range 5))\n      (when (odd? x)\n        (push! x)))\n    (peek)))  ;; => (1 3)\n\n;; Common pattern: conditional collection\n(def (find-matching items pred)\n  (with-list-builder (collect)\n    (for-each (lambda (item)\n                (when (pred item)\n                  (collect item)))\n              items)))\n\n;; Nested collection with intermediate results\n(with-list-builder (push! peek)\n  (push! 'start)\n  (for (x '(1 2 3))\n    (push! (* x 10)))\n  (push! 'end)\n  (peek))  ;; => (start 10 20 30 end)",
+    "notes": "In v0.19, list utilities moved from :std/misc/list-builder to :std/list/list-builder. The API is unchanged. This uses cons cell mutation internally: a sentinel cons cell [#f] is created, and push! mutates the cdr to append in O(1). Always prefer this over (set! result (append result (list item))). The peek function returns the current list without consuming it.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "object-cache-pattern-v19",
+    "title": "Object pooling with defobject-cache (v0.19)",
+    "tags": [
+      "object",
+      "cache",
+      "pool",
+      "performance",
+      "memory",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/object"
+    ],
+    "code": "(import :std/object)\n\n;; NEW in v0.19: defobject-cache for object pooling/reuse\n;; Reduces GC pressure by recycling objects instead of allocating new ones\n\n;; Define a reusable buffer class\n(defstruct buffer (data) mutable: #t)\n\n(def (make-new-buffer)\n  (make-buffer (make-u8vector 4096)))\n\n(def (reset-buffer! (b : buffer))\n  (u8vector-fill! (buffer-data b) 0))\n\n;; Create an object cache\n(defobject-cache buffer-cache buffer\n  make-new-buffer    ;; constructor\n  reset-buffer!)     ;; reset function\n\n;; Usage:\n;; Get a buffer from cache (reused or new)\n(def buf (buffer-cache.get))\n\n;; Use it...\n(u8vector-set! (buffer-data buf) 0 42)\n\n;; Return to cache for reuse\n(buffer-cache.put! buf)\n\n;; Expands to:\n;;   buffer-cache__cache   - list of available objects\n;;   buffer-cache__cache-mx - mutex protecting the cache\n;;   buffer-cache.get      - get object from cache or create new\n;;   buffer-cache.put!     - return object to cache after reset\n\n;; The cache is a simple stack (cons-based list)\n;; .get pops from cache or creates new\n;; .put! resets and pushes back to cache",
+    "notes": "This is new in v0.19 (:std/object). Useful for high-frequency allocations where object reuse reduces GC pressure. The cache is thread-safe (uses mutex). Common use cases: buffers, temporary data structures, connection pools. The reset! function is called before returning the object to the cache to clear any state. Objects are stored in a list protected by a mutex.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "arithmetic-overflow-error-v19",
+    "title": "New ArithmeticError and ArithmeticOverflow exceptions (v0.19)",
+    "tags": [
+      "error",
+      "exception",
+      "arithmetic",
+      "overflow",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/error"
+    ],
+    "code": "(import :std/error)\n\n;; NEW in v0.19: ArithmeticError exception hierarchy\n\n;; Raise arithmetic overflow error\n(def (safe-multiply a b)\n  (let ((result (* a b)))\n    (when (> result #x7FFFFFFFFFFFFFFF)  ;; fixnum max\n      (raise-arithmetic-overflow 'safe-multiply result))\n    result))\n\n;; Catch arithmetic errors\n(try\n  (safe-multiply 9999999999 9999999999)\n  (catch (ArithmeticOverflow e)\n    (displayln \"Overflow: \" (error-message e)))\n  (catch (ArithmeticError e)\n    (displayln \"Arithmetic error: \" (error-message e))))\n\n;; Check error type\n(def e (make-arithmetic-overflow-error \"overflow\" irritants: [value: 123]))\n(arithmetic-error? e)           ;; => #t (parent class)\n(arithmetic-overflow-error? e)  ;; => #t (specific class)\n\n;; Hierarchy:\n;;   Exception\n;;     RuntimeException\n;;       Error\n;;         ArithmeticError           (NEW)\n;;           ArithmeticOverflow      (NEW)",
+    "notes": "New in v0.19: ArithmeticError and ArithmeticOverflow exception classes for arithmetic failures. Also note: raise-unsupported-method now takes a method argument: (raise-unsupported-method where method irritants ...). The method is stored in irritants with method: key. Similar changes to raise-contract-violation (contract: key) and raise-bad-argument (expectation: key).",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "v19-srfi-removal-warning",
+    "title": "v0.19 WARNING: SRFI modules removed/moved to TODIE",
+    "tags": [
+      "v0.19",
+      "breaking-change",
+      "srfi",
+      "migration",
+      "warning"
+    ],
+    "imports": [],
+    "code": ";; WARNING: In v0.19-dev-test-basis, SRFI modules have been REMOVED\n;; from src/std/srfi/ and moved to src/std/v0.19-TODIE/srfi/\n;;\n;; This means these modules are slated for removal:\n;;   :std/srfi/1   (list utilities)\n;;   :std/srfi/13  (string utilities)\n;;   :std/srfi/19  (time/date)\n;;   :std/srfi/42  (eager comprehensions)\n;;   and many others...\n;;\n;; IMPACT:\n;; - Any code using (import :std/srfi/19) will FAIL to compile\n;; - Recipes using SRFI-19 for date formatting will need updates\n;; - String utilities from SRFI-13 may need native :std/string replacements\n;;\n;; MIGRATION STATUS: Unknown\n;; - It's unclear what will replace these modules in v0.19\n;; - May need to use Gambit's built-in SRFI support instead\n;; - Or write native Gerbil replacements\n;;\n;; UNTIL v0.19 is finalized, DO NOT add new recipes using :std/srfi/* modules.\n;; Existing v0.18 recipes should be marked for review/update.",
+    "notes": "This is a MAJOR breaking change. Many cookbook recipes use :std/srfi/19 for date formatting and :std/srfi/13 for string utilities. The current v0.19-dev-test-basis has these modules in v0.19-TODIE/ which suggests they will be removed. This branch is not yet stable - most stdlib is still in v0.19-TODO/ and not compiled.",
+    "gerbil_version": "v0.19"
   }
 ]
