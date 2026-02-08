@@ -1,19 +1,20 @@
 [
   {
-    "id": "batch-import-conflict-check",
-    "title": "Detect import conflicts before build",
-    "description": "When a module defines a symbol that conflicts with an imported module's exports (e.g., defining string-prefix? while importing :std/srfi/13), the build fails with a cryptic 'Bad binding; import conflict' error. A pre-build lint check could statically detect these conflicts by comparing each file's local definitions against its imports' exported symbols, reporting exactly which symbols conflict and from which modules.",
+    "id": "qt-gap-audit-for-chat-apps",
+    "title": "Audit and document gerbil-qt API gaps for common app patterns",
+    "description": "During planning for a chat application GUI, we discovered ~14 missing Qt functions in gerbil-qt that are essential for real-world apps: scrollToBottom (QTextBrowser/QTextEdit), QTextBrowser::append for incremental HTML, QListWidget item data roles (store IDs alongside display text), setMinimumWidth/Height/setMaximumWidth/Height for size constraints, QLabel::setWordWrap, setCursor for hand cursor on clickable elements, and QTextEdit::toHtml. A gerbil-mcp tool could automatically compare Qt's commonly-used API surface against gerbil-qt's exports and report coverage gaps organized by app type (chat, editor, dashboard, etc.).",
     "impact": "medium",
     "tags": [
-      "import",
-      "conflict",
-      "lint",
-      "build",
-      "duplicate"
+      "qt",
+      "gap",
+      "audit",
+      "widget",
+      "coverage",
+      "api"
     ],
-    "use_case": "When adding new imports to a module that already has local definitions, or when refactoring to use standard library functions that might clash with existing local definitions.",
-    "example_scenario": "util.ss defined string-prefix? and string-trim-both locally. format.ss imported both :std/srfi/13 and ./util. Build failed with 'Bad binding; import conflict' for string-prefix?. Had to debug by reading both modules and figuring out the overlap manually.",
-    "estimated_token_reduction": "~500-1000 tokens per conflict (eliminates build-fail-read-diagnose-fix cycle)",
-    "votes": 0
+    "use_case": "When planning a new gerbil-qt application, quickly identify which Qt features are available vs. need to be added to the C++ shim, FFI layer, and high-level API before starting implementation.",
+    "example_scenario": "Planning a Webex chat client required checking ~20 individual Qt functions across qt.ss, qt_shim.h, and libqt.ss using grep. Took multiple tool calls to verify each function's availability. A single 'qt gap audit' tool call could have reported all missing functions at once.",
+    "estimated_token_reduction": "~2000 tokens per planning session (eliminates 10+ grep/search calls to check individual function availability)",
+    "votes": 1
   }
 ]

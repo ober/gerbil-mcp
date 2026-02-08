@@ -583,6 +583,57 @@ extern void iterator_destroy(iterator_t *it);
       ]) + '\n',
     );
 
+    // Import conflict check fixtures
+    writeFileSync(
+      join(TEST_DIR, 'import-conflict.ss'),
+      `(import :std/text/json)
+(export read-json)
+(def (read-json port) (error "custom"))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'import-no-conflict.ss'),
+      `(import :std/text/json)
+(export parse-data)
+(def (parse-data s) (read-json (open-input-string s)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'import-only-in.ss'),
+      `(import (only-in :std/text/json read-json))
+(export write-json)
+(def (write-json obj) (error "custom write"))
+`,
+    );
+
+    const crossConflictDir = join(TEST_DIR, 'cross-conflict');
+    mkdirSync(crossConflictDir, { recursive: true });
+    writeFileSync(
+      join(crossConflictDir, 'gerbil.pkg'),
+      '(package: crosstest)',
+    );
+    writeFileSync(
+      join(crossConflictDir, 'mod-a.ss'),
+      `(export helper)
+(def (helper x) x)
+`,
+    );
+    writeFileSync(
+      join(crossConflictDir, 'mod-b.ss'),
+      `(export helper)
+(def (helper x) (* x 2))
+`,
+    );
+    writeFileSync(
+      join(crossConflictDir, 'main.ss'),
+      `(import :crosstest/mod-a :crosstest/mod-b)
+(export run)
+(def (run) (helper 42))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -3493,6 +3544,52 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.text).toContain('procedure');
       // Should have keyword info from runtime or compiled scan
       expect(result.text).toMatch(/keywords:|headers:/);
+    });
+  });
+
+  // ── Import conflict checker ───────────────────────────────────────────
+
+  describe('Import conflict checker', () => {
+    it('detects local def conflicting with import', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {
+        file_path: join(TEST_DIR, 'import-conflict.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('read-json');
+      expect(result.text).toContain('import-conflict');
+      expect(result.text).toContain(':std/text/json');
+    }, 30000);
+
+    it('passes for clean file with no conflicts', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {
+        file_path: join(TEST_DIR, 'import-no-conflict.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No import conflicts');
+    }, 30000);
+
+    it('respects only-in filter', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {
+        file_path: join(TEST_DIR, 'import-only-in.ss'),
+      });
+      expect(result.isError).toBe(false);
+      // write-json is NOT in the only-in list, so no conflict
+      expect(result.text).toContain('No import conflicts');
+    }, 30000);
+
+    it('detects cross-import conflicts in project mode', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {
+        project_path: join(TEST_DIR, 'cross-conflict'),
+      });
+      // main.ss imports mod-a and mod-b which both export 'helper'
+      expect(result.text).toContain('helper');
+      expect(result.text).toContain('cross-import-conflict');
+    }, 30000);
+
+    it('requires file_path or project_path', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('required');
     });
   });
 });

@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 242 tests must pass before considering any change complete. The test suite covers:
+All 247 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -86,6 +86,7 @@ All 242 tests must pass before considering any change complete. The test suite c
 - Validate example imports tool (hybrid static+runtime analysis, builtin symbol filtering, undefined symbol detection)
 - Function signature compiled artifact scan (compiled .scm keyword-dispatch pattern extraction, fallback for missing source)
 - Bisect crash tool (crash detection, form parsing, binary search bisection, preamble preservation, missing file handling)
+- Import conflict checker (local def vs import conflict detection, cross-import conflicts, only-in filter handling, batch runtime resolution, project-wide mode)
 
 
 ### Adding a New Tool

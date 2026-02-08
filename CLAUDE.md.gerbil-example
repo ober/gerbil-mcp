@@ -63,6 +63,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions (re-export aware), port-type mismatches (fdopen byte ports used with char I/O), and compilation errors.
 - **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
 - **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
+- **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Checks if locally defined symbols conflict with imported module exports (causing "Bad binding; import conflict" errors), and if multiple imports export the same symbol. Resolves standard library exports at runtime and project-local exports statically. Handles `only-in` filtered imports.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
 

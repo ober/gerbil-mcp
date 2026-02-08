@@ -4935,5 +4935,113 @@
       "mutex-unwind-protect",
       "read-json-file"
     ]
+  },
+  {
+    "id": "qt-three-panel-chat-layout",
+    "title": "Three-panel chat app layout with QSplitter (sidebar | content | detail)",
+    "tags": [
+      "qt",
+      "splitter",
+      "layout",
+      "chat",
+      "panel",
+      "sidebar",
+      "three-panel"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Three-panel layout for chat/messaging apps.\n;; Left sidebar (room list) | Center (messages) | Right panel (participants)\n;; Uses nested QSplitter for resizable panels.\n\n(import :gerbil-qt/qt)\n\n(with-qt-app app\n  (let* ((win (qt-main-window-create))\n         (central (qt-widget-create))\n         (main-layout (qt-vbox-layout-create central))\n\n         ;; Main horizontal splitter: sidebar | content+right\n         (splitter (qt-splitter-create QT_HORIZONTAL))\n\n         ;; LEFT: Room list sidebar\n         (sidebar (qt-widget-create))\n         (sidebar-layout (qt-vbox-layout-create sidebar))\n         (search (qt-line-edit-create))\n         (room-list (qt-list-widget-create))\n\n         ;; CENTER: Messages area\n         (center (qt-widget-create))\n         (center-layout (qt-vbox-layout-create center))\n         (header-label (qt-label-create \"Select a room\"))\n         (messages (qt-text-browser-create))\n         (input-row (qt-widget-create))\n         (input-layout (qt-hbox-layout-create input-row))\n         (input (qt-line-edit-create))\n         (send-btn (qt-push-button-create \"Send\"))\n\n         ;; RIGHT: Participant list\n         (right-panel (qt-widget-create))\n         (right-layout (qt-vbox-layout-create right-panel))\n         (people-label (qt-label-create \"Participants\"))\n         (people-list (qt-list-widget-create)))\n\n    ;; Assemble sidebar\n    (qt-line-edit-set-placeholder! search \"Search rooms...\")\n    (qt-layout-add-widget! sidebar-layout search)\n    (qt-layout-add-widget! sidebar-layout room-list)\n    (qt-layout-set-margins! sidebar-layout 0 0 0 0)\n\n    ;; Assemble center\n    (qt-layout-add-widget! center-layout header-label)\n    (qt-layout-add-widget! center-layout messages)\n    (qt-layout-add-widget! input-layout input)\n    (qt-layout-add-widget! input-layout send-btn)\n    (qt-layout-add-widget! center-layout input-row)\n    (qt-layout-set-margins! center-layout 0 0 0 0)\n    ;; Give messages area stretch priority\n    (qt-layout-set-stretch-factor! center-layout 1 1)\n\n    ;; Assemble right panel\n    (qt-layout-add-widget! right-layout people-label)\n    (qt-layout-add-widget! right-layout people-list)\n    (qt-layout-set-margins! right-layout 0 0 0 0)\n\n    ;; Add all three to splitter\n    (qt-splitter-add-widget! splitter sidebar)\n    (qt-splitter-add-widget! splitter center)\n    (qt-splitter-add-widget! splitter right-panel)\n    (qt-splitter-set-sizes! splitter '(250 550 200))\n\n    ;; Make right panel collapsible\n    (qt-splitter-set-collapsible! splitter 2 #t)\n\n    ;; Set central widget\n    (qt-layout-add-widget! main-layout splitter)\n    (qt-layout-set-margins! main-layout 0 0 0 0)\n    (qt-main-window-set-central-widget! win central)\n\n    ;; Wire send button\n    (qt-on-clicked! send-btn\n      (lambda ()\n        (let ((text (qt-line-edit-text input)))\n          (when (> (string-length text) 0)\n            (qt-text-browser-set-html! messages\n              (string-append \"<b>You:</b> \" text))\n            (qt-line-edit-set-text! input \"\")))))\n\n    ;; Wire room selection\n    (qt-on-current-row-changed! room-list\n      (lambda (row)\n        (when (>= row 0)\n          (let ((name (qt-list-widget-item-text room-list row)))\n            (qt-label-set-text! header-label name)))))\n\n    ;; Add sample rooms\n    (qt-list-widget-add-item! room-list \"General\")\n    (qt-list-widget-add-item! room-list \"Engineering\")\n    (qt-list-widget-add-item! room-list \"Random\")\n\n    (qt-main-window-set-title! win \"Chat App\")\n    (qt-widget-resize! win 1000 700)\n    (qt-widget-show! win)\n    (qt-app-exec! app)))",
+    "notes": "This is the foundational layout for a chat application. Key points: (1) qt-splitter-create requires QT_HORIZONTAL as positional arg. (2) Layouts require parent widgets — pass to qt-vbox-layout-create/qt-hbox-layout-create. (3) Use qt-splitter-set-collapsible! to allow hiding the right panel. (4) Set stretch factor on the messages widget so it expands. (5) Set margins to 0 for tight packing. Missing from gerbil-qt as of 2025: scrollToBottom for QTextBrowser, QListWidget item data storage, min/max size constraints on widgets.",
+    "related": [
+      "qt-splitter-orientation-positional",
+      "qt-hbox-vbox-require-parent",
+      "qt-text-browser-anchor-clicked"
+    ]
+  },
+  {
+    "id": "qt-dark-theme-stylesheet",
+    "title": "Apply dark theme CSS stylesheet to entire Qt application",
+    "tags": [
+      "qt",
+      "dark",
+      "theme",
+      "stylesheet",
+      "css",
+      "styling",
+      "appearance"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Apply a dark theme to the entire application via qt-app-set-style-sheet!\n;; Call this AFTER qt-app-create but BEFORE showing any widgets.\n;; The stylesheet cascades to all widgets automatically.\n\n(import :gerbil-qt/qt)\n\n(def dark-theme-css \"\n  QWidget {\n    background-color: #1e1e2e;\n    color: #cdd6f4;\n    font-family: 'Segoe UI', 'SF Pro Display', sans-serif;\n    font-size: 13px;\n  }\n  QMainWindow { background-color: #1e1e2e; }\n  QLineEdit {\n    background-color: #313244;\n    border: 1px solid #45475a;\n    border-radius: 4px;\n    padding: 6px;\n    color: #cdd6f4;\n    selection-background-color: #585b70;\n  }\n  QLineEdit:focus { border-color: #89b4fa; }\n  QPushButton {\n    background-color: #89b4fa;\n    color: #1e1e2e;\n    border: none;\n    border-radius: 4px;\n    padding: 6px 16px;\n    font-weight: bold;\n  }\n  QPushButton:hover { background-color: #74c7ec; }\n  QPushButton:pressed { background-color: #585b70; }\n  QListWidget {\n    background-color: #181825;\n    border: none;\n    outline: none;\n  }\n  QListWidget::item {\n    padding: 8px 12px;\n    border-bottom: 1px solid #313244;\n  }\n  QListWidget::item:selected {\n    background-color: #313244;\n    color: #cdd6f4;\n  }\n  QListWidget::item:hover { background-color: #262637; }\n  QTextBrowser, QTextEdit, QPlainTextEdit {\n    background-color: #1e1e2e;\n    border: none;\n    color: #cdd6f4;\n  }\n  QLabel { background-color: transparent; }\n  QSplitter::handle {\n    background-color: #313244;\n    width: 1px;\n  }\n  QScrollBar:vertical {\n    background-color: #1e1e2e;\n    width: 8px;\n  }\n  QScrollBar::handle:vertical {\n    background-color: #45475a;\n    border-radius: 4px;\n    min-height: 20px;\n  }\n  QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {\n    height: 0px;\n  }\n  QMenuBar {\n    background-color: #181825;\n    color: #cdd6f4;\n    border-bottom: 1px solid #313244;\n  }\n  QMenuBar::item:selected { background-color: #313244; }\n  QMenu {\n    background-color: #1e1e2e;\n    color: #cdd6f4;\n    border: 1px solid #45475a;\n  }\n  QMenu::item:selected { background-color: #313244; }\n\")\n\n;; Apply at startup:\n(with-qt-app app\n  (qt-app-set-style-sheet! app dark-theme-css)\n  (let ((win (qt-main-window-create)))\n    ;; ... build UI ...\n    (qt-widget-show! win)\n    (qt-app-exec! app)))",
+    "notes": "Uses Catppuccin Mocha color palette. qt-app-set-style-sheet! applies to all widgets. Can also use qt-widget-set-style-sheet! on individual widgets to override. CSS selectors support pseudo-states (:hover, :pressed, :focus, :selected) and sub-controls (::handle, ::item). QSplitter handle width controls the draggable separator. Scrollbar styling removes the arrow buttons for a modern look. The font-family falls back through platform-specific sans-serif fonts.",
+    "related": [
+      "qt-three-panel-chat-layout",
+      "qt-widget-set-font-arity"
+    ]
+  },
+  {
+    "id": "makefile-safe-clean-preserve-pkg",
+    "title": "Makefile clean target that preserves .gerbil/pkg/ manifests",
+    "tags": [
+      "makefile",
+      "clean",
+      "pkg",
+      "manifest",
+      "build",
+      "preserve"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: `make clean` with `rm -rf .gerbil` destroys package manifests.\n;; After clean, `gerbil build` fails with:\n;;   No such file or directory\n;;   (call-with-input-file \".gerbil/pkg/.../package.manifest\" ...)\n;;\n;; FIX: Only remove .gerbil/lib and .gerbil/bin, preserving .gerbil/pkg/\n;;\n;; ---- Makefile ----\n;; clean:\n;; \trm -rf .gerbil/lib .gerbil/bin manifest.ss\n;; ---- end ----\n;;\n;; WRONG (destroys manifests):\n;; clean:\n;; \trm -rf .gerbil manifest.ss\n;;\n;; After a correct clean, `gerbil build` can still resolve dependencies\n;; because .gerbil/pkg/ manifests remain intact.\n;;\n;; If .gerbil/pkg/ IS already gone, restore manifests from global:\n;;   mkdir -p .gerbil/pkg/github.com/user/\n;;   cp ~/.gerbil/pkg/github.com/user/package.manifest .gerbil/pkg/github.com/user/",
+    "notes": "This is the recommended clean pattern for any Gerbil project with dependencies declared in gerbil.pkg. The .gerbil/pkg/ directory contains only small manifest text files — preserving it avoids the need to re-install or copy manifests after every clean build. Combined with GERBIL_LOADPATH=~/.gerbil/lib in the build target, this gives reliable clean builds.",
+    "related": [
+      "gerbil-build-loadpath",
+      "gerbil-build-missing-manifests"
+    ]
+  },
+  {
+    "id": "qt-reactive-state-callbacks",
+    "title": "Reactive state management with callbacks for Qt GUI apps",
+    "tags": [
+      "qt",
+      "state",
+      "callback",
+      "reactive",
+      "gui",
+      "hash",
+      "mutable"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: Centralized mutable state with change callbacks for Qt GUI.\n;; Keeps UI updates decoupled from state mutations.\n\n;; 1. Define state and callback infrastructure\n(def *app-state* (hash))\n(def *state-callbacks* [])\n\n(def (state-init!)\n  (set! *app-state*\n    (hash (current-room-id #f)\n          (status-text \"Disconnected\"))))\n\n(def (state-ref key (default #f))\n  (hash-ref *app-state* key default))\n\n(def (state-set! key value)\n  (hash-put! *app-state* key value)\n  ;; Notify all listeners for this key\n  (for-each (lambda (pair)\n              (when (eq? (car pair) key)\n                ((cdr pair) value)))\n            *state-callbacks*))\n\n(def (state-on-change! key callback)\n  \"Register callback(value) to run when key changes.\"\n  (set! *state-callbacks* (cons (cons key callback) *state-callbacks*)))\n\n;; 2. Wire Qt widgets to state changes (in widget setup code):\n;; (state-on-change! 'status-text\n;;   (lambda (text)\n;;     (qt-main-window-set-status-bar-text! win text)))\n;;\n;; (state-on-change! 'current-room-id\n;;   (lambda (room-id)\n;;     (qt-label-set-text! header-label\n;;       (if room-id (lookup-room-title room-id) \"Select a room\"))))\n\n;; 3. Update state from event handlers:\n;; (qt-on-current-row-changed! room-list\n;;   (lambda (row) (state-set! 'current-room-id (get-room-id row))))\n;;\n;; This triggers all registered callbacks, updating header, messages, etc.",
+    "notes": "This pattern avoids tight coupling between widgets. Each panel registers its own callbacks during setup, and state mutations from any source (user clicks, API responses, timers) automatically propagate to all interested widgets. Use symbol keys in the state hash for eq? comparison in callbacks. For production use, consider adding a guard to skip callbacks when the new value equals the old value.",
+    "related": [
+      "qt-three-panel-chat-layout",
+      "qt-dark-theme-stylesheet"
+    ]
+  },
+  {
+    "id": "build-multiple-exe-targets",
+    "title": "Multiple exe targets in one build.ss (CLI + GUI binaries)",
+    "tags": [
+      "build",
+      "exe",
+      "binary",
+      "multiple",
+      "defbuild-script",
+      "completion"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": "#!/usr/bin/env gxi\n(import :std/build-script\n        :std/make)\n\n;; Compute path to FFI shared library for linking\n(def qt-shim-dir\n  (path-expand \"gerbil-qt\"\n    (path-expand \"lib\"\n      (path-expand \".gerbil\" (getenv \"HOME\" \"/home/user\")))))\n\n(defbuild-script\n  `(\"myapp/types\"\n    \"myapp/util\"\n    \"myapp/gui-theme\"\n    \"myapp/gui-state\"\n    ;; GOTCHA: Do NOT list exe entry-point modules as library entries!\n    ;; Including \"myapp/cli\" or \"myapp/gui\" here AND in an exe: target\n    ;; causes \"Completion has already been posted\" deadlock.\n    ;; Only list them in the exe: blocks below.\n    (exe: \"myapp/cli\"\n          bin: \"myapp\"\n          \"-cc-options\" \"-I/opt/homebrew/include\"\n          \"-ld-options\" \"-L/opt/homebrew/lib -lyaml\")\n    (exe: \"myapp/gui\"\n          bin: \"myapp-qt\"\n          \"-cc-options\" ,(cppflags \"Qt6Widgets\" \"\")\n          \"-ld-options\" ,(string-append\n                           \"-L\" qt-shim-dir \" -lqt_shim \"\n                           \"-Wl,-rpath,\" qt-shim-dir \" \"\n                           (ldflags \"Qt6Widgets\" \"-lQt6Widgets\")))))",
+    "notes": "KEY GOTCHA: If a module appears both as a plain string library entry AND in an (exe: ...) block, the build system tries to compile it twice and crashes with \"Completion has already been posted\". The fix: only list exe entry-point modules in the exe: blocks, not as standalone library entries. Their dependency modules (types, util, gui-theme, etc.) go as library entries. Both exe modules must export a `main` function: `(export main)` with `(def (main . args) ...)`. Use quasiquote (backtick) for the build spec when using ,(cppflags ...) or ,(ldflags ...) for dynamic flag computation. Use `(getenv \"HOME\")` not `\"~/.gerbil\"` for path computation — tilde doesn't expand in `path-expand`.",
+    "related": [
+      "static-exe-with-deps",
+      "gxc-exe-in-makefile",
+      "build-ffi-pkg-config",
+      "gerbil-build-loadpath"
+    ]
   }
 ]

@@ -73,6 +73,7 @@ import { registerFfiCallbackDebugTool } from './tools/ffi-callback-debug.js';
 import { registerExampleApiCoverageTool } from './tools/example-api-coverage.js';
 import { registerValidateExampleImportsTool } from './tools/validate-example-imports.js';
 import { registerBisectCrashTool } from './tools/bisect-crash.js';
+import { registerCheckImportConflictsTool } from './tools/check-import-conflicts.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -148,6 +149,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check example API coverage: use gerbil_example_api_coverage to see which module exports are referenced in example/doc files. Scans .ss files in a directory or explicit file list.
 - To validate example imports: use gerbil_validate_example_imports to check that imported modules actually export the symbols used in a file. Detects potentially undefined symbols.
 - To bisect crashes: use gerbil_bisect_crash to binary-search a crashing Gerbil file and find the minimal set of top-level forms that reproduce the crash. Keeps preamble (imports, exports, declarations) and bisects body forms. Useful for isolating segfaults and uncaught exceptions in FFI code.
+- To detect import conflicts: use gerbil_check_import_conflicts to find local definitions that clash with imported module exports before building. Catches "Bad binding; import conflict" errors early with clear messages showing which symbol conflicts with which module. Also detects cross-import conflicts where multiple imports provide the same symbol.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -227,6 +229,7 @@ registerFfiCallbackDebugTool(server);
 registerExampleApiCoverageTool(server);
 registerValidateExampleImportsTool(server);
 registerBisectCrashTool(server);
+registerCheckImportConflictsTool(server);
 
 registerPrompts(server);
 
