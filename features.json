@@ -31,6 +31,110 @@
     "use_case": "When rapidly iterating on code changes, stale lock files from a previous (possibly interrupted) build cause gerbil_build_and_report to fail. This requires falling back to bash for `make clean && make build`, losing the structured diagnostics.",
     "example_scenario": "gerbil_build_and_report returned: `ERROR: __with-lock -- ... ERROR IN slack/gui/theme.ss@5.9-5.22`. The actual issue was a stale lock file from a previous build, not a code error. Required manual `make clean && make build` via bash (2 extra tool calls, loss of structured output).",
     "estimated_token_reduction": "~200 tokens per occurrence (eliminates bash fallback for clean+rebuild)",
+    "votes": 2
+  },
+  {
+    "id": "qt-binding-scaffold",
+    "title": "Scaffold new Qt binding across all 5 layers from a function spec",
+    "description": "Given a Qt function signature (e.g. 'void QWidget::setMinimumWidth(int)'), generate all the boilerplate across the 5 files: C++ shim function, header declaration, FFI c-declare wrapper (if string-returning), define-c-lambda, and Gerbil API wrapper. Currently adding a single new Qt binding requires reading and editing 5 files with coordinated changes — the C++ implementation pattern, header declaration, FFI const-cast wrapper for string returns, define-c-lambda with correct types, and the Gerbil def wrapper. This is mechanical and error-prone.",
+    "impact": "medium",
+    "tags": [
+      "qt",
+      "ffi",
+      "scaffold",
+      "binding",
+      "code-generation"
+    ],
+    "use_case": "When implementing new Qt bindings for missing functions. A batch of 10 new bindings required ~50 coordinated edits across 5 files, all following the same mechanical patterns.",
+    "example_scenario": "Adding qt-text-edit-scroll-to-bottom! required: (1) C++ function with static_cast in qt_shim.cpp, (2) declaration in qt_shim.h, (3) define-c-lambda in libqt.ss, (4) export in libqt.ss, (5) def wrapper in qt.ss, (6) export in qt.ss. For string-returning functions like qt-text-edit-html, also needed an ffi_ wrapper in the begin-foreign block. Each follows an identical pattern based on the Qt function signature.",
+    "estimated_token_reduction": "~2000 tokens per batch of 5 bindings (eliminates reading insertion points and writing repetitive boilerplate)",
+    "votes": 0
+  },
+  {
+    "id": "function-signature-keyword-breakdown",
+    "title": "gerbil_function_signature should show positional vs keyword args for keyword-dispatch functions",
+    "description": "When a function uses keyword-dispatch (common in gerbil-qt), gerbil_function_signature reports arity:1 for the outer dispatch wrapper, hiding the actual signature. It should introspect the __% inner function to report which args are positional and which are keyword. For example, qt-system-tray-icon-create should show `(icon parent:)` not just `arity:1`. The tool already falls back to scanning compiled .scm for keyword-dispatch patterns — it should extract the actual positional and keyword parameter names from the __% lambda.",
+    "impact": "high",
+    "tags": [
+      "function",
+      "signature",
+      "keyword",
+      "arity",
+      "positional"
+    ],
+    "use_case": "Before calling any gerbil-qt function that uses keyword dispatch, to know which args are positional (mandatory) and which are keyword (optional). Prevents silent misuse where a positional arg gets the wrong value.",
+    "example_scenario": "gerbil_function_signature for qt-system-tray-icon-create reported arity:1, giving no indication that icon is a mandatory positional arg and parent: is a keyword. This led to calling (qt-system-tray-icon-create win) which passed win as the icon arg instead of parent:, causing a Bus Error (SIGBUS) crash that required reading compiled .scm source to diagnose.",
+    "estimated_token_reduction": "~1000 tokens per keyword-dispatch function lookup — eliminates need to grep compiled .scm files and manually read __% lambda signatures",
+    "votes": 1
+  },
+  {
+    "id": "pre-build-import-conflict-check",
+    "title": "Detect export conflicts across modules before building",
+    "description": "When multiple modules in a project export the same symbol name (e.g., both app.ss and channel-view.ss export *progress-bar*), the build fails with a cryptic \"Bad binding; import conflict\" error. gerbil_check_import_conflicts currently checks within a single file for conflicts between imports and local definitions, but does NOT detect the case where two sibling modules both export the same symbol and a third module imports both. A project-wide export collision check would catch this before building.",
+    "impact": "high",
+    "tags": [
+      "import",
+      "export",
+      "conflict",
+      "cross-module",
+      "build-error"
+    ],
+    "use_case": "When adding new state variables or functions to a project with many modules that use `(export #t)`. Adding `*progress-bar*` to both app.ss and channel-view.ss caused a build failure that required reading the error, understanding the conflict, and removing the duplicate definition.",
+    "example_scenario": "app.ss defines (def *progress-bar* #f) and exports #t. channel-view.ss also defines (def *progress-bar* #f) and exports #t. realtime.ss imports both modules. Build fails with \"Bad binding; import conflict\" on *progress-bar*. A pre-build check should report: \"Symbol *progress-bar* exported by both :ober/slack/gui/app and :ober/slack/gui/channel-view — will conflict when both are imported.\"",
+    "estimated_token_reduction": "~500 tokens per conflict (eliminates build-fail-read-error-diagnose-fix cycle)",
+    "votes": 0
+  },
+  {
+    "id": "qt-api-type-aware-suggestions",
+    "title": "Qt API suggestions based on widget type (QAction vs QWidget)",
+    "description": "When working with gerbil-qt, a common error is calling the wrong variant of a function based on the Qt class hierarchy. For example, qt-widget-set-tooltip! works on QWidget but NOT on QAction (which is QObject, not QWidget). The correct call is qt-action-set-tooltip!. A tool that maps gerbil-qt function prefixes to Qt class hierarchies would prevent these mismatches. Given a function like qt-widget-set-tooltip!, it should warn that it only works on QWidget subclasses, and suggest qt-action-set-tooltip! for QAction objects.",
+    "impact": "medium",
+    "tags": [
+      "qt",
+      "widget",
+      "action",
+      "type",
+      "tooltip",
+      "api-mismatch"
+    ],
+    "use_case": "When setting tooltips on toolbar actions. Using qt-widget-set-tooltip! on a QAction doesn't crash but silently fails (or crashes at runtime). Knowing the Qt class hierarchy would immediately suggest the correct qt-action-set-tooltip! function.",
+    "example_scenario": "User creates toolbar actions with qt-action-create and then calls qt-widget-set-tooltip! on them. The function silently fails because QAction is not a QWidget. A type-aware tool would flag: \"qt-widget-set-tooltip! expects QWidget; QAction (from qt-action-create) is QObject. Did you mean qt-action-set-tooltip!?\"",
+    "estimated_token_reduction": "~300 tokens per occurrence (eliminates debugging why tooltip doesn't appear + searching for correct function name)",
+    "votes": 0
+  },
+  {
+    "id": "stale-linked-pkg-detect",
+    "title": "Detect stale linked packages whose source is newer than compiled artifacts",
+    "description": "When a project uses `gerbil pkg link` to symlink a dependency (e.g., .gerbil/pkg/gerbil-qt -> ~/mine/gerbil-qt), the linked package's compiled artifacts (.ssi, .scm in .gerbil/lib/) can become stale when the source is updated. This causes #!unbound errors at runtime or \"unbound identifier\" errors at compile time. A new tool (or extension to gerbil_stale_static) should compare the modification times of .ss source files in linked packages against their compiled .ssi/.scm artifacts, and report which linked packages need `gerbil pkg build`. Currently gerbil_stale_static only compares global vs local static files — it doesn't check linked package source freshness.",
+    "impact": "medium",
+    "tags": [
+      "pkg",
+      "link",
+      "stale",
+      "rebuild",
+      "unbound",
+      "linked-package"
+    ],
+    "use_case": "When working on a project that depends on a locally-linked package (via gerbil pkg link), and the linked package source has been modified (new exports added, signatures changed). The current workflow requires manually remembering to run `gerbil pkg build dep-name` — this tool would detect the staleness automatically.",
+    "example_scenario": "Project kunabi links gerbil-qt via .gerbil/pkg/gerbil-qt -> ~/mine/gerbil-qt. User adds qt-widget-set-minimum-width! to gerbil-qt/qt.ss but forgets to run `gerbil pkg build gerbil-qt`. Build fails with \"unbound identifier\" or compiled binary crashes with #!unbound2. Tool would report: \"Linked package gerbil-qt: source qt.ss (modified 16:13) is newer than compiled qt.ssi (modified 04:40) — run `gerbil pkg build gerbil-qt`\".",
+    "estimated_token_reduction": "~400 tokens per occurrence (eliminates the diagnostic cycle of checking exports, checking stale static, checking source vs compiled, identifying the linked package as the culprit)",
+    "votes": 0
+  },
+  {
+    "id": "build-and-report-auto-clean-on-exe-fail",
+    "title": "Auto-clean and retry when exe compilation fails with missing C file",
+    "description": "When `gerbil build` compiles all .ss modules successfully but fails at the exe linking step with 'gsh__exe_.c: No such file or directory', the build system has a stale state where the C file wasn't regenerated. This requires `gerbil clean` followed by a full rebuild. gerbil_build_and_report should detect this specific error pattern (grep: *_exe_.c: No such file or directory) and automatically retry with a clean build, since the fix is always the same: clean + rebuild.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "exe",
+      "clean",
+      "stale",
+      "link"
+    ],
+    "use_case": "When iterating on a project with an exe: target in build.ss. After multiple incremental builds, the exe C file sometimes doesn't get regenerated, causing a cryptic cc1 error. Currently requires manual gerbil clean + rebuild via bash (3 tool calls wasted).",
+    "example_scenario": "gerbil_build_and_report compiles all 20+ modules successfully, then fails with: 'grep: gsh__exe_.c: No such file or directory / cc1: fatal error: gsh__exe_.c: No such file or directory'. Required: gerbil clean, then gerbil build again. The tool should detect 'exe_.c: No such file or directory' in output and auto-retry with clean.",
+    "estimated_token_reduction": "~300 tokens per occurrence (eliminates gerbil clean bash call + second build call + reading error output)",
     "votes": 0
   }
 ]
