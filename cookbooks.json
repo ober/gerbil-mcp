@@ -6140,5 +6140,84 @@
     "related": [
       "values-multiple-return"
     ]
+  },
+  {
+    "id": "gambit-port-byte-position-seek",
+    "title": "Seek in Gambit file ports with output-port-byte-position / input-port-byte-position",
+    "tags": [
+      "gambit",
+      "port",
+      "seek",
+      "position",
+      "byte",
+      "file",
+      "offset"
+    ],
+    "imports": [],
+    "code": ";; Gambit uses multi-arity functions for port positioning — NOT setter functions.\n;; There is NO output-port-byte-position-set! or input-port-byte-position-set!\n;;\n;; WRONG — these don't exist:\n;; (output-port-byte-position-set! port 0)  ;; ERROR: unbound\n;; (input-port-byte-position-set! port 0)   ;; ERROR: unbound\n;;\n;; CORRECT — use the same function name with position argument:\n(let ((out (open-output-file [path: \"/tmp/test.txt\" truncate: #f buffering: #f])))\n  (output-port-byte-position out 10)  ;; seek to byte offset 10\n  (write-subu8vector (string->bytes \"hello\") 0 5 out)\n  (close-output-port out))\n\n(let ((in (open-input-file [path: \"/tmp/test.txt\" buffering: #f])))\n  (input-port-byte-position in 10)  ;; seek to byte offset 10\n  (let ((buf (make-u8vector 5)))\n    (read-subu8vector buf 0 5 in)\n    (close-input-port in)\n    buf))  ;; => #u8(104 101 108 108 111) = \"hello\"\n\n;; Get current position (0 args after port):\n;; (output-port-byte-position port) => current position\n;; (input-port-byte-position port) => current position",
+    "notes": "Gambit's port positioning API uses multi-arity: 1 arg = get position, 2 args = set position. This is different from the typical Scheme setter convention (set-foo! or foo-set!). The -set! variants do NOT exist and will give \"unbound variable\" errors. Works with buffering: #f for unbuffered I/O on file ports.",
+    "related": [
+      "gambit-runtime-primitives",
+      "binary-io-subu8vector"
+    ]
+  },
+  {
+    "id": "gambit-file-exception-types",
+    "title": "Gambit file exception predicates for errno-style error handling",
+    "tags": [
+      "gambit",
+      "exception",
+      "file",
+      "errno",
+      "error",
+      "no-such-file",
+      "permission-denied"
+    ],
+    "imports": [],
+    "code": ";; Gambit file operations throw SPECIFIC exception types, NOT os-exception?.\n;; os-exception? is for :std/os/error — Gambit builtins use their own types.\n;;\n;; WRONG — os-exception? returns #f for Gambit file errors:\n;; (import :std/os/error)\n;; (os-exception? e)  ;; => #f for file errors!\n;;\n;; CORRECT — use Gambit's specific exception predicates:\n(with-catch\n  (lambda (e)\n    (cond\n      ((no-such-file-or-directory-exception? e)\n       (displayln \"File not found\"))\n      ((permission-denied-exception? e)\n       (displayln \"Permission denied\"))\n      ((file-exists-exception? e)\n       (displayln \"File already exists\"))\n      (else\n       (displayln \"Other error: \" (with-output-to-string\n                                    (lambda () (display-exception e)))))))\n  (lambda () (open-input-file \"/nonexistent\")))\n\n;; Available Gambit file exception predicates (no import needed):\n;;   no-such-file-or-directory-exception?  — ENOENT\n;;   permission-denied-exception?          — EACCES/EPERM\n;;   file-exists-exception?                — EEXIST\n;;\n;; Each has accessors:\n;;   *-exception-procedure  — the function that raised it\n;;   *-exception-arguments  — the arguments passed to that function\n\n;; Pattern: map Gambit exceptions to errno for FFI/FUSE callbacks\n(def (with-errno thunk)\n  (with-catch\n    (lambda (e)\n      (cond\n        ((no-such-file-or-directory-exception? e) -2)   ;; ENOENT\n        ((permission-denied-exception? e) -13)          ;; EACCES\n        ((file-exists-exception? e) -17)                ;; EEXIST\n        (else -5)))                                     ;; EIO\n    thunk))",
+    "notes": "Gambit's file I/O functions (open-input-file, delete-file, rename-file, create-directory, etc.) throw these specific exception types rather than a generic os-exception. The :std/os/error module's os-exception? predicate does NOT match these — it's for a different error hierarchy. Always use no-such-file-or-directory-exception?, permission-denied-exception?, and file-exists-exception? for Gambit file operations.",
+    "related": [
+      "error-handling",
+      "gambit-runtime-primitives"
+    ]
+  },
+  {
+    "id": "gambit-ffi-shim-split-pattern",
+    "title": "Split C shim into two files to avoid FFI forward declaration type mismatches",
+    "tags": [
+      "gambit",
+      "ffi",
+      "c-define",
+      "c-declare",
+      "shim",
+      "forward-declaration",
+      "type-mismatch"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When a C shim has forward declarations for c-define'd functions,\n;; the C types may not match Gambit's generated types.\n;; Example: you declare `int scheme_read(char *, void *, size_t, long, uint64_t);`\n;; but Gambit generates `unsigned long` for unsigned-int64, not uint64_t.\n;; This causes compile errors on ARM64 where uint64_t != unsigned long.\n;;\n;; SOLUTION: Split the C shim into two files:\n;;   shim.c          — headers, buffers, helpers (BEFORE c-define)\n;;   shim-trampolines.c — C trampolines that call scheme_* (AFTER c-define)\n;;\n;; In the FFI .ss file:\n\n(begin-ffi (...)\n  ;; Part 1: Include headers and helpers BEFORE c-define callbacks\n  (c-declare \"#include \\\"shim.c\\\"\")\n\n  ;; All c-define callbacks — Gambit generates correct forward declarations\n  (c-define (scheme_read path buf size offset fh)\n            (char-string (pointer void) size_t long unsigned-int64) int\n            \"scheme_read\" \"\"\n    ;; ... dispatch logic ...\n    )\n  ;; ... more c-define callbacks ...\n\n  ;; Part 2: Include trampolines AFTER c-define\n  ;; Now Gambit's generated forward declarations are in scope\n  ;; and the trampolines can call scheme_* with correct types\n  (c-declare \"#include \\\"shim-trampolines.c\\\"\")\n\n  ;; ... rest of FFI ...\n)\n\n;; shim-trampolines.c can safely call scheme_read() etc. because\n;; Gambit's c-define already generated the correct forward declarations\n;; with the exact C types Gambit uses internally.",
+    "notes": "This pattern is essential for large FFI projects (like FUSE bindings) where C code calls back into Scheme. The key insight is that Gambit maps FFI types to C types in platform-specific ways (e.g., unsigned-int64 -> unsigned long on ARM64, not uint64_t). Writing your own forward declarations will inevitably mismatch. By splitting the shim and including trampolines AFTER c-define, you let Gambit generate the correct declarations automatically.",
+    "related": [
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "nonnull-char-string-list-argv",
+    "title": "Pass Scheme list as C char** argv using nonnull-char-string-list",
+    "tags": [
+      "gambit",
+      "ffi",
+      "argv",
+      "char-string-list",
+      "nonnull",
+      "argc",
+      "command-line"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: C functions taking (int argc, char **argv) can't directly\n;; accept a Scheme list. (pointer char-string) doesn't auto-convert.\n;;\n;; SOLUTION: Use nonnull-char-string-list for the argv parameter.\n;; This auto-converts a Scheme list of strings to a NULL-terminated char**.\n;; But you still need argc — write a C wrapper that counts the list.\n\n;; In the C shim:\n;; int ffi_my_main_list(___SCMOBJ argv_list) {\n;;     int argc = 0;\n;;     char **p = (char **)argv_list;  // conceptually\n;;     // Actually, count the NULL-terminated array:\n;;     char **argv = ___CAST(char**, ___arg1);\n;;     while (argv[argc] != NULL) argc++;\n;;     return my_real_main(argc, argv);\n;; }\n\n;; In the FFI .ss file:\n;; (define-c-lambda ffi-my-main (nonnull-char-string-list) int\n;;   \"ffi_my_main_list\")\n\n;; Usage from Scheme:\n;; (ffi-my-main '(\"program-name\" \"-s\" \"-f\" \"/tmp/mountpoint\"))\n\n;; The C wrapper to count argc from NULL-terminated argv:\n;; static int ffi_my_main_list(char **argv) {\n;;     int argc = 0;\n;;     while (argv[argc]) argc++;\n;;     return real_main(argc, argv);\n;; }",
+    "notes": "nonnull-char-string-list is Gambit's FFI type for passing a Scheme list of strings as a NULL-terminated char** array. The \"nonnull\" means the list itself cannot be #f. Each string in the list is automatically converted to a C string. The resulting array is NULL-terminated, which is how you determine argc in the C wrapper. This pattern is commonly needed for wrapping C main() functions (like fuse_main, getopt, etc.).",
+    "related": [
+      "gambit-ffi-pointer-types",
+      "gambit-ffi-shim-split-pattern"
+    ]
   }
 ]

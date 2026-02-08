@@ -14,7 +14,7 @@
     "use_case": "Running test files for projects that have external dependencies (e.g., :clan/text/yaml) listed in gerbil.pkg depend: entries. Currently must fall back to running tests via bash with manual GERBIL_LOADPATH.",
     "example_scenario": "gerbil_run_tests with file_path webex/gui-theme-test.ss fails because the module imports :ober/webex/gui-theme which transitively depends on :clan/text/yaml (via util.ss). The compiled module needs ~/.gerbil/lib on GERBIL_LOADPATH but gerbil_run_tests doesn't set it. Had to fall back to: GERBIL_LOADPATH=$HOME/.gerbil/lib:.gerbil/lib gxi webex/gui-theme-test.ss",
     "estimated_token_reduction": "~300 tokens per test run (eliminates fallback to bash + manual GERBIL_LOADPATH construction)",
-    "votes": 2
+    "votes": 3
   },
   {
     "id": "build-and-report-auto-retry-on-lock",
@@ -135,6 +135,24 @@
     "use_case": "When iterating on a project with an exe: target in build.ss. After multiple incremental builds, the exe C file sometimes doesn't get regenerated, causing a cryptic cc1 error. Currently requires manual gerbil clean + rebuild via bash (3 tool calls wasted).",
     "example_scenario": "gerbil_build_and_report compiles all 20+ modules successfully, then fails with: 'grep: gsh__exe_.c: No such file or directory / cc1: fatal error: gsh__exe_.c: No such file or directory'. Required: gerbil clean, then gerbil build again. The tool should detect 'exe_.c: No such file or directory' in output and auto-retry with clean.",
     "estimated_token_reduction": "~300 tokens per occurrence (eliminates gerbil clean bash call + second build call + reading error output)",
+    "votes": 0
+  },
+  {
+    "id": "eval-with-env-vars",
+    "title": "Support environment variables in gerbil_eval and gerbil_run_tests",
+    "description": "Allow passing environment variables (like DYLD_LIBRARY_PATH, LD_LIBRARY_PATH) to gerbil_eval, gerbil_run_tests, and gerbil_repl_session. FFI modules that link against dynamic libraries (e.g., libfuse-t.dylib, libQt6.dylib) fail to load without the correct library path set. Currently the only workaround is falling back to bash with manual env vars, losing the structured output of MCP tools.",
+    "impact": "medium",
+    "tags": [
+      "env",
+      "DYLD_LIBRARY_PATH",
+      "LD_LIBRARY_PATH",
+      "FFI",
+      "dynamic-library",
+      "eval"
+    ],
+    "use_case": "When working on projects with FFI bindings that load dynamic libraries at runtime (FUSE, Qt, OpenSSL, etc.), all MCP eval/test tools fail with dlopen errors because the library search path isn't set.",
+    "example_scenario": "gerbil-fuse project compiles fuse-ffi.ss which links against libfuse-t.dylib. gerbil_eval with import :gerbil-fuse/fuse/fuse-ffi fails with 'Library not loaded: @rpath/libfuse-t.dylib'. Had to fall back to: DYLD_LIBRARY_PATH=/usr/local/lib gxi -e '...' via bash for all testing.",
+    "estimated_token_reduction": "~200 tokens per eval/test invocation (eliminates bash fallback boilerplate and manual env var construction)",
     "votes": 0
   }
 ]
