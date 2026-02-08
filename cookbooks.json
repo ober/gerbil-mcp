@@ -4413,20 +4413,20 @@
     "id": "qt-paint-widget-custom-paintevent",
     "title": "PaintWidget: custom QWidget with paintEvent override for live Scheme-driven painting",
     "tags": [
-      "qt",
       "paint",
       "widget",
+      "QPainter",
       "paintEvent",
       "custom",
-      "draw",
+      "drawing",
       "canvas",
-      "resize"
+      "PaintWidget"
     ],
     "imports": [
       ":gerbil-qt/qt"
     ],
-    "code": ";; PATTERN: PaintWidget is a custom QWidget subclass that overrides paintEvent()\n;; and fires a Scheme callback. Inside the callback, use qt-paint-widget-painter\n;; to get the active QPainter, then draw with existing QPainter API functions.\n;;\n;; This is BETTER than paint-onto-pixmap for:\n;; - Proper resize handling (repaint at new size)\n;; - Hardware-accelerated rendering\n;; - No intermediate pixmap allocation\n;;\n;; CRITICAL: The painter is only valid INSIDE the paint callback.\n;; Do NOT store it for later use.\n\n(import :gerbil-qt/qt)\n\n(with-qt-app app\n  (let ((canvas (qt-paint-widget-create)))\n    ;; Set minimum size for the paint area\n    (qt-widget-set-minimum-size! canvas 400 300)\n\n    ;; Register paint callback — fires during every paintEvent\n    (qt-paint-widget-on-paint! canvas\n      (lambda ()\n        (let ((painter (qt-paint-widget-painter canvas))\n              (w (qt-paint-widget-width canvas))\n              (h (qt-paint-widget-height canvas)))\n          (when painter  ;; painter is only non-#f inside paintEvent\n            ;; Background (uses actual widget dimensions — responds to resize!)\n            (qt-painter-set-brush-color! painter 30 30 50)\n            (qt-painter-fill-rect! painter 0 0 w h)\n\n            ;; Draw shapes using existing QPainter API\n            (qt-painter-set-antialiasing! painter #t)\n            (qt-painter-set-pen-color! painter 255 100 100)\n            (qt-painter-set-pen-width! painter 2)\n            (qt-painter-draw-ellipse! painter 50 50 (- w 100) (- h 100))\n\n            (qt-painter-set-pen-color! painter 200 200 200)\n            (qt-painter-draw-text! painter 20 30 \"Resize me!\")))))\n\n    ;; Request a repaint (triggers paintEvent → callback)\n    (qt-paint-widget-update! canvas)\n\n    ;; PaintWidget IS a QWidget — add to layouts normally\n    ;; (qt-layout-add-widget! layout canvas)\n\n    (qt-widget-show! canvas)\n    (qt-app-exec! app)\n    (qt-widget-destroy! canvas)))\n\n;; C++ IMPLEMENTATION PATTERN (for reference):\n;; class PaintWidget : public QWidget {\n;;     qt_callback_void m_callback;\n;;     long m_callback_id;\n;;     QPainter* m_painter;  // only valid during paintEvent\n;; protected:\n;;     void paintEvent(QPaintEvent*) override {\n;;         QPainter painter(this);     // stack-allocated, auto end()\n;;         m_painter = &painter;        // temporarily expose to Scheme\n;;         m_callback(m_callback_id);   // fire Scheme callback\n;;         m_painter = nullptr;         // invalidate\n;;     }\n;; };\n;;\n;; NO Q_OBJECT macro or MOC needed — just overrides a virtual method.\n;; ffi_paint_widget_trampoline defined in c-declare (same compilation unit).\n;; In offscreen mode, paint callback may not fire even after update()+processEvents.",
-    "notes": "PaintWidget is a QWidget — parent-child ownership applies, no explicit destroy needed if parented. The paint callback is a void trampoline — uses the same callback dispatch system as all other signals. qt-paint-widget-painter returns #f (null pointer) outside of the paint callback. Width/height use integer (int), but scene coordinates use double. For animation, call qt-paint-widget-update! from a QTimer callback. Unlike paint-onto-pixmap, PaintWidget automatically repaints at the correct size when the window is resized. The QPainter is stack-allocated in paintEvent and auto-destroyed — no explicit end()/destroy() needed.",
+    "code": ";; PATTERN: PaintWidget is a custom QWidget subclass that overrides paintEvent()\n;; and fires a Scheme callback. Inside the callback, use qt-paint-widget-painter\n;; to get the active QPainter, then draw with existing QPainter API functions.\n;;\n;; This is BETTER than paint-onto-pixmap for:\n;; - Proper resize handling (repaint at new size)\n;; - Hardware-accelerated rendering\n;; - No intermediate pixmap allocation\n;;\n;; CRITICAL: The painter is only valid INSIDE the paint callback.\n;; Do NOT store it for later use.\n\n(import :gerbil-qt/qt)\n\n(with-qt-app app\n  (let ((canvas (qt-paint-widget-create)))\n    ;; Set minimum size for the paint area\n    (qt-widget-set-minimum-size! canvas 400 300)\n\n    ;; Register paint callback — fires during every paintEvent\n    (qt-paint-widget-on-paint! canvas\n      (lambda ()\n        (let ((painter (qt-paint-widget-painter canvas))\n              (w (qt-paint-widget-width canvas))\n              (h (qt-paint-widget-height canvas)))\n          (when painter  ;; painter is only non-#f inside paintEvent\n            ;; Background — fill-rect! takes color inline (NOT from brush)\n            ;; Signature: (qt-painter-fill-rect! p x y w h r g b [alpha: 255])\n            (qt-painter-fill-rect! painter 0 0 w h 30 30 50)\n\n            ;; Draw shapes using existing QPainter API\n            (qt-painter-set-antialiasing! painter #t)\n            (qt-painter-set-pen-color! painter 255 100 100)\n            (qt-painter-set-pen-width! painter 2)\n            (qt-painter-draw-ellipse! painter 50 50 (- w 100) (- h 100))\n\n            (qt-painter-set-pen-color! painter 200 200 200)\n            (qt-painter-draw-text! painter 20 30 \"Resize me!\")))))\n\n    ;; Request a repaint (triggers paintEvent → callback)\n    (qt-paint-widget-update! canvas)\n\n    ;; PaintWidget IS a QWidget — add to layouts normally\n    ;; (qt-layout-add-widget! layout canvas)\n\n    (qt-widget-show! canvas)\n    (qt-app-exec! app)\n    (qt-widget-destroy! canvas)))\n\n;; GOTCHA: qt-painter-fill-rect! requires explicit color args!\n;; WRONG:  (qt-painter-set-brush-color! p r g b) (qt-painter-fill-rect! p x y w h)\n;; RIGHT:  (qt-painter-fill-rect! p x y w h r g b)\n;; The brush color set by set-brush-color! is NOT used by fill-rect!.",
+    "notes": "PaintWidget is a QWidget — parent-child ownership applies, no explicit destroy needed if parented. The paint callback is a void trampoline — uses the same callback dispatch system as all other signals. qt-paint-widget-painter returns #f (null pointer) outside of the paint callback. Width/height use integer (int), but scene coordinates use double. For animation, call qt-paint-widget-update! from a QTimer callback. IMPORTANT: qt-painter-fill-rect! takes color args (r g b) positionally — it does NOT use the current brush color. This is different from QPainter's C++ API where fillRect can use the current brush.",
     "related": [
       "qt-graphics-scene-view-items",
       "qt-painter-draw-pixmap",
@@ -4827,5 +4827,113 @@
     ],
     "code": ";; qt-standard-model-create signature:\n;;   (qt-standard-model-create [rows: n] [cols: n] [parent: widget])\n;; All args are KEYWORD (not positional). Defaults: rows: 0, cols: 0, parent: #f\n;;\n;; WRONG — positional args:\n;; (qt-standard-model-create 0 8)  ;; ERROR\n;;\n;; CORRECT — keyword args:\n(qt-standard-model-create rows: 0 cols: 8)\n\n;; Set column headers one at a time:\n;;   (qt-standard-model-set-horizontal-header! model column-index text)\n(let ((model (qt-standard-model-create rows: 0 cols: 3)))\n  (qt-standard-model-set-horizontal-header! model 0 \"Name\")\n  (qt-standard-model-set-horizontal-header! model 1 \"Value\")\n  (qt-standard-model-set-horizontal-header! model 2 \"Type\")\n  model)\n\n;; qt-standard-item-create uses text: keyword:\n;;   (qt-standard-item-create [text: string])\n;; Default: text: \"\"\n(qt-standard-item-create text: \"Hello\")\n\n;; Populate model row by row:\n(qt-standard-model-set-row-count! model 1)\n(qt-standard-model-set-item! model 0 0 (qt-standard-item-create text: \"Alice\"))\n(qt-standard-model-set-item! model 0 1 (qt-standard-item-create text: \"42\"))\n(qt-standard-model-set-item! model 0 2 (qt-standard-item-create text: \"user\"))",
     "notes": "qt-standard-model-set-horizontal-header! takes (model col text) — sets one header at a time, not a list. qt-standard-item-create takes text: keyword (not positional). The text defaults to empty string."
+  },
+  {
+    "id": "macos-codesign-install-binary",
+    "title": "Re-sign Gerbil binary after cp install on macOS (SIGKILL fix)",
+    "tags": [
+      "macOS",
+      "codesign",
+      "install",
+      "SIGKILL",
+      "binary",
+      "Makefile",
+      "adhoc",
+      "cp"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: On macOS (Apple Silicon and Intel), copying a compiled Gerbil\n;; binary with `sudo cp` to /usr/local/bin/ causes it to be killed with\n;; signal 9 (SIGKILL) when executed.\n;;\n;; ROOT CAUSE: The Gambit linker creates an adhoc code signature tied to\n;; the file's modification time (cs_mtime). When `cp` creates a new file,\n;; it gets a new mtime that doesn't match the embedded cs_mtime. macOS\n;; AMFI (AppleMobileFileIntegrity) detects the mismatch and kills the\n;; process. The kernel log shows:\n;;   cs_mtime:XXXX != mtime:YYYY\n;;   CODE SIGNING: rejecting invalid page...\n;;   ASP: Security policy would not allow process\n;;\n;; The binaries are byte-identical (same MD5, same CDHash), but the\n;; mtime mismatch is enough for macOS to reject execution.\n;;\n;; FIX: Re-sign the binary after copying with `codesign --force --sign -`\n;;\n;; ---- Makefile pattern ----\n;; install: build\n;; \tsudo cp .gerbil/bin/my-app /usr/local/bin/\n;; \tsudo codesign --force --sign - /usr/local/bin/my-app\n;; ---- end ----\n;;\n;; ALTERNATIVES (less robust):\n;; - `sudo cp -p` preserves mtime (fragile, may fail on some filesystems)\n;; - `sudo install -p` also preserves mtime (same fragility)\n;;\n;; The codesign approach is most robust because it creates a fresh valid\n;; signature for the file in its final location regardless of mtime.",
+    "notes": "This affects ALL compiled Gerbil/Gambit executables on macOS, not just specific projects. The adhoc linker-signed signature (flags=0x20002) is created by Gambit's C compiler backend. The issue manifests as: binary works from build dir (.gerbil/bin/) but gets SIGKILL when copied elsewhere. Diagnosis: check kernel logs with `log show --predicate 'eventMessage contains \"CODE SIGNING\"' --last 5m` or look for cs_mtime mismatch. `codesign --verify` may still report \"valid on disk\" even when runtime execution is rejected.",
+    "related": [
+      "patchelf-add-rpath-install",
+      "gxc-exe-makefile-link"
+    ]
+  },
+  {
+    "id": "ffi-multiple-inheritance-void-ptr-cast",
+    "title": "C++ FFI: cast through correct base class before void* when multiple inheritance is involved",
+    "tags": [
+      "ffi",
+      "multiple-inheritance",
+      "void-pointer",
+      "cast",
+      "segfault",
+      "QGraphicsTextItem",
+      "QGraphicsObject"
+    ],
+    "imports": [],
+    "code": "// C++ GOTCHA: When a class uses multiple inheritance and you pass\n// pointers through void* (as FFI requires), you MUST cast to the\n// correct base class BEFORE casting to void*.\n//\n// static_cast<void*>(DerivedPtr) preserves the raw address.\n// static_cast<BaseClass*>(void_ptr) does NOT adjust for MI offset.\n// So if BaseClass is not at offset 0, you get a wrong pointer → segfault.\n//\n// EXAMPLE: Qt's QGraphicsTextItem hierarchy:\n//   QGraphicsTextItem → QGraphicsObject → QObject + QGraphicsItem\n//                                          ^^^^^^^^   ^^^^^^^^^^^^^\n//                                          offset 0   offset N (not 0!)\n//\n// WRONG — segfaults when the void* is later cast to QGraphicsItem*:\n//   extern \"C\" void* qt_graphics_scene_add_text(void* scene, const char* text) {\n//       auto* s = static_cast<QGraphicsScene*>(scene);\n//       return static_cast<void*>(s->addText(QString::fromUtf8(text)));\n//       //     ^^^ addText returns QGraphicsTextItem* — void* preserves\n//       //         the QObject subobject address, NOT QGraphicsItem address\n//   }\n//\n// CORRECT — cast to QGraphicsItem* first, THEN to void*:\n//   extern \"C\" void* qt_graphics_scene_add_text(void* scene, const char* text) {\n//       auto* s = static_cast<QGraphicsScene*>(scene);\n//       QGraphicsItem* item = s->addText(QString::fromUtf8(text));\n//       //             ^^^^ compiler adjusts pointer for MI here\n//       return static_cast<void*>(item);\n//   }\n//\n// SAFE item types (single inheritance from QGraphicsItem):\n//   QGraphicsRectItem → QAbstractGraphicsShapeItem → QGraphicsItem ✓\n//   QGraphicsEllipseItem → QAbstractGraphicsShapeItem → QGraphicsItem ✓\n//   QGraphicsLineItem → QGraphicsItem ✓\n//   QGraphicsPixmapItem → QGraphicsItem ✓\n//\n// DANGEROUS (multiple inheritance via QGraphicsObject):\n//   QGraphicsTextItem → QGraphicsObject → QObject + QGraphicsItem ✗\n//   QGraphicsProxyWidget → QGraphicsObject → QObject + QGraphicsItem ✗\n//\n// RULE: Any time a C++ class inherits from QGraphicsObject (or any\n// class with multiple bases), cast to the target base BEFORE void*.",
+    "notes": "This caused a real segfault in gerbil-qt's diagram.ss example. The pointer returned by addText() pointed to the QObject subobject. When later cast to QGraphicsItem* and used with setPos(), setBrush(), etc., it dereferenced garbage memory. The fix is a single line change: assign to QGraphicsItem* before void*. Same issue would affect any QGraphicsObject-derived type (QGraphicsProxyWidget, custom QGraphicsObject subclasses). Single-inheritance item types (rect, ellipse, line, pixmap) are unaffected because QGraphicsItem is their only base at offset 0.",
+    "related": [
+      "qt-graphics-scene-view-items",
+      "qt-graphics-item-set-pen-brush-dynamic-cast",
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "deferror-class-extra-fields-keyword-constructor",
+    "title": "deferror-class with extra fields uses keyword args in constructor",
+    "tags": [
+      "deferror-class",
+      "error",
+      "constructor",
+      "keyword",
+      "fields",
+      "make"
+    ],
+    "imports": [
+      ":std/error",
+      ":std/format"
+    ],
+    "code": ";; deferror-class with extra fields generates a constructor that takes\n;; the error message as the first positional arg, then keyword args for fields.\n;;\n;; Define error with extra fields:\n(deferror-class WebexApiError (status-code response-body)\n  webex-api-error?)\n\n(deferror-class (WebexAuthError WebexApiError) ()\n  webex-auth-error?)\n\n(deferror-class (WebexRateLimitError WebexApiError) (retry-after)\n  webex-rate-limit-error?)\n\n;; WRONG — positional args for fields:\n;; (make-WebexApiError \"error msg\" [] 'webex-api-error 404 \"not found\")\n;; ERROR: arguments don't match object size\n\n;; CORRECT — message is positional, fields are keyword args:\n(def (raise-webex-api-error status-code body)\n  (raise (make-WebexApiError (format \"Webex API Error (~a): ~a\" status-code body)\n                             status-code: status-code response-body: body)))\n\n;; Child class inherits parent's keyword fields:\n(def (raise-webex-auth-error body)\n  (raise (make-WebexAuthError (format \"Authentication failed: ~a\" body)\n                              status-code: 401 response-body: body)))\n\n;; Child with its own extra field adds another keyword:\n(def (raise-webex-rate-limit body retry-after)\n  (raise (make-WebexRateLimitError (format \"Rate limited: ~a\" body)\n                                   status-code: 429 response-body: body\n                                   retry-after: retry-after)))\n\n;; Accessing fields uses the generated accessors:\n;; (WebexApiError-status-code e)\n;; (WebexApiError-response-body e)\n;; (WebexRateLimitError-retry-after e)",
+    "notes": "Unlike defstruct (which uses positional args), deferror-class generates class-based constructors that accept keyword arguments for the extra fields. The first argument is always the error message string (positional). Parent class fields are inherited and also set via keywords in child constructors. This is because deferror-class uses defclass internally, not defstruct.",
+    "related": [
+      "error-handling",
+      "defstruct-positional-args"
+    ]
+  },
+  {
+    "id": "getopt-nested-subcommands-rest-arguments",
+    "title": "Nested subcommands via rest-arguments and inner call-with-getopt",
+    "tags": [
+      "getopt",
+      "subcommand",
+      "nested",
+      "rest-arguments",
+      "cli",
+      "command"
+    ],
+    "imports": [
+      ":std/cli/getopt",
+      ":std/sugar"
+    ],
+    "code": ";; getopt's (command ...) CANNOT contain child (command ...) forms.\n;; Attempting to nest commands causes: \"cannot contain subcommands\" error.\n;;\n;; WRONG — nested commands:\n;; (command 'messages help: \"Messages\"\n;;   (command 'list help: \"List messages\" ...)\n;;   (command 'get help: \"Get a message\" ...))\n\n;; CORRECT — use rest-arguments to capture subcommand args,\n;; then dispatch with an inner call-with-getopt:\n\n;; Define inner subcommands separately\n(def messages-list-cmd\n  (command 'list help: \"List messages\"\n    (option 'room-id \"--room-id\" \"-r\" help: \"Room ID\")))\n\n(def messages-get-cmd\n  (command 'get help: \"Get a message\"\n    (argument 'message-id help: \"Message ID\")))\n\n;; Parent command captures everything after 'messages' as rest args\n(def messages-cmd\n  (command 'messages help: \"Manage messages\"\n    (rest-arguments 'rest-arguments help: \"subcommand and args\")))\n\n;; Top-level dispatch\n(def (main . args)\n  (call-with-getopt\n    (lambda (cmd opt)\n      (case cmd\n        ((messages) (handle-messages opt))\n        ((rooms)    (handle-rooms opt))))\n    args\n    program: \"webex\"\n    help: \"Webex CLI\"\n    messages-cmd))\n\n;; Inner dispatch for messages subcommands\n(def (handle-messages opt)\n  (let-hash opt\n    (call-with-getopt\n      (lambda (cmd opt)\n        (case cmd\n          ((list) (let-hash opt (displayln \"Listing room: \" .?room-id)))\n          ((get)  (let-hash opt (displayln \"Getting: \" .message-id)))))\n      .rest-arguments\n      program: \"webex messages\"\n      help: \"Message commands\"\n      messages-list-cmd messages-get-cmd)))",
+    "notes": "This two-level dispatch pattern is the standard way to implement nested subcommands (e.g., \"git remote add\") with :std/cli/getopt. The parent command uses rest-arguments to pass through everything to the inner call-with-getopt. Each level gets its own --help automatically. The .rest-arguments field is a list of strings, which is exactly what call-with-getopt expects for its args parameter.",
+    "related": [
+      "getopt-subcommand-handler-two-args",
+      "cli-getopt-subcommands"
+    ]
+  },
+  {
+    "id": "jsonl-append-thread-safe",
+    "title": "Thread-safe JSONL append logging with mutex and unwind-protect",
+    "tags": [
+      "jsonl",
+      "log",
+      "append",
+      "mutex",
+      "thread-safe",
+      "json"
+    ],
+    "imports": [
+      ":std/text/json",
+      ":std/sugar"
+    ],
+    "code": ";; Thread-safe append of JSON objects to a JSONL file.\n;; Each line is a complete JSON object. Mutex protects concurrent writes.\n\n(def log-mutex (make-mutex 'log))\n\n(def (log-event! type data)\n  \"Append a JSON event to a JSONL file. Thread-safe.\"\n  (let ((event (hash (\"type\" type)\n                     (\"timestamp\" (number->string (time->seconds (current-time))))))\n    ;; Merge caller's data into event\n    (when (hash-table? data)\n      (hash-for-each (lambda (k v) (hash-put! event k v)) data))\n    (let ((path \"/path/to/events.jsonl\")\n          (line (string-append (json-object->string event) \"\\n\")))\n      (mutex-lock! log-mutex)\n      (unwind-protect\n        (call-with-output-file [path: path append: #t create: 'maybe]\n          (lambda (port)\n            (display line port)\n            (force-output port)))\n        (mutex-unlock! log-mutex)))))\n\n;; Usage:\n(log-event! \"api_error\"\n  (hash (\"endpoint\" \"/users\")\n        (\"status_code\" 404)\n        (\"message\" \"Not found\")))\n\n;; Reading JSONL back with optional filters:\n(def (read-events type: (type #f))\n  (let ((path \"/path/to/events.jsonl\"))\n    (if (file-exists? path)\n      (let ((events []))\n        (call-with-input-file path\n          (lambda (port)\n            (let loop ()\n              (let ((line (read-line port)))\n                (unless (eof-object? line)\n                  (when (> (string-length line) 0)\n                    (try\n                      (let ((ev (with-input-from-string line read-json)))\n                        (when (or (not type) (equal? (hash-get ev \"type\") type))\n                          (set! events (cons ev events))))\n                      (catch (e) (void))))\n                  (loop))))))\n        (reverse events))\n      [])))",
+    "notes": "Key details: (1) call-with-output-file with [path: ... append: #t create: 'maybe] opens for append, creating the file only if needed. (2) unwind-protect ensures mutex-unlock! runs even on error. (3) force-output flushes the write immediately. (4) json-object->string serializes a hash table to a JSON string. (5) When reading back, wrap read-json in try/catch to skip malformed lines. (6) Use with-input-from-string to parse each line individually rather than read-json on the whole file (JSONL is not valid JSON as a whole).",
+    "related": [
+      "mutex-unwind-protect",
+      "read-json-file"
+    ]
   }
 ]
