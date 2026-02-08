@@ -40,9 +40,16 @@ export function registerHowtoVerifyTool(server: McpServer): void {
             'This catches unbound identifiers and REPL-only patterns that fail during compilation. ' +
             'Slower but more thorough. Default: false.',
           ),
+        gerbil_version: z
+          .string()
+          .optional()
+          .describe(
+            'Only verify recipes matching this Gerbil version (e.g. "v0.18", "v0.19"). ' +
+            'Untagged recipes are always included. If omitted, verifies all recipes.',
+          ),
       },
     },
-    async ({ cookbook_path, recipe_id, compile_check }) => {
+    async ({ cookbook_path, recipe_id, compile_check, gerbil_version }) => {
       // Load and merge recipes
       let recipes: Recipe[] = [...RECIPES];
       const sources = [REPO_COOKBOOK_PATH];
@@ -70,6 +77,13 @@ export function registerHowtoVerifyTool(server: McpServer): void {
             isError: true,
           };
         }
+      }
+
+      // Filter by gerbil_version if provided (untagged recipes always included)
+      if (gerbil_version) {
+        recipes = recipes.filter(
+          (r) => !r.gerbil_version || r.gerbil_version === gerbil_version,
+        );
       }
 
       // Verify in batches (syntax expansion)
@@ -101,6 +115,7 @@ export function registerHowtoVerifyTool(server: McpServer): void {
 
       // Format output
       const mode = compile_check ? 'syntax + compile' : 'syntax';
+      const versionLabel = gerbil_version ? `, version: ${gerbil_version}` : '';
       const syntaxPassed = results.filter((r) => r.passed);
       const syntaxFailed = results.filter((r) => !r.passed);
       const compileFailed = compile_check
@@ -108,17 +123,25 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         : [];
 
       const sections: string[] = [
-        `Cookbook verification (${mode}): ${results.length} recipe(s) checked`,
+        `Cookbook verification (${mode}${versionLabel}): ${results.length} recipe(s) checked`,
         '',
       ];
 
+      // Build a map of recipe id -> version for display
+      const recipeVersionMap = new Map<string, string | undefined>();
+      for (const rec of recipes) {
+        recipeVersionMap.set(rec.id, rec.gerbil_version);
+      }
+
       for (const r of results) {
+        const ver = recipeVersionMap.get(r.id);
+        const verTag = ver ? ` [${ver}]` : '';
         if (!r.passed) {
-          sections.push(`  FAIL  ${r.id} — ${r.error || 'unknown error'}`);
+          sections.push(`  FAIL  ${r.id}${verTag} — ${r.error || 'unknown error'}`);
         } else if (r.compileError) {
-          sections.push(`  COMPILE-FAIL  ${r.id} — ${r.compileError} (repl_only?)`);
+          sections.push(`  COMPILE-FAIL  ${r.id}${verTag} — ${r.compileError} (repl_only?)`);
         } else {
-          sections.push(`  PASS  ${r.id}`);
+          sections.push(`  PASS  ${r.id}${verTag}`);
         }
       }
 

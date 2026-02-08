@@ -127,7 +127,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent across a project.
 - To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to an existing template file.
 - To find code recipes: use gerbil_howto to search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use cookbook_path to merge in additional recipes from a JSON file.
-- To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session to a cookbook JSON file (convention: \`.claude/cookbooks.json\` in the project root).
+- To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session to a cookbook JSON file (convention: \`.claude/cookbooks.json\` in the project root). Use gerbil_version to tag version-specific recipes (e.g. "v0.18", "v0.19").
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
 - To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.

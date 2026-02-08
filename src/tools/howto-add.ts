@@ -44,9 +44,16 @@ export function registerHowtoAddTool(server: McpServer): void {
           .describe(
             'If provided, marks the recipe with this ID as deprecated and sets its superseded_by to the new recipe ID.',
           ),
+        gerbil_version: z
+          .string()
+          .optional()
+          .describe(
+            'Gerbil version this recipe applies to (e.g. "v0.18", "v0.19"). ' +
+            'Omit for version-agnostic recipes.',
+          ),
       },
     },
-    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related, supersedes }) => {
+    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related, supersedes, gerbil_version }) => {
       const cookbook_path = explicitPath || REPO_COOKBOOK_PATH;
       // Read existing file or start fresh
       let recipes: Recipe[] = [];
@@ -86,6 +93,7 @@ export function registerHowtoAddTool(server: McpServer): void {
       const recipe: Recipe = { id, title, tags, imports, code };
       if (notes) recipe.notes = notes;
       if (related && related.length > 0) recipe.related = related;
+      if (gerbil_version) recipe.gerbil_version = gerbil_version;
 
       // Replace existing recipe with same id, or append
       const existingIdx = recipes.findIndex((r) => r.id === id);
@@ -124,11 +132,12 @@ export function registerHowtoAddTool(server: McpServer): void {
       }
 
       const action = existingIdx >= 0 ? 'Updated' : 'Added';
+      const versionNote = gerbil_version ? ` [${gerbil_version}]` : '';
       return {
         content: [
           {
             type: 'text' as const,
-            text: `${action} recipe "${id}" in ${cookbook_path} (${recipes.length} total recipes).`,
+            text: `${action} recipe "${id}"${versionNote} in ${cookbook_path} (${recipes.length} total recipes).`,
           },
         ],
       };

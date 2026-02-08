@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { runGxi } from '../gxi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -31,6 +32,7 @@ export interface Recipe {
   related?: string[];
   deprecated?: boolean;
   superseded_by?: string;
+  gerbil_version?: string;  // e.g. "v0.18", "v0.19", or omitted = any/untested
 }
 
 export const RECIPES: Recipe[] = [
@@ -440,6 +442,39 @@ export const RECIPES: Recipe[] = [
 
 const MAX_RESULTS = 5;
 
+// ── Gerbil version detection (cached) ────────────────────────────
+let cachedGerbilVersion: string | null | undefined = undefined; // undefined = not yet checked
+
+export async function detectGerbilVersion(): Promise<string | null> {
+  if (cachedGerbilVersion !== undefined) return cachedGerbilVersion;
+  try {
+    const result = await runGxi(['(display (gerbil-version-string))']);
+    const ver = result.stdout.trim(); // e.g. "v0.18.1-173-gb3417266"
+    // Extract version up to build number, dropping the git hash suffix
+    // "v0.18.1-173-gb3417266" -> "v0.18.1-173"
+    const match = ver.match(/^(v\d+\.\d+\.\d+(?:-\d+)?)/);
+    cachedGerbilVersion = match ? match[1] : (ver || null);
+  } catch {
+    cachedGerbilVersion = null; // unknown
+  }
+  return cachedGerbilVersion;
+}
+
+/** Reset cached version (for testing) */
+export function resetCachedGerbilVersion(): void {
+  cachedGerbilVersion = undefined;
+}
+
+/**
+ * Check if a recipe's version tag matches a target version.
+ * Untagged recipes always match. Null target matches everything.
+ */
+function versionMatches(recipeVersion: string | undefined, targetVersion: string | null): boolean {
+  if (!recipeVersion) return true;  // untagged = any
+  if (!targetVersion) return true;  // unknown target = show all
+  return recipeVersion === targetVersion;
+}
+
 export function registerHowtoTool(server: McpServer): void {
   server.registerTool(
     'gerbil_howto',
@@ -461,9 +496,17 @@ export function registerHowtoTool(server: McpServer): void {
           .describe(
             'Absolute path to a JSON cookbook file with additional recipes to merge (e.g. "/home/user/project/.claude/cookbooks.json")',
           ),
+        gerbil_version: z
+          .string()
+          .optional()
+          .describe(
+            'Filter recipes by Gerbil version (e.g. "v0.18", "v0.19"). ' +
+            'When provided, excludes version-tagged recipes that don\'t match. ' +
+            'Untagged recipes always pass through. If omitted, auto-detects the running version.',
+          ),
       },
     },
-    async ({ query, cookbook_path }) => {
+    async ({ query, cookbook_path, gerbil_version: explicitVersion }) => {
       const words = query
         .toLowerCase()
         .split(/\s+/)
@@ -494,6 +537,14 @@ export function registerHowtoTool(server: McpServer): void {
         }
       }
 
+      // Determine effective version for filtering/scoring
+      const activeVersion = explicitVersion || (await detectGerbilVersion());
+
+      // When explicit filter provided, exclude mismatched tagged recipes
+      if (explicitVersion) {
+        recipes = recipes.filter((r) => versionMatches(r.gerbil_version, explicitVersion));
+      }
+
       // Score each recipe
       const scored = recipes.map((recipe) => {
         let score = 0;
@@ -514,6 +565,11 @@ export function registerHowtoTool(server: McpServer): void {
         // Deprioritize deprecated recipes
         if (recipe.deprecated) {
           score = Math.round(score * 0.1);
+        }
+        // Deprioritize version-mismatched recipes (when no explicit filter)
+        if (!explicitVersion && recipe.gerbil_version && activeVersion &&
+            recipe.gerbil_version !== activeVersion) {
+          score = Math.round(score * 0.5);
         }
         return { recipe, score };
       });
@@ -544,13 +600,14 @@ export function registerHowtoTool(server: McpServer): void {
 
       for (const { recipe } of matches) {
         sections.push('');
+        const versionTag = recipe.gerbil_version ? ` [${recipe.gerbil_version}]` : '';
         if (recipe.deprecated) {
-          sections.push(`## [DEPRECATED] ${recipe.title}`);
+          sections.push(`## [DEPRECATED]${versionTag} ${recipe.title}`);
           if (recipe.superseded_by) {
             sections.push(`Superseded by: "${recipe.superseded_by}"`);
           }
         } else {
-          sections.push(`## ${recipe.title}`);
+          sections.push(`## ${recipe.title}${versionTag}`);
         }
         if (recipe.imports.length > 0) {
           sections.push(`Imports: ${recipe.imports.join(' ')}`);

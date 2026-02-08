@@ -3592,4 +3592,121 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.text).toContain('required');
     });
   });
+
+  // ── Version tagging for cookbook recipes ─────────────────────────
+
+  describe('Cookbook version tagging', () => {
+    it('gerbil_howto_add stores gerbil_version field', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'v18-only-zqpkm',
+        title: 'V18 zqpkm recipe',
+        tags: ['zqpkmtag18', 'zqpkmall'],
+        imports: [],
+        code: '(displayln "v18")',
+        gerbil_version: 'v0.18',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).toContain('[v0.18]');
+
+      // Verify the field is stored in JSON
+      const data = JSON.parse(readFileSync(cookbookPath, 'utf-8'));
+      const recipe = data.find((r: { id: string }) => r.id === 'v18-only-zqpkm');
+      expect(recipe.gerbil_version).toBe('v0.18');
+    });
+
+    it('gerbil_howto_add without gerbil_version omits the field', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'zqpkm-untagged',
+        title: 'Zqpkm untagged recipe',
+        tags: ['zqpkmuntag', 'zqpkmall'],
+        imports: [],
+        code: '(displayln "any")',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).not.toContain('[v0.');
+
+      const data = JSON.parse(readFileSync(cookbookPath, 'utf-8'));
+      const recipe = data.find((r: { id: string }) => r.id === 'zqpkm-untagged');
+      expect(recipe.gerbil_version).toBeUndefined();
+    });
+
+    it('gerbil_howto displays version tags in results', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      // Add a v0.19 recipe too
+      await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'v19-only-zqpkm',
+        title: 'V19 zqpkm recipe',
+        tags: ['zqpkmtag19', 'zqpkmall'],
+        imports: [],
+        code: '(displayln "v19")',
+        gerbil_version: 'v0.19',
+      });
+
+      // Use unique tags that only match our version-tagged recipes
+      const result = await client.callTool('gerbil_howto', {
+        query: 'zqpkmtag18 zqpkmtag19 zqpkmall',
+        cookbook_path: cookbookPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[v0.18]');
+      expect(result.text).toContain('[v0.19]');
+    });
+
+    it('gerbil_howto with explicit gerbil_version excludes mismatched recipes', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      // Search using unique tags that match v18 and untagged recipes
+      const result = await client.callTool('gerbil_howto', {
+        query: 'zqpkmtag18 zqpkmuntag zqpkmall',
+        cookbook_path: cookbookPath,
+        gerbil_version: 'v0.18',
+      });
+      expect(result.isError).toBe(false);
+      // v0.18 recipe should be present
+      expect(result.text).toContain('V18 zqpkm');
+      // v0.19 recipe should be excluded (filtered out entirely)
+      expect(result.text).not.toContain('V19 zqpkm');
+      // Untagged recipe should pass through
+      expect(result.text).toContain('Zqpkm untagged recipe');
+    });
+
+    it('gerbil_howto_verify with gerbil_version only checks matching recipes', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      // Verify that filtering works by checking that v0.18 recipe is included
+      const result = await client.callTool('gerbil_howto_verify', {
+        cookbook_path: cookbookPath,
+        recipe_id: 'v18-only-zqpkm',
+        gerbil_version: 'v0.18',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('version: v0.18');
+      expect(result.text).toContain('v18-only-zqpkm');
+
+      // v0.19 recipe should be excluded when filtering for v0.18
+      const result2 = await client.callTool('gerbil_howto_verify', {
+        cookbook_path: cookbookPath,
+        recipe_id: 'v19-only-zqpkm',
+        gerbil_version: 'v0.18',
+      });
+      // recipe_id filter runs first, finds v19-only-zqpkm, then version filter removes it
+      // resulting in 0 recipes checked
+      expect(result2.text).toContain('0 recipe(s) checked');
+    }, 60000);
+
+    it('gerbil_howto_verify shows version tags per recipe', async () => {
+      const cookbookPath = join(TEST_DIR, 'version-cookbook.json');
+      const result = await client.callTool('gerbil_howto_verify', {
+        cookbook_path: cookbookPath,
+        recipe_id: 'v18-only-zqpkm',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[v0.18]');
+    }, 60000);
+  });
 });

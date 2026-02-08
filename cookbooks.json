@@ -18,7 +18,8 @@
     "notes": "sha256 and md5 each take a single u8vector argument and return a u8vector. Other available digests: sha1, sha384, sha512, ripemd160, blake2s256, blake2b512. All from :std/crypto/digest.",
     "related": [
       "base64-encode-decode"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "base64-encode-decode",
@@ -39,7 +40,8 @@
     "notes": "u8vector->base64-string and base64-string->u8vector work with binary data. base64-encode and base64-decode work with strings. Useful for HTTP headers like Content-MD5 which require base64-encoded digests.",
     "related": [
       "crypto-digest-sha256-md5"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "deferror-class-defraise",
@@ -61,7 +63,8 @@
     "notes": "deferror-class is more concise than defstruct for error types — it automatically inherits Error fields (message, irritants, where). defraise/context auto-fills the 'where' field. The first arg to defraise/context after 'where' becomes the error message, rest become irritants.",
     "related": [
       "error-handling"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "cli-getopt-subcommands",
@@ -84,7 +87,8 @@
     "related": [
       "let-hash-destructure",
       "getopt-subcommand-handler-two-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "srfi19-date-time-format",
@@ -104,7 +108,8 @@
       ":std/srfi/19"
     ],
     "code": "(import :std/srfi/19)\\n\\n;; Current date/time (UTC)\\n(def now (current-date))\\n\\n;; Format as ISO 8601 timestamp\\n(date->string now \\\"~Y~m~dT~H~M~SZ\\\")\\n;; => \\\"20250115T143052Z\\\"\\n\\n;; Format date portion only\\n(date->string now \\\"~Y~m~d\\\")\\n;; => \\\"20250115\\\"\\n\\n;; Format human-readable\\n(date->string now \\\"~Y-~m-~d ~H:~M:~S\\\")\\n;; => \\\"2025-01-15 14:30:52\\\"\\n\\n;; Common format directives:\\n;;   ~Y  4-digit year    ~m  2-digit month   ~d  2-digit day\\n;;   ~H  24-hour hour    ~M  minute          ~S  second\\n;;   ~Z  timezone offset  ~A  weekday name    ~B  month name",
-    "notes": "current-date returns UTC. date->string uses SRFI-19 format directives (tilde-based, not strftime). Commonly needed for AWS signature timestamps (yyyyMMddTHHmmssZ format) and date-scoped signing keys (yyyyMMdd)."
+    "notes": "current-date returns UTC. date->string uses SRFI-19 format directives (tilde-based, not strftime). Commonly needed for AWS signature timestamps (yyyyMMddTHHmmssZ format) and date-scoped signing keys (yyyyMMdd).",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "xml-parse-sxml",
@@ -125,7 +130,8 @@
     "notes": "read-xml from :std/markup/xml returns SXML (S-expression XML). It takes a single port argument. The result is always wrapped in (*TOP* ...). IMPORTANT: When the XML source has a <?xml ...?> processing instruction, a (*PI* xml ...) node appears in the SXML tree — you must skip it (along with @ and *NAMESPACES*) when traversing to find the root element, or it will be mistaken for the content root. See the sxml-skip-pi-nodes recipe for a correct traversal pattern. Use cadr to skip *TOP*, then navigate with car/cdr/assoc.",
     "related": [
       "sxml-skip-pi-nodes"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "using-typed-struct-access",
@@ -143,7 +149,8 @@
     ],
     "imports": [],
     "code": "(defstruct point (x y) final: #t)\\n(defstruct (point3d point) (z) final: #t)\\n\\n;; using gives typed access — dot notation without dynamic dispatch\\n(def (distance p1 p2)\\n  (using ((p1 :- point) (p2 :- point))\\n    (sqrt (+ (expt (- p1.x p2.x) 2)\\n             (expt (- p1.y p2.y) 2)))))\\n\\n(distance (make-point 0 0) (make-point 3 4))  ;; => 5.0\\n\\n;; Single binding form\\n(def (describe-point p)\\n  (using (p :- point)\\n    (format \\\"(~a, ~a)\\\" p.x p.y)))\\n\\n;; Works with mutation too\\n(def (move-point! p dx dy)\\n  (using (p :- point)\\n    (set! p.x (+ p.x dx))\\n    (set! p.y (+ p.y dy))))",
-    "notes": "using provides typed struct access that compiles to direct field access (no hash-table lookup). Use with defstruct types. The :- annotation is a type declaration. Pair with final: #t on defstruct for best optimization. Unlike (@ obj slot), using is compile-time checked."
+    "notes": "using provides typed struct access that compiles to direct field access (no hash-table lookup). Use with defstruct types. The :- annotation is a type declaration. Pair with final: #t on defstruct for best optimization. Unlike (@ obj slot), using is compile-time checked.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "let-hash-destructure",
@@ -165,7 +172,8 @@
     "notes": "let-hash is from :std/sugar. Three accessor forms: .field (symbol key, required — errors if missing), .?field (symbol key, optional — returns #f), .$field (string key, optional). Very useful for CLI option hashes from getopt and API response hashes. Nests well — (let-hash outer (let-hash .inner-hash ...)).",
     "related": [
       "cli-getopt-subcommands"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "parse-ini-file",
@@ -186,7 +194,8 @@
       ":std/srfi/13"
     ],
     "code": "(import :std/sugar (only-in :std/srfi/13 string-trim-both string-prefix? string-index))\\n\\n;; Parse INI file into hash of sections, each section is a hash of key=value\\n(def (parse-ini-file path)\\n  (let ((result (make-hash-table))\\n        (current-section #f))\\n    (when (file-exists? path)\\n      (call-with-input-file path\\n        (lambda (port)\\n          (let loop ()\\n            (let (line (read-line port))\\n              (unless (eof-object? line)\\n                (let (trimmed (string-trim-both line))\\n                  (cond\\n                    ((or (equal? trimmed \\\"\\\") (string-prefix? \\\"#\\\" trimmed)\\n                         (string-prefix? \\\";\\\" trimmed))\\n                     (void))  ;; skip blank/comment lines\\n                    ((and (string-prefix? \\\"[\\\" trimmed))\\n                     (let (end (string-index trimmed #\\\\]))\\n                       (when end\\n                         (set! current-section (substring trimmed 1 end))\\n                         (unless (hash-key? result current-section)\\n                           (hash-put! result current-section (make-hash-table))))))\\n                    (else\\n                     (when current-section\\n                       (let (eq-pos (string-index trimmed #\\\\=))\\n                         (when eq-pos\\n                           (let ((key (string-trim-both (substring trimmed 0 eq-pos)))\\n                                 (val (string-trim-both (substring trimmed (+ eq-pos 1)\\n                                                          (string-length trimmed)))))\\n                             (hash-put! (hash-ref result current-section) key val))))))))\\n                (loop)))))))\\n    result))\\n\\n;; Usage:\\n;; (def config (parse-ini-file \\\"~/.aws/credentials\\\"))\\n;; (hash-ref (hash-ref config \\\"default\\\") \\\"aws_access_key_id\\\")",
-    "notes": "Handles [section] headers, key=value pairs, blank lines, and # or ; comments. Returns a hash of hashes: outer keys are section names, inner keys are setting names. Useful for parsing AWS credentials/config files, .gitconfig, and similar INI-style configs. Uses string-trim-both and string-index from :std/srfi/13."
+    "notes": "Handles [section] headers, key=value pairs, blank lines, and # or ; comments. Returns a hash of hashes: outer keys are section names, inner keys are setting names. Useful for parsing AWS credentials/config files, .gitconfig, and similar INI-style configs. Uses string-trim-both and string-index from :std/srfi/13.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "http-post-form-encoded",
@@ -211,7 +220,8 @@
     "related": [
       "http-get",
       "http-post-json"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sigv4-aws-request-signing",
@@ -240,7 +250,8 @@
       "http-post-form-encoded",
       "crypto-digest-sha256-md5",
       "srfi19-date-time-format"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hash-table-basics",
@@ -262,7 +273,8 @@
     "related": [
       "iterate-hash",
       "hash-table-merge"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "exe-build-static-modules",
@@ -284,7 +296,8 @@
     "notes": "Common errors: (1) \"cannot find static module foo__bar.scm\" — the dependency wasn't built with --release, or its .gerbil/lib/ isn't in GERBIL_LOADPATH. (2) \"module does not export symbol: main\" — add (export main) to the main module. (3) Linker warnings about dlopen/getaddrinfo are harmless for static Gambit binaries. The resulting binary is fully self-contained and doesn't need Gerbil installed to run.",
     "related": [
       "cli-getopt-subcommands"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "export-t-does-not-reexport-imports",
@@ -299,7 +312,8 @@
     ],
     "imports": [],
     "code": ";; Module A (a.ss) — imports and re-exports\n(import :some-library/foo)  ;; provides make-foo\n(export #t)\n\n(def (helper x) (make-foo x))  ;; make-foo is usable here\n\n;; Module B (b.ss) — imports Module A\n(import ./a)\n\n;; (make-foo 42)  ;; ERROR: make-foo is NOT available!\n;; (export #t) only exports symbols DEFINED in the module,\n;; not symbols imported from other modules.\n\n;; WORKAROUND 1: Import the library directly in Module B\n(import :some-library/foo)  ;; now make-foo is available\n\n;; WORKAROUND 2: Explicitly re-export in Module A\n;; (export (import: :some-library/foo))  ;; re-exports foo's bindings",
-    "notes": "In Gerbil, (export #t) exports all bindings DEFINED in the current module's scope, but does NOT transitively re-export symbols imported from other modules. If module A imports :lib/foo and uses (export #t), module B importing A will NOT get :lib/foo's symbols. Module B must import :lib/foo directly, or module A must use (export (import: :lib/foo)) for explicit re-export. This is a common source of \"Reference to unbound identifier\" errors when refactoring."
+    "notes": "In Gerbil, (export #t) exports all bindings DEFINED in the current module's scope, but does NOT transitively re-export symbols imported from other modules. If module A imports :lib/foo and uses (export #t), module B importing A will NOT get :lib/foo's symbols. Module B must import :lib/foo directly, or module A must use (export (import: :lib/foo)) for explicit re-export. This is a common source of \"Reference to unbound identifier\" errors when refactoring.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "cons-pair-in-bracket-list-gotcha",
@@ -316,7 +330,8 @@
     ],
     "imports": [],
     "code": ";; WRONG: Dotted pair syntax with a variable inside [] list sugar\n;; This is interpreted as calling \"Key\" as a function with value as arg!\n(def key-name \"MyKey\")\n;; [(\"Key\" . key-name)]  ;; ERROR: Bad syntax; invalid match target\n;; Expands to (@list (\"Key\" . key-name)) where (\"Key\" . key-name)\n;; is treated as (%%app \"Key\" . key-name) — a function application.\n\n;; CORRECT: Use (cons ...) to build pairs with variables\n[(cons \"Key\" key-name)]        ;; => ((\"Key\" . \"MyKey\"))\n\n;; Literal dotted pairs (both sides are constants) work inside quote:\n'((\"Key\" . \"literal-value\"))   ;; OK — quoted datum\n\n;; Common use case: building alists for AWS API dimensions\n(def instance-id \"i-abc123\")\n;; Wrong:  dimensions: [(\"InstanceId\" . instance-id)]\n;; Right:  dimensions: [(cons \"InstanceId\" instance-id)]\n\n;; Multiple pairs:\n(def name \"my-func\")\n(def dims [(cons \"FunctionName\" name)\n           (cons \"Resource\" \"my-resource\")])\n;; => ((\"FunctionName\" . \"my-func\") (\"Resource\" . \"my-resource\"))",
-    "notes": "In Gerbil, [x y z] is sugar for (@list x y z). Each element is an expression. The syntax (\"Key\" . var) in expression position is NOT a cons pair — it's a function application where \"Key\" is the operator. This causes \"Bad syntax; invalid match target\" or similar errors. Use (cons \"Key\" var) instead. Literal pairs work fine inside quote: '((\"k\" . \"v\")). This commonly bites when building alists (e.g., AWS API dimension parameters) where keys are string literals but values are variables."
+    "notes": "In Gerbil, [x y z] is sugar for (@list x y z). Each element is an expression. The syntax (\"Key\" . var) in expression position is NOT a cons pair — it's a function application where \"Key\" is the operator. This causes \"Bad syntax; invalid match target\" or similar errors. Use (cons \"Key\" var) instead. Literal pairs work fine inside quote: '((\"k\" . \"v\")). This commonly bites when building alists (e.g., AWS API dimension parameters) where keys are string literals but values are variables.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-build-loadpath-for-packages",
@@ -332,7 +347,8 @@
     ],
     "imports": [],
     "code": ";; If your project imports a third-party package installed via gerbil pkg:\n;; (import :my-library/module)\n;;\n;; Running bare `gerbil build` may fail with:\n;;   Syntax Error: cannot find library module\n;;   form: :my-library/module\n;;\n;; The fix: set GERBIL_LOADPATH to include ~/.gerbil/lib\n;;\n;; Option 1: Shell environment variable\n;; $ GERBIL_LOADPATH=~/.gerbil/lib gerbil build\n;;\n;; Option 2: Makefile (recommended for projects)\n;; ------- Makefile -------\n;; GERBIL_PATH = $(HOME)/.gerbil\n;; export GERBIL_LOADPATH = $(GERBIL_PATH)/lib\n;;\n;; build:\n;; \tgerbil build\n;;\n;; clean:\n;; \tgerbil clean\n;; ------- end -------\n;;\n;; Note: gxi (the REPL) finds packages without GERBIL_LOADPATH,\n;; but the build subprocess spawned by `gerbil build` does not.\n;; This is a common source of confusion when imports work in gxi\n;; but fail during compilation.",
-    "notes": "The gerbil build command spawns a subprocess to compile, and that subprocess does not inherit the default package search paths that gxi uses. You must explicitly set GERBIL_LOADPATH=$HOME/.gerbil/lib (or wherever packages are installed). A Makefile with `export GERBIL_LOADPATH` is the standard pattern. This explains why `gxi -e '(import :pkg/mod)'` works but `gerbil build` fails with \"cannot find library module\"."
+    "notes": "The gerbil build command spawns a subprocess to compile, and that subprocess does not inherit the default package search paths that gxi uses. You must explicitly set GERBIL_LOADPATH=$HOME/.gerbil/lib (or wherever packages are installed). A Makefile with `export GERBIL_LOADPATH` is the standard pattern. This explains why `gxi -e '(import :pkg/mod)'` works but `gerbil build` fails with \"cannot find library module\".",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-aws-query-vs-json-response-keys",
@@ -357,7 +373,8 @@
     "related": [
       "http-post-form-encoded",
       "parse-xml-to-sxml"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "extract-member-list-xml-normalization",
@@ -378,7 +395,8 @@
     "notes": "The gerbil-aws Query API functions like cw-action/items extract the outer member list, but inner nested member-list structures (e.g., Dimensions within a Metric) remain in raw XML-parsed form. This helper normalizes the three possible shapes (single hash, list of hashes, or #f) into a consistent list. Essential when processing CloudWatch list-metrics dimensions, IAM policy documents, or any Query API response with nested lists.",
     "related": [
       "gerbil-aws-query-vs-json-response-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sxml-skip-pi-nodes",
@@ -399,7 +417,8 @@
       ":std/markup/xml"
     ],
     "code": "\n(import :std/markup/xml)\n\n;; XML responses often start with <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n;; read-xml parses this into a *PI* (Processing Instruction) SXML node:\n;;\n;;   (*TOP*\n;;     (@ (*NAMESPACES* ...))\n;;     (*PI* xml \"version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"\")   ;; <-- gotcha!\n;;     (ns:RootElement ...))\n;;\n;; When traversing SXML to find the root element, you MUST skip *PI* nodes\n;; along with @, *NAMESPACES*, and *TOP*. Otherwise *PI* gets mistakenly\n;; treated as the root element.\n\n;; WRONG — misses *PI*, returns wrong node:\n(def (find-root-BAD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES*)) #f)        ;; missing *PI*!\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; CORRECT — skips *PI* nodes:\n(def (find-root-GOOD xml)\n  (let find ((node xml))\n    (cond\n      ((not (pair? node)) #f)\n      ((memq (car node) '(@ *NAMESPACES* *PI*)) #f)   ;; includes *PI*\n      ((not (eq? (car node) '*TOP*)) node)\n      (else (ormap find (cdr node))))))\n\n;; Example: parsing an S3 response with XML declaration\n(def xml (read-xml\n           \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><Root><Item>hello</Item></Root>\"\n           namespaces: '()))\n\n(find-root-BAD xml)   ;; => (*PI* xml \"version=\\\"1.0\\\" ...\") — WRONG!\n(find-root-GOOD xml)  ;; => (Root (Item \"hello\")) — correct\n",
-    "notes": "The *PI* node appears in SXML when the source XML contains processing instructions like <?xml ...?>. Most real-world XML APIs (AWS S3, etc.) include this declaration. The SXML metadata nodes to always skip when searching for content elements are: *TOP* (document root wrapper), @ (attributes), *NAMESPACES* (namespace declarations), and *PI* (processing instructions). Forgetting *PI* causes silent data loss — the PI node gets processed as if it were the root element, typically producing an empty string or #f instead of the expected parsed data."
+    "notes": "The *PI* node appears in SXML when the source XML contains processing instructions like <?xml ...?>. Most real-world XML APIs (AWS S3, etc.) include this declaration. The SXML metadata nodes to always skip when searching for content elements are: *TOP* (document root wrapper), @ (attributes), *NAMESPACES* (namespace declarations), and *PI* (processing instructions). Forgetting *PI* causes silent data loss — the PI node gets processed as if it were the root element, typically producing an empty string or #f instead of the expected parsed data.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "stale-global-static-files-segfault",
@@ -423,7 +442,8 @@
     "related": [
       "static-exe-with-deps",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "debug-compiled-only-segfault",
@@ -445,7 +465,8 @@
     "related": [
       "stale-global-static-files-segfault",
       "static-exe-with-deps"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "srfi-19-current-time-shadows-gambit",
@@ -468,7 +489,8 @@
     "notes": "The ## prefix accesses Gambit's raw (unshadowed) primitives. ##current-time is safe to use even when SRFI-19 is imported. This issue only manifests at runtime — compilation succeeds because both versions of current-time have the same arity. The error message \"Instance of #<type #2 time> expected\" is the key diagnostic clue. Also note: exact->inexact is needed because time->seconds may return an exact rational.",
     "related": [
       "date-time-formatting-srfi-19"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "mutex-unwind-protect-deadlock-prevention",
@@ -489,7 +511,8 @@
     "related": [
       "srfi-19-current-time-shadows-gambit",
       "error-handling"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "error-message-returns-false-for-non-error",
@@ -514,7 +537,8 @@
       "error-handling",
       "custom-error",
       "deferror-class"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-json-arrays-are-lists-not-vectors",
@@ -539,7 +563,8 @@
     "related": [
       "gerbil-aws-query-vs-json-response-keys",
       "json-parse"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ec2-xml-lowercase-camelcase-keys",
@@ -561,7 +586,8 @@
     "notes": "The AWS documentation and CLI both show PascalCase (RegionName, InstanceId), but EC2's actual XML response uses lowercase camelCase. Other Query API services like CloudWatch and RDS use PascalCase in their XML. There's no universal rule — you must check the actual XML element names for each service. When in doubt, add a debug line: (displayln (hash->list my-hash)) to see the actual keys.",
     "related": [
       "gerbil-aws-query-vs-json-response-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "write-json-cannot-serialize-cons-pairs",
@@ -585,7 +611,8 @@
     "related": [
       "gerbil-json-arrays-are-lists-not-vectors",
       "json-generate"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-aws-sts-nested-response",
@@ -607,7 +634,8 @@
     "related": [
       "gerbil-aws-query-vs-json-response-keys",
       "ec2-lowercase-camelcase-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-aws-empty-xml-tagset-string",
@@ -627,7 +655,8 @@
     "related": [
       "ec2-lowercase-camelcase-keys",
       "gerbil-aws-query-vs-json-response-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "aws-pricing-api-endpoint",
@@ -649,7 +678,8 @@
     "notes": "The AWS Pricing API is only available in us-east-1 and ap-south-1. Always pass the endpoint explicitly when creating the client. The AWSJsonClient default endpoint construction (service.region.amazonaws.com) does NOT work for the Pricing API. This manifests as a confusing CloudFront 403 error rather than an obvious endpoint error.",
     "related": [
       "gerbil-aws-query-vs-json-response-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "aws-pricing-api-content-type-1-1",
@@ -671,7 +701,8 @@
     "notes": "The AWSJsonClient in gerbil-aws defaults content-type to \"application/x-amz-json-1.0\" (set in json-api.ss line 45). AWS services that require 1.1 will reject ALL requests with HTTP 404 UnknownOperationException. This is extremely hard to debug because: (1) the error is XML even though it's a JSON API, (2) 404 suggests a wrong URL, not a wrong content-type, (3) the endpoint IS correct (api.pricing.region.amazonaws.com). Combined with the endpoint issue (see aws-pricing-api-endpoint recipe), there are TWO things you must get right for the Pricing API: the api.pricing prefix AND the 1.1 content-type.",
     "related": [
       "aws-pricing-api-endpoint"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-aws-strip-ns-uri-namespace-bug",
@@ -694,7 +725,8 @@
       "aws-pricing-api-endpoint",
       "gerbil-aws-query-vs-json-response-keys",
       "ec2-lowercase-camelcase-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "force-gc-gambit",
@@ -712,7 +744,8 @@
     "notes": "##gc is a Gambit primitive (double-hash prefix). It triggers a full GC cycle synchronously. Returns void. Safe to call at any time. Particularly important in multi-threaded applications where many short-lived objects are created rapidly (e.g., parsing large JSON API responses) and the GC can't keep up with allocation pressure. Also useful in long-running batch programs that process data in phases. Note: calling ##gc too frequently adds overhead; use it between major processing phases, not in tight loops.",
     "related": [
       "srfi-19-current-time-shadows-gambit"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "thread-safe-list-accumulation",
@@ -732,7 +765,8 @@
     "notes": "Scheme's append copies all cons cells of every argument except the last. So (append big-list small-list) copies big-list entirely. In a parallel accumulation loop, the accumulated list grows on each iteration, making the copy cost grow linearly and total cost quadratic. Swapping argument order — (append small-list big-list) — means only the small per-thread result is copied, keeping total cost linear. This matters when accumulating thousands of results across many threads: the O(n²) version can waste gigabytes of memory on intermediate copies that become garbage.",
     "related": [
       "mutex-unwind-protect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-function-signature-keyword-args-arity",
@@ -750,7 +784,8 @@
     "notes": "Gambit compiles keyword arguments into a rest-args list internally, so the arity reflects only positional parameters. The gerbil_function_signature tool cannot currently extract keyword parameter names from compiled modules. Always verify by reading source when arity seems too low for an API wrapper function.",
     "related": [
       "optional-keyword-arguments"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ec2-monitoring-state-filter",
@@ -772,7 +807,8 @@
     "related": [
       "ec2-lowercase-camelcase-keys",
       "ec2-empty-tagset-string"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ec2-paginated-query-with-action-hash",
@@ -795,7 +831,8 @@
       "ec2-lowercase-camelcase-keys",
       "ec2-empty-tagset-string",
       "ec2-monitoring-state-filter"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "cloudwatch-paginated-describe-alarms",
@@ -818,7 +855,8 @@
       "normalize-xml-member-list",
       "ec2-paginated-query-with-action-hash",
       "ec2-lowercase-camelcase-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "aws-sxml-lightweight-counting",
@@ -847,7 +885,8 @@
       "sxml-skip-pi-nodes",
       "parse-xml-to-sxml",
       "ec2-lowercase-camelcase-keys"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "serialize-regions-gc-bound-memory",
@@ -870,7 +909,8 @@
       "force-gc-gambit",
       "sxml-counting-raw",
       "paginate-ec2-action-hash"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "memory-snapshot-profiling",
@@ -895,7 +935,8 @@
     "related": [
       "force-gc-gambit",
       "serialize-multi-region-gc"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "run-standalone-script-with-project-imports",
@@ -915,7 +956,8 @@
     "notes": "Key points: (1) ./module syntax ONLY works inside compiled modules, not standalone gxi scripts. (2) Use :package/module paths matching your gerbil.pkg package: declaration. (3) GERBIL_LOADPATH must include the project's .gerbil/lib/ directory. (4) The project must be built first so compiled modules exist. (5) Multiple LOADPATH entries are colon-separated. (6) For CLI scripts, use (command-line) to get args and (apply main (cdr (command-line))) to invoke.",
     "related": [
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "resolve-import-naming-conflicts",
@@ -936,7 +978,8 @@
     "notes": "Common conflict sources: (1) :std/misc/string exports string-split, string-prefix?, string-suffix? which many projects define locally. (2) :std/srfi/1 exports map, for-each, filter etc. which shadow Gerbil's built-ins. (3) :std/iter exports for which shadows Gerbil's for (though they're usually compatible). Always use gerbil_module_exports to check what a module exports BEFORE importing it. The only-in approach is safest — you explicitly list what you need and won't get surprise conflicts if the upstream module adds new exports.",
     "related": [
       "export-t-no-reexport"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "def-self-shadow-infinite-recursion",
@@ -958,7 +1001,8 @@
     "related": [
       "error-message-returns-false",
       "error-handling"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hash-list-to-json-consumer-gotcha",
@@ -986,7 +1030,8 @@
       "write-json-cons-pair-error",
       "gerbil-json-arrays-are-lists-not-vectors",
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "debounce-thread-pattern",
@@ -1004,7 +1049,8 @@
     "notes": "thread-terminate! on a thread that already exited throws an exception, so always wrap in with-catch. The debounce thread gets terminated when a new event arrives before the delay expires. thread-sleep! accepts seconds as a real number, so divide milliseconds by 1000.0.",
     "related": [
       "mutex-unwind-protect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "open-process-capture-output",
@@ -1025,7 +1071,8 @@
     "notes": "process-status returns the raw waitpid status. Normal exit code N gives N*256 for Gambit's open-process, but in practice checking (= status 0) vs non-zero works. stderr-redirection: #t merges stderr into stdout so read-all-as-string captures both. Use run-process from :std/misc/process when you want automatic exception on failure.",
     "related": [
       "spawn-threads"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "u8vector-character-classifier",
@@ -1041,7 +1088,8 @@
     ],
     "imports": [],
     "code": ";; Pattern: Use a u8vector parallel to a string to classify each\n;; character position (e.g., code=0, string=1, comment=2).\n;; Much faster than re-scanning for each query.\n\n(def (classify-chars text)\n  (let* ((len (string-length text))\n         (regions (make-u8vector len 0)))  ;; default: 0 = code\n    ;; Walk through text, setting classification\n    (let loop ((i 0))\n      (when (< i len)\n        (let ((c (string-ref text i)))\n          (cond\n            ;; String literal: mark all chars as 1\n            ((char=? c #\\\")\n             (u8vector-set! regions i 1)\n             (let str-loop ((j (+ i 1)))\n               (if (>= j len) (loop j)\n                 (let ((sc (string-ref text j)))\n                   (u8vector-set! regions j 1)\n                   (cond\n                     ((char=? sc #\\\\)  ;; skip escape\n                      (when (< (+ j 1) len)\n                        (u8vector-set! regions (+ j 1) 1))\n                      (str-loop (+ j 2)))\n                     ((char=? sc #\\\") (loop (+ j 1)))\n                     (else (str-loop (+ j 1))))))))\n            ;; Line comment: mark rest of line as 2\n            ((char=? c #\\;)\n             (let cmt-loop ((j i))\n               (if (or (>= j len)\n                       (char=? (string-ref text j) #\\newline))\n                 (loop j)\n                 (begin (u8vector-set! regions j 2)\n                        (cmt-loop (+ j 1))))))\n            (else (loop (+ i 1)))))))\n    regions))\n\n;; Query: check if offset is in a non-code region\n(def (in-non-code? regions offset)\n  (and (< offset (u8vector-length regions))\n       (> (u8vector-ref regions offset) 0)))\n\n;; Example:\n;; (def r (classify-chars \"(def x \\\"hi\\\") ; comment\"))\n;; (in-non-code? r 7)  ;; #t — inside string\n;; (in-non-code? r 13) ;; #t — inside comment\n;; (in-non-code? r 0)  ;; #f — code",
-    "notes": "u8vector is ideal for per-character classification because it uses 1 byte per position (vs 8 bytes for a vector of fixnums). make-u8vector accepts an initial fill value. This scan-once-query-many pattern avoids O(n*m) cost when checking multiple positions against string/comment boundaries. Extend the cond for block comments (#| ... |#) with a depth counter for nesting."
+    "notes": "u8vector is ideal for per-character classification because it uses 1 byte per position (vs 8 bytes for a vector of fixnums). make-u8vector accepts an initial fill value. This scan-once-query-many pattern avoids O(n*m) cost when checking multiple positions against string/comment boundaries. Extend the cond for block comments (#| ... |#) with a depth counter for nesting.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defstruct-positional-constructor",
@@ -1060,7 +1108,8 @@
     "related": [
       "define-structs",
       "typed-struct-field-access"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "open-process-environment",
@@ -1081,7 +1130,8 @@
     "related": [
       "run-external-process",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "atomic-json-file-cache",
@@ -1103,7 +1153,8 @@
     "related": [
       "read-json-file",
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "current-second-time",
@@ -1123,7 +1174,8 @@
     "related": [
       "srfi-19-current-time-shadows-gambit",
       "date-time-formatting-srfi-19"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-path-builtins",
@@ -1145,7 +1197,8 @@
     "related": [
       "read-file-to-string",
       "read-file-lines"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "http-multipart-file-upload",
@@ -1170,7 +1223,8 @@
     "related": [
       "http-get",
       "http-post-json"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "csv-write-output",
@@ -1192,7 +1246,8 @@
     "related": [
       "read-json-file",
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "plain-text-aligned-table",
@@ -1216,7 +1271,8 @@
     "notes": "Uses string-pad-right from :std/srfi/13 for column alignment. iota from :std/srfi/1 can also be used but (iota n) works with :std/iter's for. All values are coerced to strings via (format \\\"~a\\\" val). For wide tables, consider adding a truncate-string helper: (def (trunc s n) (if (> (string-length s) n) (string-append (substring s 0 (- n 3)) \\\"...\\\") s)).",
     "related": [
       "csv-write-output"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "rest-api-client-pattern",
@@ -1245,7 +1301,8 @@
       "http-get",
       "http-post-json",
       "http-multipart-file-upload"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "request-json-symbol-keys",
@@ -1269,7 +1326,8 @@
       "http-get",
       "let-hash-destructure",
       "rest-api-client-json-auth-pagination"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "getopt-subcommand-handler-two-args",
@@ -1291,7 +1349,8 @@
     "related": [
       "cli-getopt-subcommands",
       "let-hash-destructure"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "string-subst-arg-order",
@@ -1311,7 +1370,8 @@
     "notes": "Easy to confuse with other languages where replace(old, new, str) is common. In Gerbil's :std/misc/string, it's (string-subst str old new). The optional count: keyword limits the number of replacements.",
     "related": [
       "string-trim-prefix"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "camelcase-to-kebab-case",
@@ -1332,7 +1392,8 @@
     "notes": "Two-pass regex approach handles the tricky case of consecutive uppercase letters (like HTTP, API, XML). The first pass handles \"APIKey\" -> \"API-Key\" and the second handles \"getAPI\" -> \"get-API\". Then string-downcase normalizes everything. string-downcase is from :std/srfi/13. pregexp-replace* replaces ALL matches (not just the first).",
     "related": [
       "regular-expressions"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "pretty-print-code-generation",
@@ -1350,7 +1411,8 @@
     "notes": "pretty-print is from Gambit (no import needed). It handles long forms by breaking across lines with proper indentation. For code generation, combine with quasiquote (backtick) and unquote (comma) to build s-expressions with dynamic parts, then pretty-print to get properly formatted output. string-append multiple emit-form calls to build complete source files.",
     "related": [
       "regular-expressions"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "string-to-keyword-vs-symbol-for-codegen",
@@ -1369,7 +1431,8 @@
     "related": [
       "optional-keyword-arguments",
       "pretty-print-code-generation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "void-is-truthy-use-hash-get-not-hash-ref",
@@ -1388,7 +1451,8 @@
     "notes": "This is a common source of bugs in Gerbil. The (when ...) form returns #!void when the condition is false, and #!void is truthy. So if you store the result of (when ...) and later test it, it will appear to be a valid value. Always use (if ... ... #f) when you need to return #f for the false case, or use hash-get instead of hash-ref for lookups that might miss.",
     "related": [
       "hash-table-operations"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "deduplicate-names-hash-counter",
@@ -1407,7 +1471,8 @@
     "notes": "This pattern is essential for code generators that produce Scheme identifiers from external sources (like OpenAPI/Swagger specs) where name collisions can occur. The counter-based approach ensures stable, deterministic naming when applied to sorted input. Sort items first for reproducible output.",
     "related": [
       "hash-table-operations"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defstruct-naming-avoid-accessor-collision",
@@ -1426,7 +1491,8 @@
     "notes": "This pattern is essential when generating structs from external schemas (OpenAPI, JSON Schema, etc.) where schema names like \"Foo\" and \"FooBar\" would create accessor collisions. The -t suffix is a Lisp/Scheme convention indicating a type name. Alternative suffixes like -type or -struct also work.",
     "related": [
       "define-structs"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sanitize-string-to-scheme-identifier",
@@ -1447,7 +1513,8 @@
     "notes": "Use string->scheme-id for arbitrary external strings (JSON property names, user input). For camelCase identifiers like \"getUserById\", a separate camel-case->kebab-case function that inserts hyphens at case boundaries gives better results (\"get-user-by-id\").",
     "related": [
       "pregexp-replace"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-ffi-pointer-types",
@@ -1467,7 +1534,8 @@
     "related": [
       "gambit-ffi-c-lambda",
       "gambit-ffi-scheme-object"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-ffi-u8vector-to-c",
@@ -1486,7 +1554,8 @@
     "related": [
       "gambit-ffi-pointer-types",
       "string-to-bytes"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-ffi-c-define-limitation",
@@ -1504,7 +1573,8 @@
     "notes": "The c-define mechanism works for callbacks that you invoke from Scheme-controlled C code. It's fragile for callbacks stored by C libraries and invoked at arbitrary times (comparators, event handlers, custom allocators). The safest approach is to implement callback-heavy functionality in pure C. For LevelDB specifically: use the default byte-ordering comparator (design keys to sort correctly), avoid writebatch_iterate (use normal iteration instead), and avoid custom filter policies (use bloom filters).",
     "related": [
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gxpkg-install-destroys-cwd",
@@ -1520,7 +1590,8 @@
     ],
     "imports": [],
     "code": ";; CRITICAL WARNING: Running `gerbil pkg install` or `gerbil pkg uninstall`\n;; from within a project directory that has its own `.gerbil/` subdirectory\n;; can DESTROY the entire project directory contents.\n;;\n;; The gxpkg tool treats the CWD's `.gerbil/` as a package context.\n;; During install/uninstall, the `clean` step may remove project files.\n;;\n;; SAFE PATTERN — always cd to HOME or another directory first:\n;;\n;;   cd ~ && gerbil pkg install github.com/user/package\n;;   cd ~ && gerbil pkg uninstall github.com/user/package\n;;\n;; DANGEROUS — DO NOT do this from your project directory:\n;;\n;;   cd /path/to/my-project  # has .gerbil/ subdir\n;;   gerbil pkg install github.com/user/package  # MAY WIPE PROJECT FILES\n;;\n;; When using MCP tools (gerbil_package_manage), ensure the CWD\n;; is not a project directory with .gerbil/, or use the `cwd` parameter\n;; to explicitly set a safe working directory.\n;;\n;; RECOVERY: If this happens, use `git checkout` or restore from backup.\n;; The .git directory may also be deleted, requiring re-cloning.",
-    "notes": "This was discovered when running `gerbil pkg install github.com/ober/gerbil-leveldb` from within the kunabi project directory. The entire project was wiped including .git, all source files, and build artifacts. Only .claude/ survived because it was created after the wipe. The gxpkg clean step is the culprit — it removes files from the local .gerbil/ context which cascades to removing the project structure."
+    "notes": "This was discovered when running `gerbil pkg install github.com/ober/gerbil-leveldb` from within the kunabi project directory. The entire project was wiped including .git, all source files, and build artifacts. Only .claude/ survived because it was created after the wipe. The gxpkg clean step is the culprit — it removes files from the local .gerbil/ context which cascades to removing the project structure.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "leveldb-snapshot-consistent-reads",
@@ -1540,7 +1611,8 @@
     "notes": "Key API details from ober/gerbil-leveldb source: (1) leveldb-snapshot takes 1 arg (db), returns an opaque pointer. (2) leveldb-snapshot-release takes 2 args (db, snapshot). (3) leveldb-read-options accepts keyword snapshot: with the snapshot pointer. (4) leveldb-get signature is (ldb key (opts default-read-options)) — the read-options is a positional optional arg, not keyword. (5) leveldb-iterator signature is (ldb (opts default-read-options)) — same pattern. (6) Snapshots are lightweight in LevelDB but MUST be released to avoid blocking compaction. Always use try/finally or a macro wrapper.",
     "related": [
       "gxpkg-install-destroys-cwd"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "leveldb-local-pkg-manifest-setup",
@@ -1559,7 +1631,8 @@
     "related": [
       "gxpkg-install-destroys-cwd",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "leveldb-iterator-close-not-destroy",
@@ -1579,7 +1652,8 @@
     "notes": "The naming mismatch comes from the C API (leveldb_iter_destroy) vs the Gerbil wrapper (leveldb-iterator-close). Iterators also have automatic finalization via Gambit's \"will\" mechanism, so they're cleaned up on GC even without explicit close — but explicit cleanup is good practice to release resources promptly. Note: key and value are returned as u8vectors; use (bytes->string key) to convert to strings.",
     "related": [
       "leveldb-snapshot"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "for-destructuring-compile-workaround",
@@ -1603,7 +1677,8 @@
       "iterate-hash",
       "for-collect",
       "for-fold"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "display-human-readable-hash",
@@ -1630,7 +1705,8 @@
       "for-destructuring-compile-workaround",
       "iterate-hash",
       "print-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "let-star-nested-hash-invalid-match-target",
@@ -1650,7 +1726,8 @@
     "related": [
       "hash-table-operations",
       "dotted-pair-syntax-in-brackets"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "resolve-all-refs-preserve-ref-name",
@@ -1669,7 +1746,8 @@
     "notes": "After resolve-all-refs runs, (hash-get resolved-schema \"$resolved-ref\") returns e.g. \"#/components/schemas/Pet\". You can extract the name with (extract-ref-name ref) which takes the last path segment. This is critical for code generators that need to know schema names for type dispatch, formatter selection, or struct name generation.",
     "related": [
       "hash-table-operations"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "quasiquote-splice-empty-list-when-body",
@@ -1689,7 +1767,8 @@
     "related": [
       "let-star-nested-hash-invalid-match-target",
       "pretty-print-code-generation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "write-xml-generate-sxml",
@@ -1711,7 +1790,8 @@
     "related": [
       "parse-xml-to-sxml",
       "sxml-skip-pi-nodes"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "build-ffi-module-with-pkg-config",
@@ -1736,7 +1816,8 @@
       "gambit-ffi-pointer-types",
       "static-exe-with-deps",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-c-struct-field-accessors",
@@ -1758,7 +1839,8 @@
     "related": [
       "gambit-ffi-pointer-types",
       "gambit-ffi-scheme-object"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sxml-optional-attrs-from-keywords",
@@ -1780,7 +1862,8 @@
     "related": [
       "generate-xml-svg-output",
       "defstruct-positional-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defstruct-internal-constructor-pattern",
@@ -1799,7 +1882,8 @@
     "related": [
       "defstruct-positional-args",
       "defstruct-accessor-collision"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "write-xml-arity-one-parameterize",
@@ -1819,7 +1903,8 @@
     "notes": "Despite some documentation suggesting write-xml accepts an optional port argument, gerbil_function_signature reports arity:1. The parameterize approach is the safe, verified way to redirect write-xml output. print-sxml->xml is an alternative that does accept a port argument, but its output is pretty-printed with newlines which may not be desired.",
     "related": [
       "generate-xml-svg-output"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "make-temporary-file-name",
@@ -1836,7 +1921,8 @@
       ":std/os/temporaries"
     ],
     "code": "(import :std/os/temporaries)\n\n;; make-temporary-file-name takes exactly 1 argument: a prefix string\n;; Returns a unique path in /tmp like: /tmp/myprefix.eghagFpE.1770327980.9162219\n(def tmpfile (make-temporary-file-name \"myprefix\"))\n;; => \"/tmp/myprefix.eghagFpE.1770327980.9162219\"\n\n;; Common pattern: append an extension\n(def png-file (string-append (make-temporary-file-name \"cairo\") \".png\"))\n;; => \"/tmp/cairo.xxxxx.yyyy.zzzz.png\"",
-    "notes": "Arity is 1 — requires a prefix string argument. Calling with no arguments causes \"Wrong number of arguments\" error. The prefix is used as the first component of the generated filename."
+    "notes": "Arity is 1 — requires a prefix string argument. Calling with no arguments causes \"Wrong number of arguments\" error. The prefix is used as the first component of the generated filename.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-type-predicate",
@@ -1857,7 +1943,8 @@
     "notes": "The tag in define-c-type-predicate must match the tag in the c-define-type pointer declaration (the symbol in the tag list). ##foreign? and foreign-tags are Gambit internals — this must be inside a (declare (not safe)) block. This pattern is used in Gerbil's own libcrypto.ss. The macro must be defined inside begin-ffi, not at the module level.",
     "related": [
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gxi-e-import-suppresses-output",
@@ -1873,7 +1960,8 @@
     ],
     "imports": [],
     "code": ";; PROBLEM: When using `gxi -e` with an import statement followed by\n;; other expressions, output from displayln/display is suppressed:\n;;\n;;   $ gxi -e '(import :my-module) (displayln \"hello\")'\n;;   (no output!)\n;;\n;; But without the import, output works fine:\n;;   $ gxi -e '(displayln \"hello\")'\n;;   hello\n;;\n;; SOLUTION: Write a script file and run it with gxi instead.\n\n;; smoke-test.ss:\n;; (import :my-project/my-module)\n;; (def (main . args)\n;;   (do-something)\n;;   (displayln \"Done!\"))\n\n;; Run with:\n;;   GERBIL_LOADPATH=.gerbil/lib gxi smoke-test.ss\n;;\n;; This reliably produces output and handles imports correctly.",
-    "notes": "This appears to be a Gambit/Gerbil quirk where `gxi -e` with an import expression suppresses subsequent expression output. The workaround is trivial — use a script file. For quick one-liners that don't need imports, `gxi -e` works fine."
+    "notes": "This appears to be a Gambit/Gerbil quirk where `gxi -e` with an import expression suppresses subsequent expression output. The workaround is trivial — use a script file. For quick one-liners that don't need imports, `gxi -e` works fine.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "interface-method-dispatch",
@@ -1893,7 +1981,8 @@
     "related": [
       "defstruct-positional-args",
       "typed-struct-field-access"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defclass-constructor-init-factory",
@@ -1912,7 +2001,8 @@
     "related": [
       "use-internal-helper-rebind-conflict",
       "defstruct-positional-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "indexed-iteration-without-in-indexed",
@@ -1928,7 +2018,8 @@
     ],
     "imports": [],
     "code": ";; in-indexed does NOT exist in :std/iter\n;; Use a named let loop for indexed iteration:\n\n(def (process-items items)\n  (let loop ((rest items) (i 0))\n    (when (pair? rest)\n      (let ((item (car rest)))\n        (displayln i \": \" item)\n        (loop (cdr rest) (+ i 1))))))\n\n;; Example: draw indexed series in a chart legend\n(def (draw-legend series-list)\n  (let loop ((rest series-list) (i 0))\n    (when (pair? rest)\n      (let ((s (car rest))\n            (y (* i 18)))\n        (displayln \"Series \" i \" at y=\" y \": \" s)\n        (loop (cdr rest) (+ i 1))))))",
-    "notes": "The function `in-indexed` referenced in some Gerbil documentation does NOT exist in `:std/iter`. For indexed iteration, use a named let loop with a counter variable. This is the standard Scheme pattern and always works."
+    "notes": "The function `in-indexed` referenced in some Gerbil documentation does NOT exist in `:std/iter`. For indexed iteration, use a named let loop with a counter variable. This is the standard Scheme pattern and always works.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-pkg-depend-local-deps",
@@ -1948,7 +2039,8 @@
     "related": [
       "gerbil-build-loadpath",
       "gxpkg-install-destroys-cwd"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-callback-dispatch-table",
@@ -1971,7 +2063,8 @@
     "related": [
       "c-define-callback-limitation",
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "vendor-cpp-shared-library",
@@ -1995,7 +2088,8 @@
     "related": [
       "build-ffi-pkg-config",
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-foreign-release-prevent-double-free",
@@ -2015,7 +2109,8 @@
     "related": [
       "gambit-ffi-pointer-types",
       "c-define-callback-limitation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "c-define-char-string-const-mismatch",
@@ -2037,7 +2132,8 @@
     "related": [
       "ffi-callback-dispatch-table",
       "c-define-callback-limitation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "build-ss-absolute-path-cc-options",
@@ -2061,7 +2157,8 @@
     "related": [
       "build-ffi-pkg-config",
       "vendor-shared-library"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "write-json-arity-one-parameterize",
@@ -2083,7 +2180,8 @@
     "related": [
       "json-parse",
       "json-generate"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "define-c-type-predicate-returns-list-not-bool",
@@ -2103,7 +2201,8 @@
     "related": [
       "gambit-ffi-pointer-types",
       "ffi-type-predicate"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-utf8-string-unicode-support",
@@ -2125,7 +2224,8 @@
     "related": [
       "c-define-char-string-const-mismatch",
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gerbil-pkg-install-with-depend",
@@ -2145,7 +2245,8 @@
     "related": [
       "gxpkg-install-destroys-cwd",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "build-ss-setenv-pkg-config-path",
@@ -2170,7 +2271,8 @@
       "build-ss-absolute-path-cc-options",
       "build-ffi-pkg-config",
       "vendor-shared-library"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "char-literal-parens-brackets",
@@ -2189,7 +2291,8 @@
     "notes": "ASCII codes: ( = 40, ) = 41, [ = 91, ] = 93, { = 123, } = 125. The #\\{ and #\\} may also cause issues since { } is method dispatch syntax. Always use char->integer comparison for delimiter characters. #\\/ #\\\\ #\\. etc. are fine.",
     "related": [
       "dotted-pair-in-brackets"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defrules-macro-ambiguity-fix",
@@ -2204,7 +2307,8 @@
     ],
     "imports": [],
     "code": ";; Problem: When a defrules macro has two clauses — one with a pattern\n;; argument and one without — calls with a single expression always\n;; match the first clause, treating the expression as the pattern.\n;;\n;; WRONG — (my-macro (some-expr)) matches first clause,\n;; pattern = (some-expr), body ... = () (empty), producing (lambda () )\n;;\n;; (defrules my-macro ()\n;;   ((_ pattern body ...)\n;;    (do-with-pattern pattern (lambda () body ...)))\n;;   ((_ body ...)\n;;    (do-without-pattern (lambda () body ...))))\n;;\n;; CORRECT — require at least one body form when pattern is present:\n(defrules my-macro ()\n  ((_ pattern body0 body ...)\n   (do-with-pattern pattern (lambda () body0 body ...)))\n  ((_ body ...)\n   (do-without-pattern (lambda () body ...))))\n\n;; Now:\n;; (my-macro (expr))         => matches second clause (no pattern)\n;; (my-macro \"/path\" (expr)) => matches first clause (with pattern)",
-    "notes": "The key insight is that body ... (with ellipsis) matches ZERO or more items. So ((_ pattern body ...) always matches any call with 1+ args, even when body ... is empty. Using body0 body ... requires at least one body form, forcing single-arg calls to fall through to the patternless clause."
+    "notes": "The key insight is that body ... (with ellipsis) matches ZERO or more items. So ((_ pattern body ...) always matches any call with 1+ args, even when body ... is empty. Using body0 body ... requires at least one body form, forcing single-arg calls to fall through to the patternless clause.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "path-normalize-missing-dir",
@@ -2219,7 +2323,8 @@
     ],
     "imports": [],
     "code": ";; Problem: (path-normalize \"./some/path\") throws an error if the\n;; directory doesn't exist, instead of returning a normalized string.\n;;\n;; WRONG — crashes if ./public doesn't exist:\n;; (path-normalize \"./public/./file.txt\")\n;; => \"No such file or directory\" error\n;;\n;; CORRECT — wrap in with-catch:\n(def (safe-path-normalize path)\n  (with-catch\n    (lambda (e) #f)\n    (lambda () (path-normalize path))))\n\n;; Or when used in a function that should return #f on failure:\n(def (try-resolve-file base-dir rel-path)\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let* ((full (path-expand rel-path base-dir))\n             (normalized (path-normalize full)))\n        (and (file-exists? normalized) normalized)))))",
-    "notes": "This commonly bites in web frameworks when checking for static files in a public/ directory that may not exist. Always guard path-normalize with with-catch when the directory is user-configurable or optional."
+    "notes": "This commonly bites in web frameworks when checking for static files in a public/ directory that may not exist. Always guard path-normalize with with-catch when the directory is user-configurable or optional.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "http-request-method-returns-symbol",
@@ -2237,7 +2342,8 @@
       ":std/net/httpd"
     ],
     "code": "(import :std/net/httpd)\n\n;; http-request-method returns a SYMBOL like 'GET, 'POST, etc.\n;; NOT a string like \"GET\".\n\n;; WRONG — crashes or always returns \"GET\":\n;; (def method (string->symbol (http-request-method req)))\n;; This calls string->symbol on a symbol, which errors.\n\n;; CORRECT — guard against both types:\n(def (get-method req)\n  (let ((m (http-request-method req)))\n    (if (symbol? m) m (string->symbol m))))\n\n;; Or just use it directly as a symbol:\n(def (handle-request req res)\n  (case (http-request-method req)\n    ((GET)  (handle-get req res))\n    ((POST) (handle-post req res))\n    (else   (method-not-allowed res))))",
-    "notes": "This is a common gotcha when wrapping httpd requests. The method is already a symbol, so you can compare with eq? or use in case forms directly. If you need a string, use (symbol->string (http-request-method req))."
+    "notes": "This is a common gotcha when wrapping httpd requests. The method is already a symbol, so you can compare with eq? or use in case forms directly. If you need a string, use (symbol->string (http-request-method req)).",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "makefile-local-install-rsync",
@@ -2258,7 +2364,8 @@
     "related": [
       "gxpkg-install-destroys-cwd",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "websocket-binary-send-receive",
@@ -2279,7 +2386,8 @@
     "notes": "CRITICAL: make-message uses POSITIONAL arguments (it's a defstruct). Do NOT use keyword args like (make-message type: 'binary data: payload) — this will fail with \"arguments don't match object size\". The field order is (data type partial?). WebSocket-send and WebSocket-recv are the methods (capital W). message-data, message-type, message-partial? are the accessors (lowercase m).",
     "related": [
       "defstruct-positional-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "os-pipe-create-fd-pair",
@@ -2303,7 +2411,8 @@
     "related": [
       "open-process-stdin-write-read",
       "run-external-process"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "u8vector-big-endian-encoding",
@@ -2321,7 +2430,8 @@
     ],
     "imports": [],
     "code": ";; Big-endian uint32 encode/decode\n(def (encode-uint32 n)\n  (u8vector (bitwise-and (arithmetic-shift n -24) #xff)\n            (bitwise-and (arithmetic-shift n -16) #xff)\n            (bitwise-and (arithmetic-shift n -8) #xff)\n            (bitwise-and n #xff)))\n\n(def (decode-uint32 buf offset)\n  (+ (arithmetic-shift (u8vector-ref buf offset) 24)\n     (arithmetic-shift (u8vector-ref buf (+ offset 1)) 16)\n     (arithmetic-shift (u8vector-ref buf (+ offset 2)) 8)\n     (u8vector-ref buf (+ offset 3))))\n\n;; Big-endian uint64 encode/decode\n(def (encode-uint64 n)\n  (u8vector (bitwise-and (arithmetic-shift n -56) #xff)\n            (bitwise-and (arithmetic-shift n -48) #xff)\n            (bitwise-and (arithmetic-shift n -40) #xff)\n            (bitwise-and (arithmetic-shift n -32) #xff)\n            (bitwise-and (arithmetic-shift n -24) #xff)\n            (bitwise-and (arithmetic-shift n -16) #xff)\n            (bitwise-and (arithmetic-shift n -8) #xff)\n            (bitwise-and n #xff)))\n\n(def (decode-uint64 buf offset)\n  (+ (arithmetic-shift (u8vector-ref buf offset) 56)\n     (arithmetic-shift (u8vector-ref buf (+ offset 1)) 48)\n     (arithmetic-shift (u8vector-ref buf (+ offset 2)) 40)\n     (arithmetic-shift (u8vector-ref buf (+ offset 3)) 32)\n     (arithmetic-shift (u8vector-ref buf (+ offset 4)) 24)\n     (arithmetic-shift (u8vector-ref buf (+ offset 5)) 16)\n     (arithmetic-shift (u8vector-ref buf (+ offset 6)) 8)\n     (u8vector-ref buf (+ offset 7))))\n\n;; u8vector helpers for building binary protocols\n(def (u8v-copy! dest dest-off src src-off len)\n  (let loop ((i 0))\n    (when (< i len)\n      (u8vector-set! dest (+ dest-off i) (u8vector-ref src (+ src-off i)))\n      (loop (+ i 1)))))\n\n(def (u8v-append . vecs)\n  (let* ((total (apply + (map u8vector-length vecs)))\n         (result (make-u8vector total 0)))\n    (let loop ((vecs vecs) (off 0))\n      (unless (null? vecs)\n        (let ((v (car vecs)))\n          (u8v-copy! result off v 0 (u8vector-length v))\n          (loop (cdr vecs) (+ off (u8vector-length v))))))\n    result))\n\n(def (u8v-slice buf start end)\n  (let* ((len (- end start))\n         (result (make-u8vector len)))\n    (u8v-copy! result 0 buf start len)\n    result))\n\n;; Example: build a 12-byte header\n;; [4 bytes: msg-type] [4 bytes: length] [4 bytes: seq-num]\n(def header (u8v-append (encode-uint32 1)     ;; msg-type = 1\n                        (encode-uint32 256)   ;; length = 256\n                        (encode-uint32 42)))  ;; seq-num = 42\n;; => #u8(0 0 0 1 0 0 1 0 0 0 0 42)",
-    "notes": "Gerbil's arithmetic-shift and bitwise-and work on arbitrary precision integers, so uint64 encoding works without overflow issues. For signed int64, use two's complement: if the high bit is set after decode-uint64, subtract (expt 2 64). u8v-append is not in the stdlib — you need to define it yourself for building binary protocol messages."
+    "notes": "Gerbil's arithmetic-shift and bitwise-and work on arbitrary precision integers, so uint64 encoding works without overflow issues. For signed int64, use two's complement: if the high bit is set after decode-uint64, subtract (expt 2 64). u8v-append is not in the stdlib — you need to define it yourself for building binary protocol messages.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "signal-handler-add-remove",
@@ -2344,7 +2454,8 @@
     "related": [
       "run-external-process",
       "os-pipe-create-fd-pair"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "terminal-raw-mode-stty",
@@ -2366,7 +2477,8 @@
     "notes": "CRITICAL: stty must access the actual terminal, so use stdin-redirection: #f to prevent Gambit from redirecting stdin. Without this, stty will error with \"stdin isn't a terminal\". string-trim-right is needed because stty -g output may include a trailing newline. For interactive binary protocols (like SSM sessions), use read-u8 to read single bytes from stdin in raw mode, not read-char or read-line. Use unwind-protect or dynamic-wind to always restore terminal settings, even on error.",
     "related": [
       "run-external-process-capture-output"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "open-process-stdin-write-read",
@@ -2386,7 +2498,8 @@
       "run-external-process",
       "os-pipe-create-fd-pair",
       "run-subprocess-custom-env"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "binary-io-device-ports",
@@ -2407,7 +2520,8 @@
     "related": [
       "u8vector-big-endian-encoding",
       "terminal-raw-mode-stty"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "directory-files-list-entries",
@@ -2427,7 +2541,8 @@
     "related": [
       "gambit-path-builtins",
       "read-file-to-string"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "user-info-environment-introspection",
@@ -2450,7 +2565,8 @@
     "related": [
       "gambit-path-builtins",
       "run-subprocess-custom-env"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "process-status-decode-waitpid",
@@ -2471,7 +2587,8 @@
     "related": [
       "open-process-stdin-write-read",
       "os-pipe-create-fd-pair"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "tty-mode-set-raw-cooked",
@@ -2492,7 +2609,8 @@
     "related": [
       "process-status-decode-waitpid",
       "os-pipe-create-fd-pair"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "patchelf-openssl-rpath",
@@ -2514,7 +2632,8 @@
     "related": [
       "static-exe-with-deps",
       "stale-global-static-segfault"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "atom-atomic-reference",
@@ -2539,7 +2658,8 @@
     "related": [
       "channel-based-communication",
       "spawn-thread"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "list-builder-efficient-append",
@@ -2561,7 +2681,8 @@
     "notes": "with-list-builder uses cons cell mutation internally: a sentinel cons cell [#f] is created, and push! mutates the cdr to append in O(1). This prevents the O(n^2) quadratic append pattern. Always prefer this over (set! result (append result (list item))). The peek function returns the current list without consuming it. push! always appends to the end (maintains insertion order).",
     "related": [
       "collect-results-with-for-collect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "lru-cache-bounded",
@@ -2583,7 +2704,8 @@
     "notes": "LRU cache uses a hash table + doubly-linked list internally. Access (ref/get) promotes the entry to most-recently-used. When capacity is exceeded on put!, the least-recently-used entry is evicted. O(1) for all operations. The cache is NOT thread-safe — wrap with a mutex for concurrent access. Iteration via in-lru-cache yields (key . value) pairs from most-recent to least-recent.",
     "related": [
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "rbtree-sorted-map",
@@ -2605,7 +2727,8 @@
     "notes": "Red-black trees maintain sorted order by key. All operations are O(log n). The comparator function must return a negative number if a < b, zero if a = b, and positive if a > b. Pre-built comparators: string-cmp, symbol-cmp, symbol-hash-cmp. For numeric keys, use (lambda (a b) (- a b)). Trees are iterable via in-rbtree, in-rbtree-keys, in-rbtree-values.",
     "related": [
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "priority-queue-heap",
@@ -2627,7 +2750,8 @@
     "notes": "make-pqueue takes a priority-extraction function and a comparator. The extraction function maps items to their priority values, and the comparator determines ordering (< for min-heap, > for max-heap). Uses a binary heap internally with 1-based vector indexing. Auto-resizes when full. O(log n) push and pop. pqueue-contents returns items in no particular order.",
     "related": [
       "rbtree-sorted-map"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "workgroup-thread-pool",
@@ -2650,7 +2774,8 @@
     "related": [
       "atom-atomic-reference",
       "channel-based-communication"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "barrier-synchronization",
@@ -2672,7 +2797,8 @@
     "related": [
       "workgroup-thread-pool",
       "completion-async-value"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "completion-async-value",
@@ -2695,7 +2821,8 @@
     "related": [
       "barrier-synchronization",
       "channel-based-communication"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "rwlock-readers-writer",
@@ -2718,7 +2845,8 @@
     "notes": "Read-write locks allow multiple concurrent readers OR a single exclusive writer. with-read-lock and with-write-lock take a thunk (zero-argument lambda) and handle lock/unlock automatically, even on exceptions. Writers queue with a writers-waiting counter. When all readers release, waiting writers are woken. This is NOT a fair lock — readers can starve writers under heavy read load.",
     "related": [
       "atom-atomic-reference"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "chain-advanced-pipeline",
@@ -2741,7 +2869,8 @@
     "notes": "chain from :std/sugar is a powerful pipeline macro. Three stage forms: (1) (expr <>): <> is replaced by the pipe value, (2) (name expr): binds pipe value to name for use in expr, (3) ([pat ...] expr): destructures the pipe value. When a stage is just a symbol (like string-downcase), it's treated as a unary function applied to the pipe value. Starting with <> creates a lambda for point-free style.",
     "related": [
       "collect-results-with-for-collect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "is-predicate-factory",
@@ -2764,7 +2893,8 @@
     "related": [
       "chain-advanced-pipeline",
       "destructure-hash-tables-with-let-hash"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "custom-iterator-protocol",
@@ -2788,7 +2918,8 @@
     "related": [
       "collect-results-with-for-collect",
       "reduce-with-for-fold"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "coroutine-generator-pattern",
@@ -2811,7 +2942,8 @@
     "related": [
       "custom-iterator-protocol",
       "channel-based-communication"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "event-sync-select",
@@ -2834,7 +2966,8 @@
     "related": [
       "channel-based-communication",
       "barrier-synchronization"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "syntax-eval-compile-time",
@@ -2854,7 +2987,8 @@
     "notes": "syntax-eval from :std/sugar evaluates an expression during macro expansion (compile time) and embeds the result as a literal constant. The expression must evaluate to a value that can be serialized as a datum (numbers, strings, vectors, lists, booleans). Use for lookup tables, precomputed data, and constants that are expensive to compute at runtime. The expression runs in the expander's environment — it can use standard Scheme functions but NOT runtime-only bindings. syntax-call is similar but receives the syntax object as an argument, allowing access to source location metadata.",
     "related": [
       "with-id-identifier-generation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "with-destroy-raii",
@@ -2876,7 +3010,8 @@
     "notes": "with-destroy is from :std/sugar. It calls {destroy obj} in a finally clause. The object must implement a destroy method. This is Gerbil's equivalent of Python's context managers or C++ RAII. Common uses: database connections, file handles, network sockets, FFI resources. The destroy method should be idempotent (safe to call multiple times).",
     "related": [
       "completion-async-value"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "function-composition-combinators",
@@ -2899,7 +3034,8 @@
     "related": [
       "is-predicate-factory",
       "chain-advanced-pipeline"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "lazy-evaluation-delay-force",
@@ -2920,7 +3056,8 @@
     "notes": ":std/lazy implements R7RS-style lazy evaluation. lazy wraps an expression — it won't be evaluated until force is called. Results are memoized: subsequent force calls return the cached value. The internal representation uses tagged cons cells: (lazy . thunk), (eager . promise), (resolved . value). delay is syntactic sugar for lazy. Cyclic force detection prevents infinite loops. Lazy values are useful for deferred initialization, infinite data structures, and expensive computations that may not be needed.",
     "related": [
       "coroutine-generator-pattern"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "amb-nondeterministic-search",
@@ -2942,7 +3079,8 @@
     "notes": ":std/amb implements McCarthy's ambiguous operator for nondeterministic programming. amb chooses one value from its arguments. If subsequent computation calls amb-fail, amb backtracks and tries the next choice. amb-find returns the first successful result. amb-collect gathers all solutions. amb-assert is sugar for (unless test (amb-fail)). amb-strategy controls iteration order: identity (default, left-to-right) or shuffle (randomized). Internally uses continuations (let/cc) for backtracking, running in a dedicated thread.",
     "related": [
       "coroutine-generator-pattern"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "generic-multi-dispatch",
@@ -2964,7 +3102,8 @@
     "related": [
       "interface-contracts",
       "defstruct-positional-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "deque-double-ended-queue",
@@ -2987,7 +3126,8 @@
     "related": [
       "priority-queue-heap",
       "list-builder-efficient-append"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "run-process-subprocess",
@@ -3010,7 +3150,8 @@
     "notes": ":std/misc/process wraps Gambit's open-process. run-process is the main entry point: pass the command as a list [program arg ...]. stdout-redirection: #t captures stdout. coprocess receives the process port and returns a value (default: read-all-as-string). check-status: #t raises an exception on non-zero exit. run-process/batch inherits all I/O (for interactive or build commands). filter-with-process feeds a string to stdin and captures stdout. For Gambit-level control, use open-process directly with path: and arguments: keywords.",
     "related": [
       "read-file-to-string"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "repr-evaluable-printing",
@@ -3032,7 +3173,8 @@
     "notes": ":std/misc/repr provides Python-style repr for all Gerbil objects. The output is designed to be evaluable Scheme code when possible. For custom types, implement the :pr method (receives self, port, and options hash). Hash tables are printed in (hash ...) literal syntax. display-separated is useful for custom formatting with delimiters. If no :pr method exists, repr uses #<N #;\\\"obj\\\"> syntax with a serial number.",
     "related": [
       "chain-advanced-pipeline"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "assert-with-diagnostics",
@@ -3053,7 +3195,8 @@
     "notes": ":std/assert provides assert! which automatically extracts sub-expressions from the assertion condition and binds them to temporary variables. On failure, it reports each sub-expression and its value, making debugging much easier than a plain assertion. The macro uses compile-time analysis (split-sub-exprs) to identify which expressions to capture. Built-in identifiers are not rebound. Source location is preserved for error reporting.",
     "related": [
       "is-predicate-factory"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "actor-message-passing",
@@ -3077,7 +3220,8 @@
     "related": [
       "channel-based-communication",
       "event-sync-select"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "port-utilities-file-io",
@@ -3101,7 +3245,8 @@
     "related": [
       "read-file-to-string",
       "read-file-as-list-of-lines"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "interface-contracts",
@@ -3124,7 +3269,8 @@
     "related": [
       "generic-multi-dispatch",
       "with-destroy-raii"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "defmethod-alias-multi-name",
@@ -3146,7 +3292,8 @@
     "related": [
       "generic-multi-dispatch",
       "interface-contracts"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "awhen-anaphoric-conditional",
@@ -3168,7 +3315,8 @@
     "related": [
       "destructure-hash-tables-with-let-hash",
       "is-predicate-factory"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "shuffle-random-permutation",
@@ -3189,7 +3337,8 @@
     "notes": ":std/misc/shuffle implements Fisher-Yates (Knuth) shuffle, which produces uniformly distributed random permutations. shuffle copies the list to a vector, shuffles in-place, then converts back. vector-shuffle returns a new vector; vector-shuffle! mutates. An optional second argument provides a custom RNG: (lambda (n) -> integer in [0, n)). Default uses Gambit's random-integer.",
     "related": [
       "amb-nondeterministic-search"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "with-id-identifier-generation",
@@ -3211,7 +3360,8 @@
     "notes": "with-id from :std/sugar is for advanced macro writing where you need to create related identifier names programmatically. The context identifier determines the hygiene scope — new identifiers are created in the same scope as the context. Parts are concatenated as strings to form the new name: #'id extracts the symbol name, \"string\" is literal, 'symbol converts to string. with-id/expr wraps in (let () ...) so it can be used in expression position.",
     "related": [
       "syntax-eval-compile-time"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "if-let-when-let-conditional-bind",
@@ -3234,7 +3384,8 @@
     "related": [
       "awhen-anaphoric-conditional",
       "destructure-hash-tables-with-let-hash"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "alet-star-anaphoric-let",
@@ -3255,7 +3406,8 @@
     "related": [
       "if-let-when-let-conditional-bind",
       "awhen-anaphoric-conditional"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "logger-per-source-config",
@@ -3278,7 +3430,8 @@
     "notes": ":std/logger provides printf-style logging with five levels. current-logger-options is a parameter holding the logger configuration. make-logger-options takes a default level and optional hash of source-specific overrides. Source is a symbol identifying the subsystem. All log functions (errorf, warnf, infof, debugf, verbosef) accept an optional source: keyword. Messages below the configured level are suppressed. Thread-local caching is used for performance.",
     "related": [
       "repr-evaluable-printing"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "getopt-cli-parsing",
@@ -3300,7 +3453,8 @@
     "notes": ":std/getopt provides declarative CLI argument parsing. flag creates boolean switches. option creates key-value options (value: provides a converter function). argument is a required positional arg. optional-argument is optional. rest-arguments collects remaining args as a list. command creates subcommands. call-with-getopt invokes the handler with parsed results and handles --help display and error messages automatically. Results are returned as a hash table — use let-hash for convenient access.",
     "related": [
       "destructure-hash-tables-with-let-hash"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "csv-parsing-options",
@@ -3322,7 +3476,8 @@
     "notes": ":std/text/csv provides RFC 4180 compliant CSV parsing. read-csv-records reads all records from a port. read-csv-record reads one record. write-csv-record writes one record. CSV options are configured via make-csv-options with: separator (default #\\,), quote-char, newline ('lf, 'cr, 'crlf, 'lax). Use current-csv-options parameter or call-with-csv-options for custom settings. Predefined: csv-options/rfc4180 for standard CSV.",
     "related": [
       "port-utilities-file-io"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "in-range-iota-naturals-iterators",
@@ -3345,7 +3500,8 @@
     "related": [
       "collect-results-with-for-collect",
       "reduce-with-for-fold"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "path-manipulation-utilities",
@@ -3367,7 +3523,8 @@
     "notes": ":std/misc/path provides pure string manipulation — no filesystem access. subpath joins components with the OS separator. subpath? checks containment. path-extension includes the dot. path-force-extension replaces any existing extension. path-default-extension only adds if none exists. Gambit also provides path-expand, path-normalize (filesystem-aware), path-directory, and path-strip-directory as built-ins. Use Gambit's for real path resolution, :std/misc/path for string manipulation.",
     "related": [
       "port-utilities-file-io"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "string-utilities-misc",
@@ -3390,7 +3547,8 @@
     "notes": ":std/misc/string provides common string manipulation beyond R7RS. string-trim-prefix/suffix return the original string unchanged if the prefix/suffix isn't found. string-subst replaces all occurrences by default; pass a count to limit replacements. string-trim-eol handles CR, LF, and CRLF (tries CRLF first). random-string generates random hex characters. str is a generic to-string converter. Gambit provides additional built-ins like string-contains, string-prefix?, string-suffix?.",
     "related": [
       "csv-parsing-options"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "using-typed-access",
@@ -3411,7 +3569,8 @@
     "notes": "using is a core Gerbil form that provides typed field access. Syntax: (using (var :- Type) body) or (using ((v1 :- T1) (v2 :- T2)) body). Inside using, dot syntax (v.field) compiles to direct struct field access without dynamic dispatch. This is significantly faster in hot loops. set! works with dot syntax inside using for mutation. The type annotation is NOT checked at runtime — it's a promise to the compiler. Wrong types will cause undefined behavior, not errors. Use : (colon) in function signatures for runtime-checked contracts.",
     "related": [
       "interface-contracts"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "list-utilities-advanced",
@@ -3435,7 +3594,8 @@
     "notes": ":std/misc/list provides extensive list utilities beyond SRFI-1. slice is 0-indexed and takes (list start limit). flatten is fully recursive; flatten1 is one level. split divides on predicate matches (like string-split for lists). group-consecutive groups runs of equal adjacent elements. group-same groups by a key function (non-adjacent allowed). length=n?/length<n?/length<=n? are O(min(n,len)) instead of O(len) — use these instead of (= (length lst) n). push!/pop! are mutation macros using set!.",
     "related": [
       "list-builder-efficient-append"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "def-star-multi-arity",
@@ -3453,7 +3613,8 @@
     "notes": "def* is a core Gerbil form equivalent to defining with case-lambda. Each clause has a parameter list and body. Clauses are tried in order until one matches the call arity. The last clause can be variadic (args without parens) to catch remaining arities. This is cleaner than using optional arguments with defaults when different arities have fundamentally different behavior. def* generates efficient dispatch code.",
     "related": [
       "function-composition-combinators"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "open-process-undocumented-settings",
@@ -3474,7 +3635,8 @@
       "open-process-stdin-write-read",
       "process-status-decode-waitpid",
       "run-subprocess-custom-env"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "output-port-width-terminal-columns",
@@ -3494,7 +3656,8 @@
     "related": [
       "tty-mode-set-raw-cooked",
       "process-status-decode-waitpid"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "process-times-cpu-usage",
@@ -3515,7 +3678,8 @@
     "related": [
       "process-status-decode-waitpid",
       "open-process-undocumented-settings"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "fcntl-f-dupfd-duplicate-fd",
@@ -3539,7 +3703,8 @@
     "related": [
       "os-pipe-create-fd-pair",
       "open-process-undocumented-settings"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "concurrency-pattern-guide",
@@ -3570,7 +3735,8 @@
       "rwlock-read-write-lock",
       "actor-message-passing",
       "event-sync-select"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-primitives-inventory",
@@ -3595,7 +3761,8 @@
       "directory-listing",
       "gambit-path-builtins",
       "run-external-process"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hex-escape-semicolon-terminator",
@@ -3614,7 +3781,8 @@
     "notes": "This is a common gotcha when porting code from other Scheme implementations or C. Most languages use \\xNN without a terminator, but Gerbil/Gambit follows R7RS which requires \\xNN; with a semicolon. Without the semicolon, the reader tries to consume more hex digits and fails with \"Invalid hexadecimal escape\". The alternative (string #\\escape) approach avoids this issue entirely and is more readable for ANSI escape sequences.",
     "related": [
       "tty-mode-set-raw-cooked"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "symbol-reader-special-chars",
@@ -3634,7 +3802,8 @@
     "notes": "This commonly bites when implementing shell-like DSLs where operators include # and , characters. The workaround is to map these to descriptive symbol names internally (e.g., 'prefix-short for #, 'lc-all for ,,). Character literals (#\\# and #\\,) work fine — the issue is only with quoted symbols.",
     "related": [
       "hex-escape-semicolon-terminator"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "dot-syntax-non-self-class-access",
@@ -3655,7 +3824,8 @@
     "related": [
       "typed-struct-field-access",
       "use-internal-helper-rebind-conflict"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-qapplication-argc-by-reference",
@@ -3677,7 +3847,8 @@
     "related": [
       "gambit-ffi-pointer-types",
       "build-ffi-with-pkg-config"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-const-char-return-cfun-assign-warning",
@@ -3700,7 +3871,8 @@
     "related": [
       "c-define-char-string-const-mismatch",
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hash-literal-symbol-keys-no-quote",
@@ -3720,7 +3892,8 @@
     "related": [
       "hash-table-operations",
       "hash-ref-void-truthy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "fdopen-three-args",
@@ -3743,7 +3916,8 @@
     "related": [
       "os-pipe-create-fd-pair",
       "open-process-undocumented-settings"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-multi-type-callback-trampolines",
@@ -3768,7 +3942,8 @@
       "ffi-callback-dispatch-table",
       "c-define-char-string-const-mismatch",
       "ffi-cfun-assign-const-char-fix"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "tty-mode-set-six-args",
@@ -3787,7 +3962,8 @@
     "notes": "The existing cookbook recipe \"tty-mode-set-raw-cooked\" shows 5 args — that is WRONG for Gerbil v0.19+. gerbil_doc reports arity:6 for tty-mode-set!. The 6th argument (speed) should be 0 for default. Discovered by examining Gambit's own std/misc/ports module which uses ##tty-mode-set! with 6 args including a trailing '0. Without the 6th arg, the call may silently fail or throw a type exception, leaving the terminal in an unexpected state.",
     "related": [
       "tty-mode-set-raw-cooked"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "signal-handler-zero-arity-callback",
@@ -3808,7 +3984,8 @@
     "notes": "The existing recipe \"signal-handler-register-remove\" shows (lambda (sig) ...) with 1 arg — that is WRONG. The signal dispatcher in :std/os/signal-handler calls the callback with zero arguments. The error message is: \"Wrong number of arguments passed to procedure (#<procedure>)\" and appears asynchronously in the signal-handler-wait thread. Discovered by debugging gsh shell where all signal handlers were failing at runtime.",
     "related": [
       "signal-handler-register-remove"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "c-ffi-isatty-returns-int-not-bool",
@@ -3827,7 +4004,8 @@
     "notes": "This is a subtle but critical bug source. In C, 0 is false and non-zero is true. In Gerbil, only #f is false — 0 is truthy. When binding C functions that return int-as-boolean via c-lambda, you MUST explicitly check (= result 1) or (not (zero? result)). Discovered while debugging gsh: ffi-isatty returned 0 for a pipe, but the shell still entered interactive mode because 0 is truthy.",
     "related": [
       "hash-ref-void-truthy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "fd-e-extract-raw-fd-from-port",
@@ -3852,7 +4030,8 @@
       "fdopen-3-arity",
       "os-pipe-create-fd-pair",
       "fcntl-f-dupfd-partial-dup"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-offscreen-headless-testing",
@@ -3873,7 +4052,8 @@
       "write-tests-with-std-test",
       "ffi-callback-dispatch-table",
       "qt-application-argc-static"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-signal-wrapper-returns-void",
@@ -3895,7 +4075,8 @@
       "ffi-callback-dispatch-table",
       "multiple-callback-trampolines",
       "write-tests-with-std-test"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "character-port-from-raw-fd-via-dev-fd",
@@ -3918,7 +4099,8 @@
       "fd-e-extract-raw-fd-from-port",
       "fdopen-3-arity",
       "os-pipe-create-fd-pair"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "break-circular-import-with-make-parameter",
@@ -3933,7 +4115,8 @@
     ],
     "imports": [],
     "code": ";; Problem: module A needs to call a function from module B,\n;; but module B imports module A — circular dependency.\n;;\n;; Solution: use make-parameter as a callback slot in a shared module.\n;; The \"upper\" module sets the parameter at startup.\n\n;; --- shared.ss (imported by both) ---\n;; (export #t)\n;; (def *execute-fn* (make-parameter #f))\n\n;; --- lower.ss (needs to call the function) ---\n;; (import :mypackage/shared)\n;; (def (do-eval input env)\n;;   (let ((exec-fn (*execute-fn*)))\n;;     (if exec-fn\n;;       (exec-fn input env)\n;;       (error \"executor not initialized\"))))\n\n;; --- upper.ss (defines the function, imports lower.ss) ---\n;; (import :mypackage/shared :mypackage/lower)\n;; (def (execute-input input env)\n;;   ... uses lower.ss functions ...)\n;;\n;; ;; At startup, wire the callback:\n;; (*execute-fn* (lambda (input env) (execute-input input env)))\n\n;; This pattern is essential for shells, REPLs, and plugin systems\n;; where eval/source/command-substitution need to call back into\n;; the main executor without creating circular imports.",
-    "notes": "The key insight is that make-parameter creates a thread-local mutable binding that can be set at runtime, breaking the compile-time circular dependency. The parameter starts as #f and gets set during initialization. Always check for #f before calling to handle the case where init hasn't run yet. This is the standard Scheme pattern for dependency inversion."
+    "notes": "The key insight is that make-parameter creates a thread-local mutable binding that can be set at runtime, breaking the compile-time circular dependency. The parameter starts as #f and gets set during initialization. Always check for #f before calling to handle the case where init hasn't run yet. This is the standard Scheme pattern for dependency inversion.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-posix-syscall-begin-ffi",
@@ -3959,7 +4142,8 @@
       "fd-e-extract-raw-fd-from-port",
       "character-port-from-raw-fd-via-dev-fd",
       "fcntl-f-dupfd-partial-dup"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "pipeline-fd-closing-pattern",
@@ -3982,7 +4166,8 @@
       "os-pipe-create-fd-pair",
       "ffi-posix-syscall-begin-ffi",
       "character-port-from-raw-fd-via-dev-fd"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "unix-timestamp-to-formatted-date",
@@ -4005,7 +4190,8 @@
       "date-time-formatting-srfi-19",
       "srfi-19-current-time-shadows-gambit",
       "current-time-seconds"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "format-tilde-escape-pitfall",
@@ -4026,7 +4212,8 @@
     "notes": "This is especially dangerous because format may silently hang rather than error, making it hard to diagnose. PromQL queries commonly use =~ for regex matching, which conflicts with format's ~ escape. Always prefer string-append for building query strings that may contain special characters.",
     "related": [
       "string-subst-argument-order"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sort-filter-not-builtin",
@@ -4049,7 +4236,8 @@
     "related": [
       "sort-a-list",
       "advanced-list-utilities"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "when-returns-void-in-boolean-context",
@@ -4070,7 +4258,8 @@
     "related": [
       "hash-ref-void-truthy",
       "ffi-isatty-int-truthy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-modal-dialog-offscreen-hang",
@@ -4092,7 +4281,8 @@
     "related": [
       "qt-offscreen-headless-testing",
       "qt-application-argc-static"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-event-filter-no-moc",
@@ -4115,7 +4305,8 @@
       "multiple-callback-trampolines",
       "qt-application-argc-static",
       "qt-offscreen-headless-testing"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-painter-onto-pixmap",
@@ -4138,7 +4329,8 @@
       "qt-event-filter-no-moc",
       "qt-modal-dialog-offscreen-hang",
       "qt-application-argc-static"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gxc-exe-in-makefile",
@@ -4161,7 +4353,8 @@
       "static-exe-with-deps",
       "openssl-version-mismatch-patchelf",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "rpath-via-gxc-ld-options",
@@ -4186,7 +4379,8 @@
       "gxc-exe-in-makefile",
       "build-ffi-pkg-config",
       "static-exe-with-deps"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-double-via-string-trampoline",
@@ -4207,7 +4401,8 @@
     "related": [
       "multiple-callback-trampolines",
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "process-status-reaping-race-job-control",
@@ -4228,7 +4423,8 @@
     "related": [
       "process-status-decode-waitpid",
       "open-process-settings"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-text-browser-anchor-clicked",
@@ -4247,7 +4443,8 @@
     "notes": "Without setOpenLinks(false), QTextBrowser silently handles links internally and the anchorClicked signal is never emitted. The QUrl is converted to string via toString().toStdString() in the C++ lambda. If you also want external browser launch, call qt-text-browser-set-open-external-links! separately.",
     "related": [
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-dialog-button-box-bitwise-flags",
@@ -4265,7 +4462,8 @@
     "notes": "QDialogButtonBox arranges buttons in platform-correct order (e.g. OK/Cancel on Windows vs Cancel/OK on macOS). The button() method takes a StandardButton constant and returns the QPushButton* handle, which can be used with qt-push-button-set-text! etc. The clicked signal passes QAbstractButton* which we ignore — use accepted/rejected for standard behavior.",
     "related": [
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-calendar-date-signals",
@@ -4284,7 +4482,8 @@
     "notes": "selectionChanged fires more broadly (any selection change including programmatic), while clicked only fires on user mouse click. For most UIs, selectionChanged + query is the safer pattern. The ISO date string format is \"YYYY-MM-DD\". Individual components available via qt-calendar-selected-year/month/day.",
     "related": [
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-shortcut-explicit-destroy",
@@ -4303,7 +4502,8 @@
     "notes": "Key sequence strings use Qt format: \"Ctrl+S\", \"Ctrl+Shift+N\", \"Alt+F4\", \"F5\", etc. QShortcut differs from QAction shortcuts — QAction is tied to menus/toolbars, QShortcut is standalone and can be attached to any widget. The parent widget determines the shortcut's context (which window must be active).",
     "related": [
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-view-signal-thread-local-query",
@@ -4325,7 +4525,8 @@
       "multiple-callback-trampolines",
       "qt-event-filter-no-moc",
       "ffi-callback-dispatch-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-view-sorting-dynamic-cast",
@@ -4345,7 +4546,8 @@
     "related": [
       "qt-view-signal-thread-local-query",
       "qt-event-filter-no-moc"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "lexer-raw-char-bypass-tokenizer",
@@ -4364,7 +4566,8 @@
     "notes": "Key insight: shell lexers treat < > | & as operators, but inside arithmetic expressions these are comparison/bitwise operators. Reading raw chars avoids this conflict. Always clear peeked tokens before switching from token-based to raw reading. After raw reading completes, the lexer position is past the consumed text, so subsequent token reads continue from the right place. Track nested paren depth so (a+b)*(c+d) inside (( )) doesn't prematurely close. Use char->integer hex codes (#\\x28 = '(', #\\x29 = ')') to avoid Gerbil reader issues with #\\\\( and #\\\\) character literals.",
     "related": [
       "avoid-bracket-char-literals"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "break-continue-exception-levels-pattern",
@@ -4382,7 +4585,8 @@
       ":std/sugar"
     ],
     "code": ";; Shell-style break/continue with nested loop levels.\n;; \"break 2\" breaks out of 2 enclosing loops, not just 1.\n;;\n;; Define exception types with a 'levels' field:\n(defstruct break-exception (levels) transparent: #t)\n(defstruct continue-exception (levels) transparent: #t)\n\n;; Builtins create exceptions:\n;; (raise (make-break-exception 1))      ;; break (1 level)\n;; (raise (make-break-exception 2))      ;; break 2\n;; (raise (make-continue-exception 1))   ;; continue\n\n;; Each loop catches break/continue and decrements levels.\n;; If levels > 1 after decrement, re-raise for outer loop.\n(def (execute-loop body-fn update-fn test-fn env)\n  (let loop ((status 0))\n    (if (not (test-fn))\n      status\n      (with-catch\n       (lambda (e)\n         (cond\n           ((break-exception? e)\n            (if (> (break-exception-levels e) 1)\n              ;; Decrement and re-raise for outer loop\n              (raise (make-break-exception (- (break-exception-levels e) 1)))\n              ;; levels=1: break THIS loop, return current status\n              status))\n           ((continue-exception? e)\n            (if (> (continue-exception-levels e) 1)\n              ;; Decrement and re-raise for outer loop\n              (raise (make-continue-exception (- (continue-exception-levels e) 1)))\n              ;; levels=1: skip rest of body, run update, continue loop\n              (begin (update-fn) (loop status))))\n           (else (raise e))))\n       (lambda ()\n         (let ((new-status (body-fn)))\n           (update-fn)\n           (loop new-status)))))))\n\n;; WRONG — using (values 'break ...) with with-catch:\n;; with-catch returns the handler's return value, but 'values'\n;; returns a multiple-value object, not a pair. Checking with\n;; (pair? result) won't work. Use the exception levels pattern instead.",
-    "notes": "Critical: with-catch returns the handler's return value as a single value. Do NOT use (values 'break status) inside a with-catch handler — the result is a multiple-value object that can't be inspected with pair?. Instead, the handler should either: (1) re-raise a decremented exception, (2) return a status value and loop, or (3) return a status value to exit the loop. The continue handler should run any update expression before looping, since continue skips the rest of the body but the loop update still needs to happen (e.g., i++ in a C-style for loop)."
+    "notes": "Critical: with-catch returns the handler's return value as a single value. Do NOT use (values 'break status) inside a with-catch handler — the result is a multiple-value object that can't be inspected with pair?. Instead, the handler should either: (1) re-raise a decremented exception, (2) return a status value and loop, or (3) return a status value to exit the loop. The continue handler should run any update expression before looping, since continue skips the rest of the body but the loop update still needs to happen (e.g., i++ in a C-style for loop).",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-graphics-scene-view-items",
@@ -4406,7 +4610,8 @@
       "qt-paint-widget-custom-paintevent",
       "qt-painter-draw-pixmap",
       "qt-event-filter-no-moc"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-paint-widget-custom-paintevent",
@@ -4431,7 +4636,8 @@
       "qt-painter-draw-pixmap",
       "qt-event-filter-no-moc",
       "multiple-callback-trampolines"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-graphics-item-dynamic-cast-pen-brush",
@@ -4452,7 +4658,8 @@
     "related": [
       "qt-graphics-scene-view-items",
       "qt-view-sorting-dynamic-cast"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-sendto-socket-fd-type-caching",
@@ -4475,7 +4682,8 @@
       "character-port-from-raw-fd-via-dev-fd",
       "fd-e-extract-raw-fd-from-port",
       "pipeline-fd-management-close-write-end"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-widget-set-font-arity",
@@ -4497,7 +4705,8 @@
     "related": [
       "qt-offscreen-headless-testing",
       "qt-shortcut-explicit-destroy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-progress-dialog-timer-driven",
@@ -4519,7 +4728,8 @@
     "related": [
       "qt-offscreen-headless-testing",
       "qt-shortcut-explicit-destroy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-system-tray-icon-pattern",
@@ -4542,7 +4752,8 @@
     "related": [
       "qt-shortcut-explicit-destroy",
       "qt-widget-set-font-arity"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-input-dialog-all-types",
@@ -4565,7 +4776,8 @@
     "related": [
       "qt-offscreen-headless-testing",
       "qt-progress-dialog-timer-driven"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "github-actions-ci-gerbil-ffi",
@@ -4586,7 +4798,8 @@
     "related": [
       "qt-offscreen-headless-testing",
       "build-ffi-module-with-pkg-config"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "lsp-handler-test-pattern",
@@ -4613,7 +4826,8 @@
     "notes": "Key points: (1) make-document takes (uri version text language-id). (2) make-sym-info takes 7 args: (name kind line col end-line end-col detail). (3) Handlers for missing documents return void, empty list [], or empty vector — NOT a standardized response, so test for all three. (4) validate-response from :lsp/lsp/validation checks responses against LSP protocol schemas. (5) Always cleanup with remove-document! and remove-file-symbols! to avoid polluting state between tests.",
     "related": [
       "write-tests-with-std-test"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-action-create-parent-keyword",
@@ -4631,7 +4845,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: qt-action-create takes parent: as a KEYWORD argument.\n;; Passing parent as a positional arg silently creates a broken action.\n;;\n;; WRONG — parent passed as positional arg:\n;; (qt-action-create \"Open\" win)  ;; BROKEN! \"win\" treated as unknown positional\n;;\n;; CORRECT — use parent: keyword:\n(qt-action-create \"Open\" parent: win)\n(qt-action-create \"&File\" parent: menu-bar)\n(qt-action-create \"Cut\" parent: toolbar)\n\n;; Full signature:\n;;   (qt-action-create text [parent: widget] [checkable: bool])\n;;\n;; Common usage with menu bar:\n(let* ((menu-bar (qt-main-window-menu-bar win))\n       (file-menu (qt-menu-bar-add-menu! menu-bar \"&File\"))\n       (open-action (qt-action-create \"&Open\" parent: win)))\n  (qt-menu-add-action! file-menu open-action)\n  (qt-on-action-triggered! open-action\n    (lambda () (displayln \"Open!\"))))",
-    "notes": "This mistake appeared in multiple example files (mdi.ss, dockable.ss, trayapp.ss). The error is silent — the action is created but may not work correctly because the second positional arg is misinterpreted. Always use parent: keyword."
+    "notes": "This mistake appeared in multiple example files (mdi.ss, dockable.ss, trayapp.ss). The error is silent — the action is created but may not work correctly because the second positional arg is misinterpreted. Always use parent: keyword.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-layout-requires-parent-widget",
@@ -4649,7 +4864,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: qt-hbox-layout-create and qt-vbox-layout-create require\n;; a parent widget argument. They cannot be called with 0 arguments.\n;;\n;; WRONG — no parent widget:\n;; (qt-hbox-layout-create)  ;; ERROR: wrong number of arguments\n;;\n;; CORRECT — pass a container widget:\n(let* ((container (qt-widget-create))\n       (hbox (qt-hbox-layout-create container)))\n  (qt-layout-add-widget! hbox (qt-label-create \"Left\"))\n  (qt-layout-add-widget! hbox (qt-line-edit-create))\n  ;; Add the container (not the layout) to the parent layout:\n  (qt-layout-add-widget! parent-vbox container))\n\n;; Pattern: filter bar with label + input\n(let* ((filter-row (qt-widget-create))\n       (filter-hbox (qt-hbox-layout-create filter-row))\n       (filter-label (qt-label-create \"Filter:\"))\n       (filter-edit (qt-line-edit-create)))\n  (qt-layout-add-widget! filter-hbox filter-label)\n  (qt-layout-add-widget! filter-hbox filter-edit)\n  ;; Add the container widget to the main layout\n  (qt-layout-add-widget! main-vbox filter-row))",
-    "notes": "When adding a sub-layout to a parent layout, you add the CONTAINER WIDGET (not the layout itself) via qt-layout-add-widget!. The layout is associated with the container via the parent arg to qt-hbox-layout-create. This pattern is used whenever you need a horizontal row inside a vertical layout."
+    "notes": "When adding a sub-layout to a parent layout, you add the CONTAINER WIDGET (not the layout itself) via qt-layout-add-widget!. The layout is associated with the container via the parent arg to qt-hbox-layout-create. This pattern is used whenever you need a horizontal row inside a vertical layout.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-with-qt-app-syntax",
@@ -4666,7 +4882,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: with-qt-app binds a BARE symbol, not a parenthesized form.\n;;\n;; WRONG — parenthesized binding:\n;; (with-qt-app (app)    ;; ERROR! Syntax error\n;;   (qt-widget-show! win)\n;;   (qt-app-exec! app))\n;;\n;; CORRECT — bare symbol:\n(with-qt-app app\n  (let ((win (qt-main-window-create)))\n    (qt-main-window-set-title! win \"Hello\")\n    (qt-widget-show! win)\n    (qt-app-exec! app)))\n\n;; The macro expands to something like:\n;; (let ((app (qt-app-create)))\n;;   (dynamic-wind void\n;;     (lambda () body ...)\n;;     (lambda () (qt-app-destroy! app))))",
-    "notes": "Common mistake when coming from other Scheme macros like with-exception-handler or parameterize that use parenthesized binding forms. The with-qt-app macro takes a single bare identifier followed by body expressions."
+    "notes": "Common mistake when coming from other Scheme macros like with-exception-handler or parameterize that use parenthesized binding forms. The with-qt-app macro takes a single bare identifier followed by body expressions.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-mutator-bang-convention",
@@ -4683,7 +4900,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; CONVENTION: ALL gerbil-qt functions that modify state end with !\n;; Missing the ! is a common source of \"unbound identifier\" errors.\n;;\n;; WRONG — missing bangs:\n;; (qt-main-window-set-title win \"Hello\")       ;; UNBOUND\n;; (qt-widget-resize win 800 600)                ;; UNBOUND\n;; (qt-main-window-set-central-widget win panel) ;; UNBOUND\n;; (qt-app-exec app)                             ;; UNBOUND\n;;\n;; CORRECT — all mutators have !:\n(qt-main-window-set-title! win \"Hello\")\n(qt-widget-resize! win 800 600)\n(qt-main-window-set-central-widget! win panel)\n(qt-app-exec! app)\n\n;; Pattern: functions WITHOUT ! are pure queries:\n;; (qt-widget-width w)        ;; query — no !\n;; (qt-label-text label)      ;; query — no !\n;; (qt-check-box-checked? cb) ;; predicate — no !\n;;\n;; Functions WITH ! modify state:\n;; (qt-widget-show! w)        ;; side effect — has !\n;; (qt-label-set-text! l t)   ;; mutation — has !\n;; (qt-widget-destroy! w)     ;; destruction — has !",
-    "notes": "This Scheme convention (! for side effects) is strictly followed throughout gerbil-qt. When you get an \"unbound identifier\" error for a qt-* function, first check whether you forgot the trailing !. Common offenders: qt-app-exec!, qt-widget-resize!, qt-main-window-set-title!, qt-main-window-set-central-widget!."
+    "notes": "This Scheme convention (! for side effects) is strictly followed throughout gerbil-qt. When you get an \"unbound identifier\" error for a qt-* function, first check whether you forgot the trailing !. Common offenders: qt-app-exec!, qt-widget-resize!, qt-main-window-set-title!, qt-main-window-set-central-widget!.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-on-return-pressed-not-line-edit-return",
@@ -4701,7 +4919,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: The signal for Enter key in QLineEdit is qt-on-return-pressed!\n;; There is NO function called qt-on-line-edit-return!\n;;\n;; WRONG — does not exist:\n;; (qt-on-line-edit-return! input (lambda (text) (handle text)))\n;;\n;; CORRECT — void callback (no text argument):\n(qt-on-return-pressed! input\n  (lambda ()\n    (let ((text (qt-line-edit-text input)))\n      (displayln \"User entered: \" text)\n      (qt-line-edit-clear! input))))\n\n;; The callback takes NO arguments (void trampoline).\n;; To get the text, call qt-line-edit-text inside the callback.",
-    "notes": "The callback is a void trampoline (no arguments), not a string trampoline. You must explicitly read the line edit's text inside the callback using qt-line-edit-text. This matches Qt's returnPressed() signal which also carries no arguments."
+    "notes": "The callback is a void trampoline (no arguments), not a string trampoline. You must explicitly read the line edit's text inside the callback using qt-line-edit-text. This matches Qt's returnPressed() signal which also carries no arguments.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-status-bar-text-via-main-window",
@@ -4718,7 +4937,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: There is no qt-main-window-status-bar function to get a\n;; QStatusBar object. Instead, use qt-main-window-set-status-bar-text!\n;; which operates directly on the main window.\n;;\n;; WRONG — these don't exist:\n;; (def sb (qt-main-window-status-bar win))     ;; UNBOUND\n;; (qt-status-bar-show-message! sb \"Ready\")     ;; UNBOUND\n;;\n;; CORRECT — set status bar text via main window:\n(qt-main-window-set-status-bar-text! win \"Ready\")\n(qt-main-window-set-status-bar-text! win \"File saved successfully\")\n\n;; Use in callbacks:\n(qt-on-action-triggered! save-action\n  (lambda ()\n    (save-file!)\n    (qt-main-window-set-status-bar-text! win \"Saved!\")))",
-    "notes": "In gerbil-qt, the status bar is not exposed as a separate object. All status bar operations go through the main window. Qt automatically creates the status bar on first use. The message persists until replaced by another call."
+    "notes": "In gerbil-qt, the status bar is not exposed as a separate object. All status bar operations go through the main window. Qt automatically creates the status bar on first use. The message persists until replaced by another call.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-patchelf-rpath-install-makefile",
@@ -4735,7 +4955,8 @@
     ],
     "imports": [],
     "code": ";; PROBLEM: gxc/Gambit drops extra -Wl,-rpath options passed via -ld-options.\n;; Only the FIRST rpath survives compilation. If your project has a vendored\n;; .so (e.g. libqt_shim.so) and you want both a local AND install rpath,\n;; the install rpath gets dropped.\n;;\n;; SOLUTION: Use patchelf --add-rpath in the Makefile install target\n;; to patch the compiled .o1 files AFTER build.\n;;\n;; ---- Makefile pattern ----\n;; INSTALL_DIR = $(HOME)/.gerbil/lib/gerbil-qt\n;;\n;; install: build\n;; \t@mkdir -p $(INSTALL_DIR)\n;; \tcp -f .gerbil/lib/gerbil-qt/* $(INSTALL_DIR)/\n;; \tcp -f vendor/libqt_shim.so $(INSTALL_DIR)/\n;; \t@if command -v patchelf >/dev/null 2>&1; then \\\n;; \t\tfor f in $(INSTALL_DIR)/libqt~0.o*; do \\\n;; \t\t\tpatchelf --add-rpath $(INSTALL_DIR) \"$$f\" 2>/dev/null || true; \\\n;; \t\tdone; \\\n;; \tfi\n;; ---- end ----\n;;\n;; KEY DIFFERENCES from --set-rpath:\n;; - --add-rpath APPENDS to existing RUNPATH (preserves build-time paths)\n;; - --set-rpath REPLACES the entire RUNPATH (may break build-time paths)\n;;\n;; Verify with:\n;;   patchelf --print-rpath ~/.gerbil/lib/gerbil-qt/libqt~0.o1\n;;   # Should show: /path/to/vendor:/home/user/.gerbil/lib/gerbil-qt",
-    "notes": "The existing patchelf recipes use --set-rpath which replaces the entire RUNPATH. For FFI libraries with vendored .so files, --add-rpath is better because it preserves the build-time rpath (pointing to vendor/) while adding the install location. The `command -v patchelf` guard makes the install target work even without patchelf installed (just won't patch rpath). The libqt~0.o* glob matches Gambit's compiled output naming convention."
+    "notes": "The existing patchelf recipes use --set-rpath which replaces the entire RUNPATH. For FFI libraries with vendored .so files, --add-rpath is better because it preserves the build-time rpath (pointing to vendor/) while adding the install location. The `command -v patchelf` guard makes the install target work even without patchelf installed (just won't patch rpath). The libqt~0.o* glob matches Gambit's compiled output naming convention.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-splitter-create-requires-orientation",
@@ -4753,7 +4974,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: qt-splitter-create requires orientation as a mandatory positional arg.\n;; Calling (qt-splitter-create) with 0 args fails with arity mismatch.\n;;\n;; WRONG:\n;; (qt-splitter-create)  ;; ERROR: arity mismatch\n;;\n;; CORRECT — pass orientation constant:\n(qt-splitter-create QT_VERTICAL)     ;; top/bottom split\n(qt-splitter-create QT_HORIZONTAL)   ;; left/right split\n\n;; Full signature:\n;;   (qt-splitter-create orientation [parent: widget])\n;;\n;; Constants: QT_VERTICAL = 2, QT_HORIZONTAL = 1\n;;\n;; Example: table view above, detail panel below\n(let ((splitter (qt-splitter-create QT_VERTICAL)))\n  (qt-splitter-add-widget! splitter table-view)\n  (qt-splitter-add-widget! splitter detail-panel)\n  (qt-splitter-set-sizes! splitter '(500 250))\n  splitter)",
-    "notes": "The orientation is positional (not a keyword), and parent: is a keyword. This is unlike most other create functions in gerbil-qt where all args are keywords. The compile error message is cryptic: 'Illegal lambda application; arity mismatch' with detail 3."
+    "notes": "The orientation is positional (not a keyword), and parent: is a keyword. This is unlike most other create functions in gerbil-qt where all args are keywords. The compile error message is cryptic: 'Illegal lambda application; arity mismatch' with detail 3.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-toolbar-create-requires-title",
@@ -4773,7 +4995,8 @@
     "notes": "Title is positional (not keyword), parent: is keyword. Similar pattern to qt-action-create which also requires text as positional.",
     "related": [
       "qt-action-create-requires-parent-keyword"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-file-dialog-open-directory-signature",
@@ -4790,7 +5013,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; qt-file-dialog-open-directory signature:\n;;   (qt-file-dialog-open-directory parent [caption: string] [dir: string])\n;;\n;; parent is a required positional arg (the parent window)\n;; caption: defaults to \"Open Directory\"\n;; dir: defaults to \"\" (current directory)\n;;\n;; WRONG — passing caption as positional:\n;; (qt-file-dialog-open-directory win \"Choose Folder\")  ;; ERROR: arity mismatch\n;;\n;; CORRECT — caption as keyword:\n(qt-file-dialog-open-directory win caption: \"Choose Folder\")\n(qt-file-dialog-open-directory win caption: \"Open Database\" dir: \"/home\")\n\n;; Returns a string path, or empty string if canceled\n(let ((path (qt-file-dialog-open-directory win caption: \"Open Database\")))\n  (when (and (string? path) (> (string-length path) 0))\n    (displayln \"Selected: \" path)))",
-    "notes": "Similar pattern for qt-file-dialog-open-file and qt-file-dialog-save-file which take parent positional plus keyword args for caption, dir, and filter."
+    "notes": "Similar pattern for qt-file-dialog-open-file and qt-file-dialog-save-file which take parent positional plus keyword args for caption, dir, and filter.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-form-layout-spanning-widget",
@@ -4807,7 +5031,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; GOTCHA: qt-form-layout-add-row-widget! takes 3 args: (layout label-widget field-widget)\n;; It adds a row with TWO widgets (label + field), not a spanning single widget.\n;;\n;; To add a SINGLE widget that spans the entire row (e.g. a checkbox or button bar),\n;; use qt-form-layout-add-spanning-widget! which takes 2 args: (layout widget)\n;;\n;; WRONG — for adding a checkbox that spans the whole row:\n;; (qt-form-layout-add-row-widget! layout my-checkbox)  ;; ERROR: arity mismatch (expects 3 args)\n;;\n;; CORRECT:\n(qt-form-layout-add-spanning-widget! layout my-checkbox)\n\n;; Example: complete form with labels, fields, and a spanning checkbox\n(let* ((dlg (qt-dialog-create parent: win))\n       (layout (qt-form-layout-create parent: dlg))\n       (name-edit (qt-line-edit-create))\n       (email-edit (qt-line-edit-create))\n       (newsletter-check (qt-check-box-create \"Subscribe to newsletter\")))\n  (qt-form-layout-add-row! layout \"Name:\" name-edit)\n  (qt-form-layout-add-row! layout \"Email:\" email-edit)\n  (qt-form-layout-add-spanning-widget! layout newsletter-check)\n  (qt-dialog-exec! dlg))",
-    "notes": "qt-form-layout-add-row! takes (layout label-string field-widget) for string labels. qt-form-layout-add-row-widget! takes (layout label-widget field-widget) for widget labels. qt-form-layout-add-spanning-widget! takes (layout widget) for a widget spanning the full row."
+    "notes": "qt-form-layout-add-row! takes (layout label-string field-widget) for string labels. qt-form-layout-add-row-widget! takes (layout label-widget field-widget) for widget labels. qt-form-layout-add-spanning-widget! takes (layout widget) for a widget spanning the full row.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-standard-model-create-keyword-args",
@@ -4825,7 +5050,8 @@
       ":gerbil-qt/qt"
     ],
     "code": ";; qt-standard-model-create signature:\n;;   (qt-standard-model-create [rows: n] [cols: n] [parent: widget])\n;; All args are KEYWORD (not positional). Defaults: rows: 0, cols: 0, parent: #f\n;;\n;; WRONG — positional args:\n;; (qt-standard-model-create 0 8)  ;; ERROR\n;;\n;; CORRECT — keyword args:\n(qt-standard-model-create rows: 0 cols: 8)\n\n;; Set column headers one at a time:\n;;   (qt-standard-model-set-horizontal-header! model column-index text)\n(let ((model (qt-standard-model-create rows: 0 cols: 3)))\n  (qt-standard-model-set-horizontal-header! model 0 \"Name\")\n  (qt-standard-model-set-horizontal-header! model 1 \"Value\")\n  (qt-standard-model-set-horizontal-header! model 2 \"Type\")\n  model)\n\n;; qt-standard-item-create uses text: keyword:\n;;   (qt-standard-item-create [text: string])\n;; Default: text: \"\"\n(qt-standard-item-create text: \"Hello\")\n\n;; Populate model row by row:\n(qt-standard-model-set-row-count! model 1)\n(qt-standard-model-set-item! model 0 0 (qt-standard-item-create text: \"Alice\"))\n(qt-standard-model-set-item! model 0 1 (qt-standard-item-create text: \"42\"))\n(qt-standard-model-set-item! model 0 2 (qt-standard-item-create text: \"user\"))",
-    "notes": "qt-standard-model-set-horizontal-header! takes (model col text) — sets one header at a time, not a list. qt-standard-item-create takes text: keyword (not positional). The text defaults to empty string."
+    "notes": "qt-standard-model-set-horizontal-header! takes (model col text) — sets one header at a time, not a list. qt-standard-item-create takes text: keyword (not positional). The text defaults to empty string.",
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "macos-codesign-install-binary",
@@ -4846,7 +5072,8 @@
     "related": [
       "patchelf-add-rpath-install",
       "gxc-exe-makefile-link"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ffi-multiple-inheritance-void-ptr-cast",
@@ -4867,7 +5094,8 @@
       "qt-graphics-scene-view-items",
       "qt-graphics-item-set-pen-brush-dynamic-cast",
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "deferror-class-extra-fields-keyword-constructor",
@@ -4889,7 +5117,8 @@
     "related": [
       "error-handling",
       "defstruct-positional-args"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "getopt-nested-subcommands-rest-arguments",
@@ -4911,7 +5140,8 @@
     "related": [
       "getopt-subcommand-handler-two-args",
       "cli-getopt-subcommands"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "jsonl-append-thread-safe",
@@ -4933,7 +5163,8 @@
     "related": [
       "mutex-unwind-protect",
       "read-json-file"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-three-panel-chat-layout",
@@ -4956,7 +5187,8 @@
       "qt-splitter-orientation-positional",
       "qt-hbox-vbox-require-parent",
       "qt-text-browser-anchor-clicked"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-dark-theme-stylesheet",
@@ -4978,7 +5210,8 @@
     "related": [
       "qt-three-panel-chat-layout",
       "qt-widget-set-font-arity"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "makefile-safe-clean-preserve-pkg",
@@ -4997,7 +5230,8 @@
     "related": [
       "gerbil-build-loadpath",
       "gerbil-build-missing-manifests"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-reactive-state-callbacks",
@@ -5017,7 +5251,8 @@
     "related": [
       "qt-three-panel-chat-layout",
       "qt-dark-theme-stylesheet"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "build-multiple-exe-targets",
@@ -5041,7 +5276,8 @@
       "gxc-exe-in-makefile",
       "build-ffi-pkg-config",
       "gerbil-build-loadpath"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "string-contains-returns-index-not-boolean",
@@ -5064,7 +5300,8 @@
     "related": [
       "write-tests-with-std-test",
       "ffi-type-predicate-returns-sublist"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ssxi-optimizer-arity-workaround",
@@ -5084,7 +5321,8 @@
     "notes": "This is a known quirk of the Gerbil ssxi optimizer. It affects modules that import both keyword-dispatch-heavy modules (like :gerbil-qt/qt) AND other project modules. The optimizer incorrectly infers arities for keyword-dispatch calls based on the combined import context. The workaround has no significant performance impact for GUI code. You can also try a clean build (make clean && make build) as stale .ssxi files can cause similar issues.",
     "related": [
       "qt-splitter-create-requires-orientation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hash-table-predicate-not-hash",
@@ -5101,7 +5339,8 @@
     "notes": "This catches many people coming from other Lisp dialects where the predicate matches the constructor name. In Gerbil: hash creates, hash-table? checks. Also note: hash-eq creates an eq?-based hash table, and the same hash-table? predicate works for both kinds.",
     "related": [
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "void-initial-callback-avoids-compiler-type-error",
@@ -5121,7 +5360,8 @@
     "notes": "This issue occurs specifically with Gerbil's AOT compiler (gxc). The compiler statically analyzes known values and can determine that #f is boolean::t, which cannot be called as a procedure. Using (void) avoids this because #!void is not typed as narrowly. The procedure? check at the call site is needed regardless since the initial value is not callable. This pattern is common when avoiding circular imports — module A defines the callback slot, module B sets it at init time.",
     "related": [
       "hash-ref-returns-void-truthy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hash-ref-default-not-used-when-key-exists-empty",
@@ -5140,7 +5380,8 @@
     "related": [
       "hash-table-operations",
       "hash-ref-void-truthy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-dialog-create-parent-keyword",
@@ -5162,7 +5403,8 @@
     "related": [
       "qt-hbox-vbox-layout-require-parent",
       "qt-action-parent-keyword"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-system-tray-icon-create-bus-error",
@@ -5187,7 +5429,8 @@
     "related": [
       "qt-system-tray-icon-full",
       "qt-action-create-requires-parent-keyword"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-list-widget-item-data-user-role",
@@ -5207,7 +5450,8 @@
     "notes": "Data is stored using Qt::UserRole (256). Only string data is supported. Returns \"\" for items with no data set or invalid row indices. The C++ shim uses QVariant::toString() so non-string QVariant data will be coerced to string.",
     "related": [
       "qt-on-return-pressed-not-on-line-edit-return"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-scroll-to-bottom-text-edit-browser",
@@ -5228,7 +5472,8 @@
     "notes": "Call scroll-to-bottom! AFTER appending content. QTextBrowser also has qt-text-browser-append! (which QTextEdit already had as qt-text-edit-append!). Both append functions add rich text (HTML-aware) — plain text is auto-escaped.",
     "related": [
       "qt-list-widget-item-data-user-role"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-widget-min-max-width-height-cursor",
@@ -5249,7 +5494,8 @@
     "notes": "Cursor constants map to Qt::CursorShape enum values. setCursor works on any QWidget subclass. unsetCursor restores the cursor inherited from the parent widget. For busy indicators, QT_CURSOR_BUSY shows an arrow with a spinner (non-blocking) while QT_CURSOR_WAIT shows just a spinner (suggests blocking).",
     "related": [
       "qt-scroll-to-bottom-text-edit-browser"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-text-edit-to-html",
@@ -5270,7 +5516,8 @@
     "notes": "Qt always wraps content in a full HTML document structure even for plain text input. The HTML includes inline CSS styles for font, margins, etc. Useful for saving rich text content or clipboard operations. The string-returning FFI uses s_return_buf + const-cast wrapper pattern.",
     "related": [
       "qt-scroll-to-bottom-text-edit-browser"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-label-word-wrap",
@@ -5290,7 +5537,8 @@
     "notes": "Takes a boolean (#t/#f), internally converted to int (1/0) for the C FFI. Word wrap respects the widget's width — combine with qt-widget-set-maximum-width! or layout constraints to control wrap point. Useful for chat message display, status labels, and description text.",
     "related": [
       "qt-widget-min-max-width-height-cursor"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-with-busy-cursor-macro",
@@ -5311,7 +5559,8 @@
     "notes": "QT_CURSOR_BUSY (16) shows arrow + spinner (non-blocking feel). QT_CURSOR_WAIT (3) shows just a spinner (blocking feel). The macro captures `win` from the enclosing scope — if your main window variable has a different name, adjust accordingly. The try/finally ensures the cursor is restored even if the body throws an exception. This pattern is commonly applied to: search operations, database scans, S3 loads, and any operation that takes more than ~200ms.",
     "related": [
       "qt-widget-min-max-width-cursor-shape"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-json-detail-html-panel",
@@ -5335,7 +5584,8 @@
     "related": [
       "qt-scroll-to-bottom-text-edit-browser",
       "qt-text-browser-html-get"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-settings-persist-window-state",
@@ -5357,7 +5607,8 @@
     "related": [
       "qt-system-tray-icon-full",
       "qt-dialog-create-keyword-parent"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-progress-bar-create-keyword-parent",
@@ -5379,7 +5630,8 @@
     "related": [
       "qt-dialog-create-keyword-parent",
       "qt-progress-dialog-timer-driven"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-unregister-handler-prevent-accumulation",
@@ -5401,7 +5653,8 @@
     "related": [
       "qt-system-tray-icon-full",
       "qt-shortcut-explicit-destroy"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-completer-line-edit-search",
@@ -5423,7 +5676,8 @@
     "related": [
       "qt-on-return-pressed-not-on-line-edit-return",
       "qt-list-widget-item-data-user-role"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-group-box-checkbox-preferences-dialog",
@@ -5446,7 +5700,8 @@
       "qt-dialog-create-keyword-parent",
       "qt-settings-persist-window-state",
       "qt-form-layout-spanning-widget"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "qt-action-set-tooltip-not-widget-set-tooltip",
@@ -5467,7 +5722,8 @@
     "related": [
       "qt-action-create-requires-parent-keyword",
       "qt-toolbar-create-title-positional"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "pkg-link-stale-unbound-rebuild",
@@ -5489,7 +5745,8 @@
       "stale-global-static-segfault",
       "gerbil-build-loadpath",
       "gerbil-build-missing-manifests"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "uuid-generation",
@@ -5510,7 +5767,8 @@
     "related": [
       "hash-table-basics",
       "crypto-digest-sha256-md5"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "values-multiple-return",
@@ -5533,7 +5791,8 @@
     "related": [
       "collect-results-with-for-collect",
       "srfi-1-list-utilities"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "hmac-message-authentication",
@@ -5557,7 +5816,8 @@
     "related": [
       "crypto-digest-sha256-md5",
       "sigv4-aws-request-signing"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "aes-encrypt-decrypt",
@@ -5581,7 +5841,8 @@
     "related": [
       "hmac-message-authentication",
       "crypto-digest-sha256-md5"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ll1-parser-combinators",
@@ -5605,7 +5866,8 @@
     "related": [
       "regular-expressions",
       "pregexp-replace"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "for-fold-accumulation",
@@ -5629,7 +5891,8 @@
       "collect-results-with-for-collect",
       "reduce-with-for-fold",
       "iterate-hash-table"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "while-until-loops",
@@ -5649,7 +5912,8 @@
     "related": [
       "for-fold-accumulation",
       "collect-results-with-for-collect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ignore-errors-fault-tolerance",
@@ -5672,7 +5936,8 @@
     "related": [
       "error-handling",
       "with-destroy-resource-cleanup"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "bytes-endian-access",
@@ -5697,7 +5962,8 @@
     "related": [
       "u8vector-big-endian-encoding",
       "binary-io-write-subu8vector"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "srfi-42-eager-comprehensions",
@@ -5720,7 +5986,8 @@
     "related": [
       "collect-results-with-for-collect",
       "for-fold-accumulation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "srfi-1-list-utilities",
@@ -5749,7 +6016,8 @@
     "related": [
       "sort-filter-require-imports",
       "for-fold-accumulation"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "let-cc-escape-continuation",
@@ -5769,7 +6037,8 @@
     "related": [
       "while-until-loops",
       "error-handling"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "stable-sort-preserve-order",
@@ -5790,7 +6059,8 @@
     "related": [
       "sort-filter-require-imports",
       "sort-a-list"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "file-locking-flock",
@@ -5813,7 +6083,8 @@
     "related": [
       "mutex-unwind-protect",
       "rwlock-read-write-lock"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "config-keyword-plist",
@@ -5835,7 +6106,8 @@
     "notes": ":std/config represents configuration as flat keyword property lists (plists). config-get scans the list for the keyword and returns the following value. Since it's a linear scan, later entries are shadowed by earlier ones — use (append overrides defaults) for merge-with-override semantics. config-set! creates a new plist with the updated key (non-destructive). config-push! is the destructive variant. The config: keyword in a typed config is a tag for validation — config-check! verifies it matches the expected symbol. save-config!/load-config use Scheme's read/write for serialization.",
     "related": [
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "decimal-exact-arithmetic",
@@ -5856,7 +6128,8 @@
     "notes": ":std/misc/decimal uses Scheme's exact rational numbers to represent decimals without floating-point errors. string->decimal parses \"19.99\" to the exact rational 1999/100. All arithmetic operations (+, -, *, /) on rationals remain exact. Use this for financial calculations, currency, or any domain where rounding errors are unacceptable. decimal->string converts back to decimal notation. decimal? checks if a rational has a finite decimal representation (denominator factors are only 2 and 5). For display formatting, convert to string and pad as needed.",
     "related": [
       "ll1-parser-combinators"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "temporary-file-safe-cleanup",
@@ -5877,7 +6150,8 @@
     "related": [
       "file-locking-flock",
       "read-file-to-string"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "dag-topological-walk",
@@ -5900,7 +6174,8 @@
     "related": [
       "rbtree-sorted-map",
       "hash-table-basics"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "ed25519-sign-verify",
@@ -5924,7 +6199,8 @@
     "related": [
       "hmac-message-authentication",
       "aes-encrypt-decrypt"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "sqlite-database-operations",
@@ -5947,7 +6223,8 @@
     "notes": "Use sql-connect with sqlite-open to create a DBI connection. sql-eval/sql-eval-query are convenience wrappers that prepare, bind, execute, and finalize in one call. For repeated queries, use sql-prepare/sql-bind/sql-query/sql-finalize explicitly. sql-query returns all result rows as a list; in-sql-query returns an iterable for lazy consumption. Single-column SELECT results are bare values (not vectors). Transactions use sql-txn-begin/sql-txn-commit/sql-txn-abort. The DBI interface is generic — the same sql-* functions work with PostgreSQL by using sql-connect with postgresql-connect instead of sqlite-open.",
     "related": [
       "error-handling"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "alist-association-list-operations",
@@ -5972,7 +6249,8 @@
       "hash-table-create",
       "plist-keyword-config",
       "config-keyword-plist"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "random-number-generation",
@@ -5991,7 +6269,8 @@
     "notes": "random-integer and random-real are Gambit builtins — no import needed. They use the default-random-source which is automatically seeded. For reproducible sequences, create a random-source with make-random-source and seed it with random-source-pseudo-randomize!. Then create dedicated integer/real generators from it with random-source-make-integers/random-source-make-reals. For random hex strings, use random-string from :std/misc/string. For shuffling lists/vectors, use :std/misc/shuffle (see shuffle recipe).",
     "related": [
       "shuffle-list-vector"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "match-pattern-matching",
@@ -6012,7 +6291,8 @@
     "related": [
       "defstruct-positional-args",
       "multi-arity-def-star"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "tcp-client-server-sockets",
@@ -6033,7 +6313,8 @@
     "notes": "open-tcp-client and open-tcp-server are Gambit builtins — no import needed. open-tcp-client takes a settings list with server-address:, port-number:, and optionally keep-alive:, coalesce:. It returns a bidirectional port (both input and output). open-tcp-server spawns a new thread for each connection, calling the handler with the client port. The server runs in the background — use thread-join! to keep the main thread alive. For TLS/SSL connections, use :std/net/ssl instead. For higher-level HTTP, use :std/net/request. Always force-output after writing and close-port when done.",
     "related": [
       "run-subprocess-custom-env"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "string-ports-io",
@@ -6055,7 +6336,8 @@
     "related": [
       "write-json-arity-1-parameterize",
       "write-xml-arity-1-parameterize"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "parameterize-dynamic-binding",
@@ -6076,7 +6358,8 @@
     "related": [
       "write-json-arity-1-parameterize",
       "break-circular-imports-with-parameter"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "cut-partial-application",
@@ -6098,7 +6381,8 @@
     "related": [
       "collect-results-with-for-collect",
       "srfi-1-list-utilities"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "named-let-loop",
@@ -6120,7 +6404,8 @@
       "while-until-loops",
       "for-fold-accumulation",
       "collect-results-with-for-collect"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "receive-multiple-values",
@@ -6139,7 +6424,8 @@
     "notes": "Gerbil supports multiple return values via (values v1 v2 ...). To destructure: use receive (SRFI-8 style, more concise) or let-values (R7RS style, supports multiple clauses). receive does NOT support dotted rest patterns like (first . rest) — use a single variable to capture all as a list instead. values->list is a Gambit builtin that converts to a list. For more utilities (first-value, nth-value, values->vector, etc.), see :std/values.",
     "related": [
       "values-multiple-return"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-port-byte-position-seek",
@@ -6159,7 +6445,8 @@
     "related": [
       "gambit-runtime-primitives",
       "binary-io-subu8vector"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-file-exception-types",
@@ -6179,7 +6466,8 @@
     "related": [
       "error-handling",
       "gambit-runtime-primitives"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "gambit-ffi-shim-split-pattern",
@@ -6198,7 +6486,8 @@
     "notes": "This pattern is essential for large FFI projects (like FUSE bindings) where C code calls back into Scheme. The key insight is that Gambit maps FFI types to C types in platform-specific ways (e.g., unsigned-int64 -> unsigned long on ARM64, not uint64_t). Writing your own forward declarations will inevitably mismatch. By splitting the shim and including trampolines AFTER c-define, you let Gambit generate the correct declarations automatically.",
     "related": [
       "gambit-ffi-pointer-types"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   },
   {
     "id": "nonnull-char-string-list-argv",
@@ -6218,6 +6507,7 @@
     "related": [
       "gambit-ffi-pointer-types",
       "gambit-ffi-shim-split-pattern"
-    ]
+    ],
+    "gerbil_version": "v0.18.1-173"
   }
 ]
