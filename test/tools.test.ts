@@ -3780,5 +3780,112 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.isError).toBe(false);
       expect(result.text).toContain('[v0.18]');
     }, 60000);
+
+    it('gerbil_howto_add stores valid_for field', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'vf-recipe-xqmrk',
+        title: 'VF xqmrk recipe',
+        tags: ['xqmrktag', 'xqmrkall'],
+        imports: [],
+        code: '(displayln "vf")',
+        valid_for: ['v0.18.1-173', 'v0.19.0-42'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+
+      // Verify the field is stored in JSON
+      const data = JSON.parse(readFileSync(cookbookPath, 'utf-8'));
+      const recipe = data.find((r: { id: string }) => r.id === 'vf-recipe-xqmrk');
+      expect(recipe.valid_for).toEqual(['v0.18.1-173', 'v0.19.0-42']);
+    });
+
+    it('gerbil_howto_add preserves existing valid_for when not provided in update', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      // Update the recipe without providing valid_for
+      const result = await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'vf-recipe-xqmrk',
+        title: 'VF xqmrk recipe updated',
+        tags: ['xqmrktag', 'xqmrkall', 'updated'],
+        imports: [],
+        code: '(displayln "vf updated")',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Updated');
+
+      // valid_for should be preserved from original
+      const data = JSON.parse(readFileSync(cookbookPath, 'utf-8'));
+      const recipe = data.find((r: { id: string }) => r.id === 'vf-recipe-xqmrk');
+      expect(recipe.valid_for).toEqual(['v0.18.1-173', 'v0.19.0-42']);
+      expect(recipe.title).toBe('VF xqmrk recipe updated');
+    });
+
+    it('gerbil_howto with valid_for uses prefix matching for version filtering', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      // Add a recipe with valid_for but no gerbil_version
+      await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'vf-prefix-xqmrk',
+        title: 'VF prefix xqmrk recipe',
+        tags: ['xqmrkprefix'],
+        imports: [],
+        code: '(displayln "prefix")',
+        valid_for: ['v0.18.1-173'],
+      });
+
+      // Search with a different patch version — should match via prefix
+      const result = await client.callTool('gerbil_howto', {
+        query: 'xqmrkprefix',
+        cookbook_path: cookbookPath,
+        gerbil_version: 'v0.18.2-5',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('VF prefix xqmrk');
+    });
+
+    it('gerbil_howto excludes recipe when valid_for does not match target version', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      // Add a recipe valid only for v0.19
+      await client.callTool('gerbil_howto_add', {
+        cookbook_path: cookbookPath,
+        id: 'vf-v19only-xqmrk',
+        title: 'VF v19only xqmrk recipe',
+        tags: ['xqmrkv19only'],
+        imports: [],
+        code: '(displayln "v19only")',
+        valid_for: ['v0.19.0-42'],
+      });
+
+      // Search with v0.18 — should NOT match
+      const result = await client.callTool('gerbil_howto', {
+        query: 'xqmrkv19only',
+        cookbook_path: cookbookPath,
+        gerbil_version: 'v0.18.1-173',
+      });
+      // Should either not find it or return no results
+      expect(result.text).not.toContain('VF v19only xqmrk');
+    });
+
+    it('gerbil_howto displays valid_for in results', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      const result = await client.callTool('gerbil_howto', {
+        query: 'xqmrktag',
+        cookbook_path: cookbookPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('(tested: v0.18, v0.19)');
+    });
+
+    it('gerbil_howto_verify shows valid_for per recipe', async () => {
+      const cookbookPath = join(TEST_DIR, 'validfor-cookbook.json');
+      const result = await client.callTool('gerbil_howto_verify', {
+        cookbook_path: cookbookPath,
+        recipe_id: 'vf-recipe-xqmrk',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('(tested: v0.18, v0.19)');
+    }, 60000);
   });
 });

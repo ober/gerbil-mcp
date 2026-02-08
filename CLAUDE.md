@@ -10,8 +10,11 @@ src/
   gxi.ts            # gxi/gxc/gxpkg subprocess wrapper, REPL session manager
   prompts.ts        # MCP prompt templates
   tools/            # Individual tool implementations (one file per tool)
+    verify-utils.ts # Shared verification utilities (used by howto-verify + CLI script)
 test/
   tools.test.ts     # Functional tests for all MCP tools
+scripts/
+  test-cookbooks.ts # Cross-version cookbook recipe tester (standalone CLI)
 ```
 
 ## Build & Test Commands
@@ -23,6 +26,26 @@ npm run test:watch # Run tests in watch mode
 npm run dev        # Watch mode for TypeScript compilation
 ```
 
+### Cross-Version Cookbook Testing
+
+Test cookbook recipes against multiple Gerbil installations and update the `valid_for` field:
+
+```sh
+# Test against current gxi install (dry-run — no modifications)
+npx tsx scripts/test-cookbooks.ts --gxi $(which gxi) --dry-run
+
+# Test against multiple versions
+npx tsx scripts/test-cookbooks.ts --gxi /path/to/v18/gxi --gxi /path/to/v19/gxi
+
+# Test a specific recipe
+npx tsx scripts/test-cookbooks.ts --gxi $(which gxi) --recipe-id json-parse
+
+# Skip compile checking (syntax-only, faster)
+npx tsx scripts/test-cookbooks.ts --gxi $(which gxi) --no-compile
+```
+
+The script updates each recipe's `valid_for` field in `cookbooks.json` with the list of version strings where both syntax and compile checks pass. The `valid_for` field enables prefix-based version matching at query time (e.g., `v0.18.1-173` matches `v0.18.2-5`).
+
 ## Development Workflow
 
 ### MANDATORY: Run Tests After Changes
@@ -33,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 257 tests must pass before considering any change complete. The test suite covers:
+All 263 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -89,6 +112,7 @@ All 257 tests must pass before considering any change complete. The test suite c
 - Import conflict checker (local def vs import conflict detection, cross-import conflicts, only-in filter handling, batch runtime resolution, project-wide mode)
 - Cookbook version tagging (gerbil_version field in howto_add, version tag display in howto search, explicit version filter excluding mismatched recipes, howto_verify version filtering, per-recipe version tags in verify output)
 - Feature version tagging (gerbil_version field in suggest_feature, version tag display in list_features, explicit version filter excluding mismatched features)
+- Cross-version cookbook testing (valid_for field in Recipe, prefix matching for version filtering, valid_for storage and preservation in howto_add, valid_for display in howto search and verify, shared verify-utils extraction)
 
 
 ### Adding a New Tool

@@ -23,7 +23,7 @@ const MAX_BUFFER = 1024 * 1024; // 1MB
 
 let resolvedGxiPath: string | null = null;
 
-async function findGxi(override?: string): Promise<string> {
+export async function findGxi(override?: string): Promise<string> {
   if (override) return override;
   if (resolvedGxiPath) return resolvedGxiPath;
 
@@ -102,7 +102,7 @@ export async function runGxi(
 
 let resolvedGxcPath: string | null = null;
 
-async function findGxc(): Promise<string> {
+export async function findGxc(): Promise<string> {
   if (resolvedGxcPath) return resolvedGxcPath;
 
   const candidates = [

@@ -33,6 +33,7 @@ export interface Recipe {
   deprecated?: boolean;
   superseded_by?: string;
   gerbil_version?: string;  // e.g. "v0.18", "v0.19", or omitted = any/untested
+  valid_for?: string[];     // versions confirmed working (e.g. ["v0.18.1-173", "v0.19.0-42"])
 }
 
 export const RECIPES: Recipe[] = [
@@ -466,13 +467,34 @@ export function resetCachedGerbilVersion(): void {
 }
 
 /**
- * Check if a recipe's version tag matches a target version.
+ * Check if two version strings share the same major.minor prefix.
+ * E.g. "v0.18.1-173" matches "v0.18.2-5" (both have prefix "v0.18").
+ */
+export function versionPrefixMatch(a: string, b: string): boolean {
+  const prefixOf = (v: string): string => {
+    const m = v.match(/^(v\d+\.\d+)/);
+    return m ? m[1] : v;
+  };
+  return prefixOf(a) === prefixOf(b);
+}
+
+/**
+ * Check if a recipe matches a target version.
+ * If valid_for exists and is non-empty, check prefix match against any entry.
+ * Otherwise fall back to gerbil_version string comparison.
  * Untagged recipes always match. Null target matches everything.
  */
-function versionMatches(recipeVersion: string | undefined, targetVersion: string | null): boolean {
-  if (!recipeVersion) return true;  // untagged = any
+function versionMatches(recipe: Recipe, targetVersion: string | null): boolean {
   if (!targetVersion) return true;  // unknown target = show all
-  return recipeVersion === targetVersion;
+
+  // If valid_for is populated, use prefix matching against confirmed versions
+  if (recipe.valid_for && recipe.valid_for.length > 0) {
+    return recipe.valid_for.some((v) => versionPrefixMatch(v, targetVersion));
+  }
+
+  // Fall back to gerbil_version tag
+  if (!recipe.gerbil_version) return true;  // untagged = any
+  return recipe.gerbil_version === targetVersion;
 }
 
 export function registerHowtoTool(server: McpServer): void {
@@ -542,7 +564,7 @@ export function registerHowtoTool(server: McpServer): void {
 
       // When explicit filter provided, exclude mismatched tagged recipes
       if (explicitVersion) {
-        recipes = recipes.filter((r) => versionMatches(r.gerbil_version, explicitVersion));
+        recipes = recipes.filter((r) => versionMatches(r, explicitVersion));
       }
 
       // Score each recipe
@@ -567,8 +589,7 @@ export function registerHowtoTool(server: McpServer): void {
           score = Math.round(score * 0.1);
         }
         // Deprioritize version-mismatched recipes (when no explicit filter)
-        if (!explicitVersion && recipe.gerbil_version && activeVersion &&
-            recipe.gerbil_version !== activeVersion) {
+        if (!explicitVersion && activeVersion && !versionMatches(recipe, activeVersion)) {
           score = Math.round(score * 0.5);
         }
         return { recipe, score };
@@ -601,13 +622,17 @@ export function registerHowtoTool(server: McpServer): void {
       for (const { recipe } of matches) {
         sections.push('');
         const versionTag = recipe.gerbil_version ? ` [${recipe.gerbil_version}]` : '';
+        const testedTag =
+          recipe.valid_for && recipe.valid_for.length > 0
+            ? ` (tested: ${recipe.valid_for.map((v) => { const m = v.match(/^(v\d+\.\d+)/); return m ? m[1] : v; }).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
+            : '';
         if (recipe.deprecated) {
           sections.push(`## [DEPRECATED]${versionTag} ${recipe.title}`);
           if (recipe.superseded_by) {
             sections.push(`Superseded by: "${recipe.superseded_by}"`);
           }
         } else {
-          sections.push(`## ${recipe.title}${versionTag}`);
+          sections.push(`## ${recipe.title}${versionTag}${testedTag}`);
         }
         if (recipe.imports.length > 0) {
           sections.push(`Imports: ${recipe.imports.join(' ')}`);

@@ -1,14 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { writeFile, unlink, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { runGxi, runGxc, escapeSchemeString } from '../gxi.js';
+import { findGxi, findGxc } from '../gxi.js';
 import { RECIPES, loadCookbook, REPO_COOKBOOK_PATH, type Recipe } from './howto.js';
-
-const PASS_MARKER = 'GERBIL-MCP-VERIFY-PASS:';
-const FAIL_MARKER = 'GERBIL-MCP-VERIFY-FAIL:';
-const BATCH_SIZE = 5;
+import {
+  DEFAULT_BATCH_SIZE,
+  runVerifyBatch,
+  runCompileCheckBatch,
+} from './verify-utils.js';
 
 export function registerHowtoVerifyTool(server: McpServer): void {
   server.registerTool(
@@ -86,12 +84,16 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         );
       }
 
+      // Resolve binary paths
+      const gxiPath = await findGxi();
+      const gxcPath = await findGxc();
+
       // Verify in batches (syntax expansion)
       const results: Array<{ id: string; passed: boolean; error?: string; compileError?: string }> = [];
 
-      for (let i = 0; i < recipes.length; i += BATCH_SIZE) {
-        const batch = recipes.slice(i, i + BATCH_SIZE);
-        const batchResults = await verifyBatch(batch);
+      for (let i = 0; i < recipes.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = recipes.slice(i, i + DEFAULT_BATCH_SIZE);
+        const batchResults = await runVerifyBatch(batch, gxiPath, { timeout: 60_000 });
         results.push(...batchResults);
       }
 
@@ -103,7 +105,7 @@ export function registerHowtoVerifyTool(server: McpServer): void {
           .filter(Boolean);
 
         if (passedRecipes.length > 0) {
-          const compileResults = await compileCheckRecipes(passedRecipes);
+          const compileResults = await runCompileCheckBatch(passedRecipes, gxcPath);
           for (const cr of compileResults) {
             const existing = results.find((r) => r.id === cr.id);
             if (existing && !cr.passed) {
@@ -127,21 +129,25 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         '',
       ];
 
-      // Build a map of recipe id -> version for display
-      const recipeVersionMap = new Map<string, string | undefined>();
+      // Build a map of recipe id -> recipe for display
+      const recipeMap = new Map<string, Recipe>();
       for (const rec of recipes) {
-        recipeVersionMap.set(rec.id, rec.gerbil_version);
+        recipeMap.set(rec.id, rec);
       }
 
       for (const r of results) {
-        const ver = recipeVersionMap.get(r.id);
-        const verTag = ver ? ` [${ver}]` : '';
+        const rec = recipeMap.get(r.id);
+        const verTag = rec?.gerbil_version ? ` [${rec.gerbil_version}]` : '';
+        const validForTag =
+          rec?.valid_for && rec.valid_for.length > 0
+            ? ` (tested: ${rec.valid_for.map((v) => { const m = v.match(/^(v\d+\.\d+)/); return m ? m[1] : v; }).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
+            : '';
         if (!r.passed) {
-          sections.push(`  FAIL  ${r.id}${verTag} — ${r.error || 'unknown error'}`);
+          sections.push(`  FAIL  ${r.id}${verTag}${validForTag} — ${r.error || 'unknown error'}`);
         } else if (r.compileError) {
-          sections.push(`  COMPILE-FAIL  ${r.id}${verTag} — ${r.compileError} (repl_only?)`);
+          sections.push(`  COMPILE-FAIL  ${r.id}${verTag}${validForTag} — ${r.compileError} (repl_only?)`);
         } else {
-          sections.push(`  PASS  ${r.id}${verTag}`);
+          sections.push(`  PASS  ${r.id}${verTag}${validForTag}`);
         }
       }
 
@@ -159,170 +165,4 @@ export function registerHowtoVerifyTool(server: McpServer): void {
       };
     },
   );
-}
-
-async function verifyBatch(
-  recipes: Recipe[],
-): Promise<Array<{ id: string; passed: boolean; error?: string }>> {
-  // Collect all unique imports across the batch — these must be at top level,
-  // not inside a lambda (import is an expansion-time form, not a runtime form).
-  const allImports = new Set<string>();
-  for (const recipe of recipes) {
-    for (const imp of recipe.imports) {
-      allImports.add(imp);
-    }
-  }
-  const topLevelImports = [...allImports].map((imp) => `(import ${imp})`).join(' ');
-
-  // Build a check expression per recipe (imports are already at top level)
-  const checks = recipes.map((recipe) => {
-    const escapedId = escapeSchemeString(recipe.id);
-    const escapedCode = escapeSchemeString(recipe.code);
-
-    return [
-      '(with-catch',
-      '  (lambda (e)',
-      `    (display "${FAIL_MARKER}${escapedId}\\t")`,
-      '    (display-exception e (current-output-port)))',
-      '  (lambda ()',
-      `    (let ((p (open-input-string "${escapedCode}")))`,
-      '      (let loop ((form (read p)))',
-      '        (unless (eof-object? form)',
-      // Skip import forms — they are handled at top level and
-      // core-expand cannot process them inside eval context
-      '          (unless (and (pair? form) (memq (car form) (quote (import export))))',
-      '            (core-expand form))',
-      '          (loop (read p)))))',
-      `    (display "${PASS_MARKER}${escapedId}\\n")))`,
-    ]
-      .join(' ');
-  });
-
-  // Pass imports and checks as separate -e arguments.
-  // (import :gerbil/expander) combined with other forms in a single -e
-  // causes gxi to swallow all output from subsequent expressions.
-  const importExpr = `(import :gerbil/expander) ${topLevelImports}`;
-  const checksExpr = checks.join(' ');
-
-  const result = await runGxi([importExpr, checksExpr], { timeout: 60_000 });
-
-  // Parse results
-  const output = result.stdout;
-  const resultMap = new Map<string, { passed: boolean; error?: string }>();
-
-  for (const line of output.split('\n')) {
-    if (line.startsWith(PASS_MARKER)) {
-      const id = line.slice(PASS_MARKER.length).trim();
-      resultMap.set(id, { passed: true });
-    } else if (line.startsWith(FAIL_MARKER)) {
-      const rest = line.slice(FAIL_MARKER.length);
-      const tabIdx = rest.indexOf('\t');
-      if (tabIdx !== -1) {
-        const id = rest.slice(0, tabIdx);
-        const error = rest.slice(tabIdx + 1).trim();
-        resultMap.set(id, { passed: false, error });
-      } else {
-        const id = rest.trim();
-        resultMap.set(id, { passed: false, error: 'verification failed' });
-      }
-    }
-  }
-
-  // Build results preserving order, marking missing ones as failed
-  return recipes.map((recipe) => {
-    const r = resultMap.get(recipe.id);
-    if (r) {
-      return { id: recipe.id, ...r };
-    }
-    // If a recipe didn't produce output, it might have crashed the batch
-    if (result.timedOut) {
-      return { id: recipe.id, passed: false, error: 'batch timed out' };
-    }
-    if (result.exitCode !== 0) {
-      return {
-        id: recipe.id,
-        passed: false,
-        error: `batch failed (exit ${result.exitCode})`,
-      };
-    }
-    return { id: recipe.id, passed: false, error: 'no result (batch crash?)' };
-  });
-}
-
-/**
- * Compile-check recipes by writing each to a temp .ss file and running gxc -S.
- * This catches unbound identifiers and patterns that work in the REPL but fail
- * when compiled (e.g. destructuring in for bindings).
- */
-async function compileCheckRecipes(
-  recipes: Recipe[],
-): Promise<Array<{ id: string; passed: boolean; error?: string }>> {
-  const tempDir = join(tmpdir(), 'gerbil-mcp-verify');
-  await mkdir(tempDir, { recursive: true });
-
-  const results: Array<{ id: string; passed: boolean; error?: string }> = [];
-
-  for (const recipe of recipes) {
-    const importLines = recipe.imports
-      .map((imp) => `(import ${imp})`)
-      .join('\n');
-    const content = `${importLines}\n${recipe.code}\n`;
-    const filePath = join(tempDir, `verify-${recipe.id}.ss`);
-
-    try {
-      await writeFile(filePath, content, 'utf-8');
-      const result = await runGxc(filePath, { timeout: 30_000 });
-
-      if (result.exitCode === 0) {
-        results.push({ id: recipe.id, passed: true });
-      } else {
-        const combined = [result.stdout, result.stderr]
-          .filter(Boolean)
-          .join('\n')
-          .trim();
-        // Extract the most relevant error line
-        const errorLine = extractCompileError(combined);
-        results.push({
-          id: recipe.id,
-          passed: false,
-          error: errorLine || 'compilation failed',
-        });
-      }
-    } catch (e) {
-      results.push({
-        id: recipe.id,
-        passed: false,
-        error: `exception: ${e instanceof Error ? e.message : String(e)}`,
-      });
-    } finally {
-      try {
-        await unlink(filePath);
-      } catch {
-        // ignore cleanup errors
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Extract a concise error message from gxc output.
- */
-function extractCompileError(output: string): string {
-  // Look for "Reference to unbound identifier" or similar
-  for (const line of output.split('\n')) {
-    if (/unbound identifier/i.test(line)) {
-      return line.trim();
-    }
-    if (/Syntax Error/i.test(line)) {
-      return line.trim();
-    }
-    if (/error/i.test(line) && line.trim().length > 5) {
-      return line.trim();
-    }
-  }
-  // Return first non-empty line as fallback
-  const firstLine = output.split('\n').find((l) => l.trim().length > 0);
-  return firstLine?.trim() || output.slice(0, 200);
 }

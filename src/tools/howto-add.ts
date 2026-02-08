@@ -51,9 +51,16 @@ export function registerHowtoAddTool(server: McpServer): void {
             'Gerbil version this recipe applies to (e.g. "v0.18", "v0.19"). ' +
             'Omit for version-agnostic recipes.',
           ),
+        valid_for: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'List of Gerbil version strings where this recipe is confirmed working ' +
+            '(e.g. ["v0.18.1-173", "v0.19.0-42"]). Typically set by automated cross-version testing.',
+          ),
       },
     },
-    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related, supersedes, gerbil_version }) => {
+    async ({ cookbook_path: explicitPath, id, title, tags, imports, code, notes, related, supersedes, gerbil_version, valid_for }) => {
       const cookbook_path = explicitPath || REPO_COOKBOOK_PATH;
       // Read existing file or start fresh
       let recipes: Recipe[] = [];
@@ -94,10 +101,15 @@ export function registerHowtoAddTool(server: McpServer): void {
       if (notes) recipe.notes = notes;
       if (related && related.length > 0) recipe.related = related;
       if (gerbil_version) recipe.gerbil_version = gerbil_version;
+      if (valid_for && valid_for.length > 0) recipe.valid_for = valid_for;
 
       // Replace existing recipe with same id, or append
       const existingIdx = recipes.findIndex((r) => r.id === id);
       if (existingIdx >= 0) {
+        // Preserve existing valid_for if the new call doesn't provide one
+        if (!valid_for && recipes[existingIdx].valid_for) {
+          recipe.valid_for = recipes[existingIdx].valid_for;
+        }
         recipes[existingIdx] = recipe;
       } else {
         recipes.push(recipe);
