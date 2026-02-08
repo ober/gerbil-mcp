@@ -1153,6 +1153,74 @@ extern void iterator_destroy(iterator_t *it);
     });
   });
 
+  describe('Bisect crash tool', () => {
+    it('gerbil_bisect_crash finds the crashing form', async () => {
+      const crashFile = join(TEST_DIR, 'bisect-crash.ss');
+      writeFileSync(
+        crashFile,
+        `(def (f x) (+ x 1))
+(def (g y) (* y 2))
+(error "boom")
+(def (h z) (- z 3))
+`,
+      );
+      const result = await client.callTool('gerbil_bisect_crash', {
+        file_path: crashFile,
+        timeout: 10000,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('Minimal crashing code');
+      expect(result.text).toContain('error');
+      expect(result.text).toContain('Bisection log:');
+      expect(result.text).toContain('CRASH');
+    }, 30000);
+
+    it('gerbil_bisect_crash reports no crash for a clean file', async () => {
+      const cleanFile = join(TEST_DIR, 'bisect-clean.ss');
+      writeFileSync(
+        cleanFile,
+        `(def (f x) (+ x 1))
+(displayln (f 5))
+`,
+      );
+      const result = await client.callTool('gerbil_bisect_crash', {
+        file_path: cleanFile,
+        timeout: 10000,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('No crash detected');
+    }, 15000);
+
+    it('gerbil_bisect_crash keeps preamble forms', async () => {
+      const preambleFile = join(TEST_DIR, 'bisect-preamble.ss');
+      writeFileSync(
+        preambleFile,
+        `(import :std/text/json)
+(def (f x) (+ x 1))
+(error "crash here")
+(def (g y) (* y 2))
+`,
+      );
+      const result = await client.callTool('gerbil_bisect_crash', {
+        file_path: preambleFile,
+        timeout: 10000,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('Preamble (always included):');
+      expect(result.text).toContain('import');
+      expect(result.text).toContain('Minimal crashing code');
+      expect(result.text).toContain('error');
+    }, 30000);
+
+    it('gerbil_bisect_crash handles missing file', async () => {
+      const result = await client.callTool('gerbil_bisect_crash', {
+        file_path: '/nonexistent/path/crash.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Failed to read file');
+    }, 15000);
+  });
+
   describe('REPL session tools', () => {
     it('gerbil_repl_session creates and uses sessions', async () => {
       // Create session
