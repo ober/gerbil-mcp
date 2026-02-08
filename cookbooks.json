@@ -7036,5 +7036,48 @@
     "code": ";; BREAKING CHANGES in v0.19: Many modules moved from :std/misc to new packages\n\n;; === List utilities: :std/misc/X → :std/list/X ===\n;; OLD (v0.18):        NEW (v0.19):\n(import :std/misc/alist)      ;; → (import :std/list/alist)\n(import :std/misc/list)       ;; → (import :std/list/list)\n(import :std/misc/plist)      ;; → (import :std/list/plist)\n(import :std/misc/walist)     ;; → (import :std/list/walist)\n(import :std/misc/list-builder) ;; → (import :std/list/list-builder)\n\n;; === Synchronization: :std/misc/X → :std/sync/X ===\n(import :std/misc/barrier)    ;; → (import :std/sync/barrier)\n(import :std/misc/channel)    ;; → (import :std/sync/channel)\n(import :std/misc/completion) ;; → (import :std/sync/completion)\n(import :std/misc/rwlock)     ;; → (import :std/sync/rwlock)\n\n;; === String utilities: :std/misc/X → :std/string/X ===\n(import :std/misc/path)       ;; → (import :std/string/path)\n\n;; === Data structures: :std/misc/X → :std/struct/X ===\n(import :std/misc/queue)      ;; → (import :std/struct/queue)\n\n;; === JSON: :std/text/json → :std/encoding/json ===\n(import :std/text/json)       ;; → NO LONGER EXISTS\n;; The new JSON API is reorganized into submodules:\n;;   :std/encoding/json/io       - core JSONWriter/JSONReader interfaces\n;;   :std/encoding/json/reader   - parsing\n;;   :std/encoding/json/writer   - encoding\n;;   :std/encoding/json/env      - environment/config\n;; (Not yet fully available in v0.19-dev-test-basis)\n\n;; === Iterators: module split (backward compatible) ===\n(import :std/iter)  ;; Still works! Re-exports from submodules:\n;;   :std/iter/api       - main API (for, for/collect, in-range, etc.)\n;;   :std/iter/interface - iterator protocol\n;;   :std/iter/iterators - built-in iterators\n;;   :std/iter/macros    - for/for*/etc. macros\n\n;; === Format: NEW module hierarchy ===\n(import :std/format)  ;; NEW in v0.19: printf, fprintf, eprintf, format\n;;   :std/format/io       - core I/O\n;;   :std/format/string   - string formatting (to-string interface)\n;;   :std/format/reader   - parsing\n;;   :std/format/writer   - output\n;;   :std/format/env      - environment\n\n;; === REMOVED / MOVED TO v0.19-TODIE ===\n;; These modules are in src/std/v0.19-TODIE/ (scheduled for removal):\n;;   :std/srfi/1, :std/srfi/13, :std/srfi/19, :std/srfi/42, etc.\n;;   :std/generic/dispatch\n;;   :std/actor-v13/*\n;; Do NOT use these in new code - replacements TBD\n\n;; === NEW modules in v0.19 ===\n(import :std/object)          ;; Object utilities (defobject-cache)\n(import :std/ffi)             ;; FFI macrology (C-include, C-declare, etc.)\n(import :std/log)             ;; Logging framework (not yet compiled)\n(import :std/os/device)       ;; Device utilities\n(import :std/os/file)         ;; File operations\n(import :std/os/sockaddr)     ;; Socket address utilities\n(import :std/os/sockopt)      ;; Socket options\n(import :std/os/time)         ;; Time utilities\n(import :std/io/counter)      ;; I/O counter\n(import :std/io/socket/client) ;; Socket client\n(import :std/serde/interned)  ;; Serialization: interned objects\n(import :std/serde/opaque)    ;; Serialization: opaque objects",
     "notes": "CRITICAL MIGRATION GUIDE for v0.18 → v0.19. The v0.19 branch (v0.19-dev-test-basis) is NOT yet stable - many stdlib modules are still in v0.19-TODO/ and not compiled. This reorganization improves module hierarchy but requires import path updates. The :std/misc namespace was too broad and has been split into semantic packages: :std/list (list utilities), :std/sync (concurrency), :std/string (string manipulation), :std/struct (data structures). JSON moved from :std/text to :std/encoding with a new API. SRFIs are being removed - don't rely on them in new code. Use this as a reference when migrating v0.18 code or when encountering \"cannot find library module\" errors on v0.19.",
     "gerbil_version": "v0.19"
+  },
+  {
+    "id": "make-will-struct-finalizer",
+    "title": "Use make-will for Scheme-level struct GC finalizers",
+    "tags": [
+      "make-will",
+      "finalizer",
+      "GC",
+      "cleanup",
+      "struct",
+      "resource",
+      "memory",
+      "leak"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: Wrap a foreign resource in a defstruct and register a\n;; will (weak finalizer) so GC automatically cleans up.\n;; Unlike c-define-type finalizers, this works at the Scheme level\n;; and can guard against double-free with a #f sentinel.\n\n;; 1. Define a wrapper struct\n(defstruct my-resource (handle) final: #t)\n\n;; 2. Define the cleanup function with double-free guard\n(def (my-resource-release! res)\n  (let ((h (my-resource-handle res)))\n    (when h\n      (foreign-release-the-handle h)  ;; your actual cleanup\n      (set! (my-resource-handle res) #f))))  ;; prevent double-free\n\n;; 3. Register a will at creation time\n(def (open-my-resource . args)\n  (let* ((raw-handle (ffi-create-resource args))\n         (res (make-my-resource raw-handle)))\n    (make-will res my-resource-release!)  ;; GC calls release!\n    res))\n\n;; Real example from gerbil-leveldb: snapshot wrapper\n;; The wrapper holds both the db reference (to keep it alive)\n;; and the raw snapshot pointer.\n;;\n;; (defstruct leveldb-snap (ldb ptr) final: #t)\n;;\n;; (def (leveldb-snapshot ldb)\n;;   (let* ((ptr (leveldb_create_snapshot (leveldb-db ldb)))\n;;          (snap (make-leveldb-snap ldb ptr)))\n;;     (make-will snap leveldb-snapshot-release!)\n;;     snap))\n;;\n;; (def (leveldb-snapshot-release! snap)\n;;   (let ((ptr (leveldb-snap-ptr snap)))\n;;     (when ptr\n;;       (let ((db (leveldb-db (leveldb-snap-ldb snap))))\n;;         (when db (leveldb_release_snapshot db ptr)))\n;;       (set! (leveldb-snap-ptr snap) #f))))\n\n;; KEY POINTS:\n;; - make-will registers a procedure called when the object becomes unreachable\n;; - The cleanup proc takes ONE argument: the object itself\n;; - Always check for #f before cleanup (will may fire after explicit release)\n;; - Hold references to parent objects in the struct to prevent premature GC\n;; - Works alongside explicit release: user can call release! manually,\n;;   and the will becomes a no-op thanks to the #f guard",
+    "notes": "make-will is a Gambit builtin (no import needed). The will fires when the object becomes unreachable and GC runs. Unlike c-define-type finalizers which work at the C pointer level, make-will works on any Scheme object and gives you full Scheme-level control. Critical pattern for FFI wrappers where cleanup requires multiple C calls or depends on other Scheme objects being alive (e.g., releasing a snapshot requires both the db handle and snapshot pointer). The struct should hold references to all objects needed for cleanup to prevent them from being GC'd first.",
+    "related": [
+      "foreign-release-double-free",
+      "force-gc-gambit",
+      "gambit-ffi-pointer-types"
+    ]
+  },
+  {
+    "id": "u8vector-lexicographic-compare",
+    "title": "Lexicographic comparison of u8vectors (bytes>=?)",
+    "tags": [
+      "u8vector",
+      "bytes",
+      "compare",
+      "lexicographic",
+      "ordering",
+      "greater",
+      "equal",
+      "binary"
+    ],
+    "imports": [],
+    "code": ";; Lexicographic comparison for u8vectors (byte arrays).\n;; Returns #t if a >= b in lexicographic (unsigned byte) order.\n;; Useful for range scans, key ordering, binary search bounds.\n\n(def (bytes>=? a b)\n  (let ((alen (u8vector-length a))\n        (blen (u8vector-length b)))\n    (let loop ((i 0))\n      (cond\n        ((>= i blen) #t)          ;; b exhausted: a >= b (a is longer or equal)\n        ((>= i alen) #f)          ;; a exhausted first: a < b\n        ((> (u8vector-ref a i)\n            (u8vector-ref b i)) #t)   ;; a[i] > b[i]: a > b\n        ((< (u8vector-ref a i)\n            (u8vector-ref b i)) #f)   ;; a[i] < b[i]: a < b\n        (else (loop (+ i 1)))))))     ;; equal so far, continue\n\n;; Examples:\n;; (bytes>=? #u8(1 2 3) #u8(1 2 3))   => #t  (equal)\n;; (bytes>=? #u8(1 2 4) #u8(1 2 3))   => #t  (greater)\n;; (bytes>=? #u8(1 2) #u8(1 2 3))     => #f  (prefix is less)\n;; (bytes>=? #u8(1 2 3) #u8(1 2))     => #t  (longer with same prefix)\n;; (bytes>=? #u8(2) #u8(1 9 9))       => #t  (first byte wins)\n\n;; For string keys, convert first:\n;; (bytes>=? (string->bytes \"key2\") (string->bytes \"key1\"))  => #t\n\n;; USE CASE: LevelDB range scan with exclusive upper bound\n;; Stop iteration when current key >= limit:\n;; (def (leveldb-iter-next iter limit)\n;;   (leveldb-iterator-next (leveldb-iter-itor iter))\n;;   (if (leveldb-iterator-valid? (leveldb-iter-itor iter))\n;;     (let ((key (leveldb-iterator-key (leveldb-iter-itor iter))))\n;;       (if (and limit (bytes>=? key limit))\n;;         iter-end    ;; past the limit\n;;         (values key (leveldb-iterator-value ...))))\n;;     iter-end))",
+    "notes": "Standard equal? only checks exact match, not ordering. For range scans and ordered iteration (like LevelDB, B-trees, sorted indices), you need lexicographic comparison. This compares unsigned bytes left-to-right, with shorter prefixes sorting before longer ones (same as LevelDB's default byte comparator). GOTCHA: when using with optional start/limit parameters, always check for #f before calling bytes>=? — (bytes>=? #f limit) will crash since #f is not a u8vector.",
+    "related": [
+      "endian-aware-binary-access",
+      "pass-u8vector-to-c"
+    ]
   }
 ]
