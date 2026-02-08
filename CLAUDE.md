@@ -97,7 +97,8 @@ All 242 tests must pass before considering any change complete. The test suite c
 5. Add corresponding test(s) in `test/tools.test.ts`
 6. Add the tool to `CLAUDE.md.gerbil-example` under the appropriate section
 7. Update the test count and coverage list in this file (`CLAUDE.md`)
-8. Run `npm run build && npm run test` to verify
+8. If the tool was listed in `features.json`, remove that entry (it's now implemented)
+9. Run `npm run build && npm run test` to verify
 
 ### Common Patterns
 
