@@ -134,8 +134,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To find tests affected by signature changes: use gerbil_check_test_arity to scan *-test.ss files for calls to a specific function and compare against its current arity. Quickly identifies which tests need updating after a refactor.
 - To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe. Use compile_check: true to also run gxc compilation, which catches unbound identifiers and REPL-only patterns.
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
-- To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration.
-- To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones.
+- To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration. Use gerbil_version to tag version-specific features (e.g. "v0.18", "v0.19").
+- To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones. Use gerbil_version to filter by Gerbil version.
 - To vote for a feature: use gerbil_vote_feature to increment the vote count for a feature you could have used. Votes help prioritize which features to implement next.
 - To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers from GDB/core dumps back to readable Gerbil module/function paths.
 - To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files and find stale copies that could shadow the current build.

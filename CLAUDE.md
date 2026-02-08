@@ -33,7 +33,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 253 tests must pass before considering any change complete. The test suite covers:
+All 257 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -62,7 +62,7 @@ All 253 tests must pass before considering any change complete. The test suite c
 - Trace eval tool (let*/let/letrec/letrec* binding tracing)
 - SXML inspect tool (XML parsing and tree visualization)
 - Eval project_path support
-- Feature suggestion tools (suggest_feature, list_features, vote_feature)
+- Feature suggestion tools (suggest_feature, list_features, vote_feature, gerbil_version tagging and filtering)
 - Demangle tool (hex decoding, double underscore, prefix recognition, module/symbol split)
 - Stale static files tool (no local files, no overlap, size mismatch detection, matching files, extension filtering)
 - Module exports declare fallback (compiled .scm artifact scanning when expander fails)
@@ -88,6 +88,7 @@ All 253 tests must pass before considering any change complete. The test suite c
 - Bisect crash tool (crash detection, form parsing, binary search bisection, preamble preservation, missing file handling)
 - Import conflict checker (local def vs import conflict detection, cross-import conflicts, only-in filter handling, batch runtime resolution, project-wide mode)
 - Cookbook version tagging (gerbil_version field in howto_add, version tag display in howto search, explicit version filter excluding mismatched recipes, howto_verify version filtering, per-recipe version tags in verify output)
+- Feature version tagging (gerbil_version field in suggest_feature, version tag display in list_features, explicit version filter excluding mismatched features)
 
 
 ### Adding a New Tool

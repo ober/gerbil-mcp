@@ -26,9 +26,17 @@ export function registerListFeaturesTool(server: McpServer): void {
           .string()
           .optional()
           .describe('Search keywords to filter suggestions (e.g. "module batch")'),
+        gerbil_version: z
+          .string()
+          .optional()
+          .describe(
+            'Filter features by Gerbil version (e.g. "v0.18", "v0.19"). ' +
+            'When provided, excludes version-tagged features that don\'t match. ' +
+            'Untagged features always pass through. If omitted, shows all.',
+          ),
       },
     },
-    async ({ features_path: explicitPath, query }) => {
+    async ({ features_path: explicitPath, query, gerbil_version }) => {
       const features_path = explicitPath || FEATURES_PATH;
 
       // Load features
@@ -41,6 +49,13 @@ export function registerListFeaturesTool(server: McpServer): void {
         }
       } catch {
         // File missing or invalid — treat as empty
+      }
+
+      // Filter by gerbil_version if provided (untagged features always included)
+      if (gerbil_version) {
+        features = features.filter(
+          (f) => !f.gerbil_version || f.gerbil_version === gerbil_version,
+        );
       }
 
       if (features.length === 0) {
@@ -121,8 +136,9 @@ function formatFeatures(features: FeatureSuggestion[]): string {
   return features
     .map((f) => {
       const votes = f.votes ?? 0;
+      const versionTag = f.gerbil_version ? ` [${f.gerbil_version}]` : '';
       const parts = [
-        `## ${f.title}`,
+        `## ${f.title}${versionTag}`,
         `ID: ${f.id}`,
         `Impact: ${f.impact} | Votes: ${votes}`,
         `Tags: ${f.tags.join(', ')}`,

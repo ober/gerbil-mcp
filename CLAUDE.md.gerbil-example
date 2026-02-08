@@ -112,8 +112,8 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Feature Suggestions
 
-- **`gerbil_list_features`**: Search or list existing feature suggestions for the gerbil-mcp toolset. Use before suggesting a new feature to check for duplicates. Shows vote counts for each feature.
-- **`gerbil_suggest_feature`**: Submit a feature suggestion for a new or improved gerbil-mcp tool. Requires `id`, `title`, `description`, `impact` (high/medium/low), `tags`, `use_case`, `example_scenario`, and `estimated_token_reduction`. Suggestions are stored in the server's `features.json`. New suggestions start with 0 votes.
+- **`gerbil_list_features`**: Search or list existing feature suggestions for the gerbil-mcp toolset. Use before suggesting a new feature to check for duplicates. Shows vote counts for each feature. Use `gerbil_version` to filter by Gerbil version — excludes version-tagged features that don't match, while untagged features always pass through.
+- **`gerbil_suggest_feature`**: Submit a feature suggestion for a new or improved gerbil-mcp tool. Requires `id`, `title`, `description`, `impact` (high/medium/low), `tags`, `use_case`, `example_scenario`, and `estimated_token_reduction`. Suggestions are stored in the server's `features.json`. New suggestions start with 0 votes. Use `gerbil_version` to tag version-specific features (e.g. "v0.18", "v0.19"). Omit for version-agnostic features.
 - **`gerbil_vote_feature`**: Vote for an existing feature suggestion by ID. Use this when you encounter a situation where a suggested feature would have saved time or tokens. Votes help prioritize which features to implement next.
 
 ### Key Principle

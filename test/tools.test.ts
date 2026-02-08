@@ -2701,6 +2701,78 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.isError).toBe(true);
       expect(result.text).toContain('not found');
     });
+
+    it('gerbil_suggest_feature stores gerbil_version tag', async () => {
+      const featuresPath = join(TEST_DIR, 'features-ver', 'features.json');
+      const result = await client.callTool('gerbil_suggest_feature', {
+        features_path: featuresPath,
+        id: 'versioned-feature',
+        title: 'A versioned feature',
+        description: 'Feature specific to v0.18',
+        impact: 'medium',
+        tags: ['version', 'test'],
+        use_case: 'Testing version tagging',
+        example_scenario: 'Feature only relevant on v0.18',
+        estimated_token_reduction: '~100 tokens',
+        gerbil_version: 'v0.18',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).toContain('[v0.18]');
+      // Verify the file has the field
+      const raw = readFileSync(featuresPath, 'utf-8');
+      const features = JSON.parse(raw);
+      expect(features[0].gerbil_version).toBe('v0.18');
+    });
+
+    it('gerbil_suggest_feature omits gerbil_version when not provided', async () => {
+      const featuresPath = join(TEST_DIR, 'features-ver', 'features.json');
+      await client.callTool('gerbil_suggest_feature', {
+        features_path: featuresPath,
+        id: 'unversioned-feature',
+        title: 'An unversioned feature',
+        description: 'Feature for any version',
+        impact: 'low',
+        tags: ['noversion', 'test'],
+        use_case: 'Testing',
+        example_scenario: 'Works on any version',
+        estimated_token_reduction: '~50 tokens',
+      });
+      const raw = readFileSync(featuresPath, 'utf-8');
+      const features = JSON.parse(raw);
+      const unversioned = features.find((f: { id: string }) => f.id === 'unversioned-feature');
+      expect(unversioned.gerbil_version).toBeUndefined();
+    });
+
+    it('gerbil_list_features displays version tags in output', async () => {
+      const featuresPath = join(TEST_DIR, 'features-ver', 'features.json');
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[v0.18]');
+    });
+
+    it('gerbil_list_features filters by gerbil_version', async () => {
+      const featuresPath = join(TEST_DIR, 'features-ver', 'features.json');
+      // Filter for v0.18 — should include versioned + unversioned
+      const result = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+        gerbil_version: 'v0.18',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('versioned-feature');
+      expect(result.text).toContain('unversioned-feature');
+
+      // Filter for v0.19 — should exclude v0.18-tagged, include unversioned
+      const result2 = await client.callTool('gerbil_list_features', {
+        features_path: featuresPath,
+        gerbil_version: 'v0.19',
+      });
+      expect(result2.isError).toBe(false);
+      expect(result2.text).not.toContain('A versioned feature');
+      expect(result2.text).toContain('An unversioned feature');
+    });
   });
 
   describe('Demangle tool', () => {

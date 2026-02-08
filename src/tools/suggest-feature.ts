@@ -20,6 +20,7 @@ export interface FeatureSuggestion {
   example_scenario: string;
   estimated_token_reduction: string;
   votes: number;
+  gerbil_version?: string;  // e.g. "v0.18", "v0.19", or omitted = any/untested
 }
 
 export function registerSuggestFeatureTool(server: McpServer): void {
@@ -55,6 +56,13 @@ export function registerSuggestFeatureTool(server: McpServer): void {
         estimated_token_reduction: z
           .string()
           .describe('Estimated token savings (e.g. "~500 tokens per invocation")'),
+        gerbil_version: z
+          .string()
+          .optional()
+          .describe(
+            'Gerbil version this feature applies to (e.g. "v0.18", "v0.19"). ' +
+            'Omit for version-agnostic features.',
+          ),
       },
     },
     async ({
@@ -67,6 +75,7 @@ export function registerSuggestFeatureTool(server: McpServer): void {
       use_case,
       example_scenario,
       estimated_token_reduction,
+      gerbil_version,
     }) => {
       const features_path = explicitPath || FEATURES_PATH;
 
@@ -118,6 +127,7 @@ export function registerSuggestFeatureTool(server: McpServer): void {
         estimated_token_reduction,
         votes: existingVotes,
       };
+      if (gerbil_version) suggestion.gerbil_version = gerbil_version;
 
       if (existingIdx >= 0) {
         features[existingIdx] = suggestion;
@@ -142,11 +152,12 @@ export function registerSuggestFeatureTool(server: McpServer): void {
       }
 
       const action = existingIdx >= 0 ? 'Updated' : 'Added';
+      const versionNote = gerbil_version ? ` [${gerbil_version}]` : '';
       return {
         content: [
           {
             type: 'text' as const,
-            text: `${action} feature suggestion "${id}" in ${features_path} (${features.length} total suggestions).`,
+            text: `${action} feature suggestion "${id}"${versionNote} in ${features_path} (${features.length} total suggestions).`,
           },
         ],
       };
