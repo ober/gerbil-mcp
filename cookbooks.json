@@ -6794,5 +6794,231 @@
     "code": ";; WARNING: In v0.19-dev-test-basis, SRFI modules have been REMOVED\n;; from src/std/srfi/ and moved to src/std/v0.19-TODIE/srfi/\n;;\n;; This means these modules are slated for removal:\n;;   :std/srfi/1   (list utilities)\n;;   :std/srfi/13  (string utilities)\n;;   :std/srfi/19  (time/date)\n;;   :std/srfi/42  (eager comprehensions)\n;;   and many others...\n;;\n;; IMPACT:\n;; - Any code using (import :std/srfi/19) will FAIL to compile\n;; - Recipes using SRFI-19 for date formatting will need updates\n;; - String utilities from SRFI-13 may need native :std/string replacements\n;;\n;; MIGRATION STATUS: Unknown\n;; - It's unclear what will replace these modules in v0.19\n;; - May need to use Gambit's built-in SRFI support instead\n;; - Or write native Gerbil replacements\n;;\n;; UNTIL v0.19 is finalized, DO NOT add new recipes using :std/srfi/* modules.\n;; Existing v0.18 recipes should be marked for review/update.",
     "notes": "This is a MAJOR breaking change. Many cookbook recipes use :std/srfi/19 for date formatting and :std/srfi/13 for string utilities. The current v0.19-dev-test-basis has these modules in v0.19-TODIE/ which suggests they will be removed. This branch is not yet stable - most stdlib is still in v0.19-TODO/ and not compiled.",
     "gerbil_version": "v0.19"
+  },
+  {
+    "id": "list-module-migration-v019",
+    "title": "List modules moved from :std/misc to :std/list in v0.19",
+    "tags": [
+      "migration",
+      "v0.19",
+      "list",
+      "alist",
+      "plist",
+      "list-builder",
+      "walist",
+      "import",
+      "reorganization"
+    ],
+    "imports": [],
+    "code": ";; In v0.18.x, list utilities were in :std/misc/*\n;; (import :std/misc/alist)\n;; (import :std/misc/plist)\n;; (import :std/misc/list-builder)\n;; (import :std/misc/walist)\n;; (import :std/misc/list)\n\n;; In v0.19+, they moved to :std/list/*\n(import :std/list/alist)\n(import :std/list/plist)\n(import :std/list/list-builder)\n(import :std/list/walist)\n(import :std/list/list)\n\n;; The APIs remained the same — only the module paths changed:\n;; alist:        asetq, aremq, acons, plist->alist, alist?, etc.\n;; plist:        pgetq, pputq, premq, etc.\n;; list-builder: with-list-builder, call-with-list-builder\n;; walist:       wasetq, waremq, wacollect, etc.\n;; list:         flatten, take, drop, split-at, etc.\n\n;; MIGRATION: Update all imports from :std/misc/* to :std/list/*\n;; No code changes needed — only import statements.",
+    "notes": "This is a BREAKING CHANGE in v0.19. Code using :std/misc/alist etc. will fail with \"cannot find library module\" errors. The function APIs (asetq, aremq, plist->alist, etc.) are unchanged — only module paths changed. This reorganization groups all list-related utilities under :std/list/*, leaving :std/misc for other utilities. walist.ss was rewritten but the API is compatible.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "list-builder-v019",
+    "title": "Efficient O(1) list building with with-list-builder (v0.19 import path)",
+    "tags": [
+      "list",
+      "list-builder",
+      "collect",
+      "accumulate",
+      "O(1)",
+      "append",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/list/list-builder"
+    ],
+    "code": "(import :std/list/list-builder)\n\n;; with-list-builder provides O(1) append to a growing list\n;; Avoids O(n^2) from repeated (append lst (list new-item))\n(with-list-builder (push! peek)\n  (push! 'a)\n  (push! 'b)\n  (push! 'c)\n  (peek))  ;; => (a b c)\n\n;; Functional form:\n(call-with-list-builder\n  (lambda (push! peek)\n    (for (x (in-range 5))\n      (when (odd? x)\n        (push! x)))\n    (peek)))  ;; => (1 3)\n\n;; Common pattern: conditional collection\n(def (find-matching items pred)\n  (with-list-builder (collect)\n    (for-each (lambda (item)\n                (when (pred item)\n                  (collect item)))\n              items)))\n\n;; Nested collection with intermediate results\n(with-list-builder (push! peek)\n  (push! 'start)\n  (for (x '(1 2 3))\n    (push! (* x 10)))\n  (push! 'end)\n  (peek))  ;; => (start 10 20 30 end)",
+    "notes": "with-list-builder uses cons cell mutation internally: a sentinel cons cell [#f] is created, and push! mutates the cdr to append in O(1). This prevents the O(n^2) quadratic append pattern. Always prefer this over (set! result (append result (list item))). The peek function returns the current list without consuming it. push! always appends to the end (maintains insertion order). In v0.19, the module path changed from :std/misc/list-builder to :std/list/list-builder.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "iter-module-refactor-v019",
+    "title": "Iterator module refactored into submodules in v0.19",
+    "tags": [
+      "migration",
+      "v0.19",
+      "iter",
+      "for",
+      "for/collect",
+      "for/fold",
+      "iterator",
+      "refactor"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": ";; In v0.18.x, :std/iter was a single monolithic file (926 lines)\n;; In v0.19+, :std/iter became a package with submodules:\n;;   :std/iter/api        — public API (re-exported by :std/iter)\n;;   :std/iter/interface  — Iterator interface definitions\n;;   :std/iter/iterators  — Built-in iterators (in-range, in-list, etc.)\n;;   :std/iter/macros     — for/for*/for-collect/for-fold macros\n\n;; USER CODE UNCHANGED: still import :std/iter for normal use\n(import :std/iter)\n\n;; Available iterators (same as v0.18.x):\n(for/collect (x (in-range 10)) (* x x))\n(for/collect (x (in-list '(a b c))) x)\n(for ((k v) (in-hash (hash (\"a\" 1) (\"b\" 2)))) (displayln k \": \" v))\n(for (k (in-hash-keys (hash (\"x\" 10)))) (displayln k))\n(for (v (in-hash-values (hash (\"y\" 20)))) (displayln v))\n\n;; New in v0.19: in-range-inclusive and in-number-series\n(for/collect (x (in-range-inclusive 1 5)) x)\n;; => (1 2 3 4 5)  -- includes endpoint\n\n;; in-integers is an alias for in-naturals\n(def naturals (in-integers))\n;; infinite sequence 0, 1, 2, 3, ...\n\n;; For INTERNAL/EXTENSION use, you can now import submodules directly:\n;; (import :std/iter/interface)  — Iterator protocol\n;; (import :std/iter/iterators)  — Built-in iterator constructors\n;; (import :std/iter/macros)     — Macro definitions",
+    "notes": "This refactor is MOSTLY TRANSPARENT to user code. The public API exported by :std/iter remains compatible with v0.18.x. The main change is organizational: the monolithic file was split into interface, iterators, and macros. New iterators in v0.19: in-range-inclusive (includes endpoint), in-number-series (arithmetic/geometric sequences), in-integers (alias for in-naturals). The for macro now supports type contracts in bindings: (for (x expr :- :fixnum) ...). For advanced use (extending the iterator protocol), use :std/iter/interface.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "log-module-v019",
+    "title": "New structured logging system in :std/log (v0.19)",
+    "tags": [
+      "logging",
+      "log",
+      "v0.19",
+      "debug",
+      "error",
+      "warn",
+      "info",
+      "structured",
+      "logger"
+    ],
+    "imports": [
+      ":std/log"
+    ],
+    "code": ";; NEW in v0.19: Comprehensive structured logging framework\n;; NOT AVAILABLE in v0.18.x\n\n;; Core modules:\n;;   :std/log              — top-level package (imports all submodules)\n;;   :std/log/level        — log levels: CRITICAL ERROR WARN INFO DEBUG VERBOSE\n;;   :std/log/interface    — Logger and LogSink interfaces, Record struct\n;;   :std/log/macros       — log.debug, log.info, log.warn macros\n;;   :std/log/user         — user-facing logger (default logger)\n;;   :std/log/console      — console output sink\n;;   :std/log/format       — log formatting\n;;   :std/log/rotate       — log file rotation\n;;   :std/log/compress     — log compression support\n;;   :std/log/system       — system-wide logger\n;;   :std/log/default      — default logger configuration\n;;   :std/log/proto        — protocol definitions\n\n;; Log levels (predefined constants):\n;; CRITICAL = -1\n;; ERROR    =  0\n;; WARN     =  1\n;; INFO     =  2\n;; DEBUG    =  3\n;; VERBOSE  =  4\n\n;; Log record structure:\n;; (defstruct Record\n;;   ((ts     : Time)       ;; timestamp (from :std/time)\n;;    (level  : :fixnum)    ;; log level constant\n;;    (source : :symbol)    ;; source identifier (e.g., 'my-app)\n;;    (msg    : :string)    ;; log message\n;;    (data   : PureAList)) ;; structured key-value metadata\n;;   transparent: #t)\n\n;; Logger interface:\n;; (interface Logger\n;;   (name)                         => :symbol\n;;   (level)                        => :fixnum\n;;   (set-level! (level : :fixnum)) => :void\n;;   (log (obj : Record))           => :void)\n\n;; Environment variable: GERBIL_LOG_LEVEL\n;; Format: <default>:<source1>:<level1>:<source2>:<level2>:...\n;; Example: ERROR:myapp/http:DEBUG:myapp/db:VERBOSE\n;;   Sets global default to ERROR\n;;   Sets myapp/http to DEBUG\n;;   Sets myapp/db to VERBOSE\n\n;; Subsystem wildcards: \"myapp/*\" matches all myapp/... sources\n\n;; NOTE: Full logging API examples will be added once v0.19 is compiled.\n;; This recipe documents the module structure discovered from source.",
+    "notes": "The :std/log module is COMPLETELY NEW in v0.19 — it did not exist in v0.18.x. It provides a comprehensive structured logging framework with: log levels (CRITICAL/ERROR/WARN/INFO/DEBUG/VERBOSE), timestamped log records with structured metadata (alist data), logger interfaces with configurable sinks, console/file/rotating output, environment-variable-based configuration (GERBIL_LOG_LEVEL), subsystem-level log filtering, and macro-based logging (log.debug, log.info, etc.). The framework integrates with :std/time for timestamps and :std/format for output formatting. This is a significant addition — equivalent to adding Python's logging module or Go's zap/logrus.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "time-module-v019",
+    "title": "New time abstraction in :std/time (v0.19)",
+    "tags": [
+      "time",
+      "timeout",
+      "timestamp",
+      "v0.19",
+      "duration",
+      "deadline"
+    ],
+    "imports": [
+      ":std/time"
+    ],
+    "code": ";; NEW in v0.19: Abstract time types and timeout handling\n;; NOT AVAILABLE in v0.18.x\n\n;; Core modules:\n;;   :std/time/time     — Time type hierarchy (ExactTime, InexactTime)\n;;   :std/time/timeout  — Timeout and deadline handling (IOTimeout, AbsTimeout)\n;;   :std/time/format   — Time formatting (planned, not implemented yet)\n\n;; Time type hierarchy:\n;; (defstruct Time () ...)                          ;; base type\n;; (defstruct (ExactTime Time) () ...)              ;; exact time (future: timeval/timespec)\n;; (defstruct (InexactTime Time) ((time :- :flonum)) ...) ;; inexact (float seconds)\n\n;; Create current time (inexact):\n;; (def now (current-time-inexact))\n;; => #&lt;InexactTime #N&gt;\n;;\n;; Access the float timestamp:\n;; (InexactTime-time now)  ;; => 1234567890.123 (flonum)\n\n;; Timeout handling with IOTimeout:\n;; (defstruct IOTimeout (t) ...)  ;; wrapper for optional timeout\n;; (def !NoTimeout (IOTimeout #f))  ;; singleton for \"no timeout\"\n\n;; AbsTimeout interface: convert relative timeout to absolute deadline\n;; Implementations for: InexactTime, :flonum, :real, :time, IOTimeout\n;;\n;; (def timeout-5s (IOTimeout 5.0))  ;; 5 seconds from now\n;; (abs-timeout timeout-5s)          ;; => absolute :time deadline\n\n;; Timeout predicates and conversion:\n;; (timeout? obj)                   ;; #t if obj is a valid timeout\n;; (timeout->abs-timeout timeo)     ;; convert to absolute :time or absent-obj\n\n;; NOTE: Full API examples will be added once v0.19 is compiled.\n;; ExactTime (timeval/timespec FFI) is TODO in v0.19 source.\n;; Time formatting is planned but not yet implemented.",
+    "notes": "The :std/time module is COMPLETELY NEW in v0.19 — it did not exist in v0.18.x. It provides abstract time types (Time, ExactTime, InexactTime) and timeout/deadline handling (IOTimeout, AbsTimeout interface). InexactTime wraps Gambit's ##current-time-point as a flonum. The AbsTimeout interface converts relative timeouts (e.g., 5.0 seconds) to absolute deadlines. This is used by the IO system for timeouts. ExactTime (timeval/timespec FFI) is planned but not yet implemented in v0.19 — source shows TODO comments. Time formatting is also planned (:std/time/format stub exists) but not implemented. This module separates time abstractions from the IO system, following the pattern of separating concerns across :std/time, :std/log, :std/format.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "format-module-v019",
+    "title": "New structured formatting system in :std/format (v0.19)",
+    "tags": [
+      "format",
+      "print",
+      "display",
+      "debug",
+      "serialization",
+      "v0.19",
+      "writer",
+      "reader"
+    ],
+    "imports": [
+      ":std/format"
+    ],
+    "code": ";; NEW in v0.19: Generic object formatting and serialization framework\n;; NOT AVAILABLE in v0.18.x\n\n;; Core modules:\n;;   :std/format/env     — FormatEnv (formatting environment/context)\n;;   :std/format/io      — ObjectWriter and ObjectReader interfaces\n;;   :std/format/string  — to-string (Stringer interface)\n;;   :std/format/ioutil  — formatting utilities\n;;   :std/format/writer  — writer extensions (defwriter-ext)\n;;   :std/format/reader  — reader extensions (defreader-ext)\n\n;; ObjectWriter interface:\n;; (interface ObjectWriter\n;;   (write (writer : BufferedWriter) (env : FormatEnv)) => :fixnum)\n\n;; Writer methods (extension points):\n;;   (writer.println obj env)      — write object + newline + flush\n;;   (writer.display obj env)      — display style (FORMAT-DISPLAY)\n;;   (writer.debug obj env)        — debug style (FORMAT-DEBUG)\n;;   (writer.format obj env)       — default format (handles cycles via @serialize)\n;;   (writer.format-raw obj env)   — raw format (no cycle detection)\n\n;; Stringer interface (convert object to string):\n;; (interface Stringer\n;;   (to-string) => :string)\n;;\n;; (to-string obj)  ;; generic dispatcher, calls {to-string obj}\n\n;; Formatting environment:\n;; (defstruct FormatEnv\n;;   ((style : :fixnum)   ;; FORMAT-DISPLAY or FORMAT-DEBUG\n;;    (scan  : Scanner))  ;; cycle detection scanner from :std/serde/scan\n;;   ...)\n\n;; Cycle detection and anchors:\n;; (writer.format obj env) uses @serialize from :std/serde/serialize\n;; to detect cycles and emit #N= anchors and #N# references.\n\n;; NOTE: Full API examples will be added once v0.19 is compiled.\n;; This is a foundational module used by :std/encoding/json and :std/log.",
+    "notes": "The :std/format module is COMPLETELY NEW in v0.19 — it did not exist in v0.18.x. It provides a generic formatting framework with: ObjectWriter/ObjectReader interfaces for custom type serialization, Stringer interface for to-string conversion, FormatEnv for contextual formatting (display vs debug style), cycle detection via :std/serde/serialize with #N= anchors and #N# references, writer/reader extension macros (defwriter-ext, defreader-ext). This module is the foundation for structured output in :std/log (log formatting) and :std/encoding/json (JSON serialization). It integrates with :std/io/bio for buffered I/O. This is a major architectural addition — equivalent to adding a generic serialization framework to the stdlib.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "test-module-v019",
+    "title": "New unit testing framework in :std/test (v0.19)",
+    "tags": [
+      "test",
+      "testing",
+      "unit-test",
+      "v0.19",
+      "test-suite",
+      "test-case",
+      "assertions"
+    ],
+    "imports": [
+      ":std/test"
+    ],
+    "code": ";; NEW in v0.19: Structured unit testing framework\n;; NOT AVAILABLE in v0.18.x (v0.18 had :std/test but with different API)\n\n;; Core modules:\n;;   :std/test/base — Testing infrastructure (TestObject, TestHarness, etc.)\n;;   :std/test/unit — Unit testing API (re-exports base)\n\n;; Test object hierarchy:\n;; TestObject (base class)\n;;   ├─ TestHarness  (top-level test runner with config)\n;;   ├─ TestModule   (module-level grouping)\n;;   ├─ TestSuite    (suite-level grouping)\n;;   └─ TestCase     (individual test with thunk)\n\n;; TestConfig settings:\n;; (defclass TestConfig\n;;   ((verbosity       : :fixnum)     ;; 0-7 (QUIET to CHATTY)\n;;    (capture-output? : :boolean))   ;; capture stdout/stderr\n;;   ...)\n\n;; Verbosity levels:\n;; VERBOSITY-QUIET   = 0  (silent)\n;; VERBOSITY-ERROR   = 1  (errors only)\n;; VERBOSITY-HARNESS = 2  (harness messages)\n;; VERBOSITY-MODULE  = 3  (module level)\n;; VERBOSITY-SUITE   = 4  (suite level)\n;; VERBOSITY-CASE    = 5  (test case level)\n;; VERBOSITY-CHECK   = 6  (individual checks)\n;; VERBOSITY-CHATTY  = 7  (everything)\n\n;; Test results:\n;; (defstruct TestResult ((context : :t) (result : :symbol)) ...)\n;; (defstruct (TestResultError TestResult) ((exn : :t)) ...)\n;; (defstruct (TestResultErrors TestResult) ((errors : :list)) ...)\n;;\n;; (test-result-ok ctx)      => TestResult with 'OK\n;; (test-result-error ctx e) => TestResultError with 'ERROR\n;; (test-result-ok? result)  => #t if result is 'OK\n;; (test-result-error? result) => #t if result is 'ERROR\n\n;; Test context (parameters):\n;; (current-test-config)   => TestConfig or #f\n;; (current-test-harness)  => TestHarness or #f\n;; (current-test-module)   => TestModule or #f\n;; (current-test-exit)     => exit continuation or #f\n;;\n;; (test-exit! result)     — exit current test with result\n\n;; NOTE: Full API examples (defining tests, running suites) will be\n;; added once v0.19 is compiled and the macro layer is available.",
+    "notes": "The :std/test module was SIGNIFICANTLY REFACTORED in v0.19. The v0.18 :std/test had a simpler API (check, check-equal?, test-suite, run-tests!). The v0.19 version introduces a hierarchical test object model (TestHarness → TestModule → TestSuite → TestCase), structured result objects (TestResult, TestResultError), configurable verbosity levels (0-7), output capture, and parameterized test context (current-test-config, current-test-harness, etc.). The base infrastructure is in :std/test/base, exported by :std/test/unit. This brings the testing framework closer to Python's unittest or Go's testing package in terms of structure and configurability. The macro layer for defining tests is not yet visible in the source files examined.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "json-module-migration-v019",
+    "title": "JSON module moved from :std/text/json to :std/encoding/json (v0.19)",
+    "tags": [
+      "migration",
+      "v0.19",
+      "json",
+      "encoding",
+      "refactor",
+      "import"
+    ],
+    "imports": [
+      ":std/encoding/json"
+    ],
+    "code": ";; In v0.18.x, JSON was in :std/text/json\n;; (import :std/text/json)\n\n;; In v0.19+, JSON moved to :std/encoding/json\n;; HOWEVER: :std/text/json still exists as a compatibility shim in v0.19-TODO\n;; (import :std/text/json)   ;; works but deprecated, re-exports :std/text/json/api\n;; (import :std/encoding/json)  ;; new canonical location (NOT YET IMPLEMENTED)\n\n;; The v0.19 JSON refactor is INCOMPLETE as of this commit:\n;; - :std/encoding/json/* modules exist (env, io, reader, writer)\n;; - But they're skeletal stubs with XXX placeholders\n;; - :std/text/json moved to :std/v0.19-TODO/text/json (deferred)\n;; - Production code should still use :std/text/json for now\n\n;; The planned v0.19 JSON structure:\n;;   :std/encoding/json/env     — JSONEnv (formatting environment)\n;;   :std/encoding/json/io      — JSONWriter/JSONReader interfaces\n;;   :std/encoding/json/reader  — JSON parsing\n;;   :std/encoding/json/writer  — JSON generation\n\n;; API changes planned (from :std/v0.19-TODO/text/json/api.ss):\n;; - read-json, write-json (same)\n;; - string->json-object, json-object->string (same)\n;; - bytes->json-object, json-object->bytes (same)\n;; - read-json-key-as-symbol?, read-json-object-as-walist? (same)\n;; - write-json-sort-keys? (same)\n;; - Deprecated: json-symbolic-keys, json-sort-keys, json-list-wrapper\n;;   (marked TO BE REMOVED in v0.19)\n\n;; MIGRATION: Wait for v0.19 JSON implementation to complete.\n;; For now, continue using :std/text/json as in v0.18.x.",
+    "notes": "The JSON refactor in v0.19 is INCOMPLETE. The module was planned to move from :std/text/json to :std/encoding/json and integrate with the new :std/format framework (ObjectWriter/ObjectReader interfaces, cycle detection). However, the implementation is skeletal — :std/encoding/json/io.ss has XXX placeholders. The old :std/text/json was moved to :std/v0.19-TODO/text/json, indicating it's deferred. Until the refactor is complete, production code should continue using :std/text/json. The v0.19-TODO version notes that json-symbolic-keys, json-sort-keys, and json-list-wrapper are deprecated and marked for removal.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "serde-module-v019",
+    "title": "New serialization framework in :std/serde (v0.19)",
+    "tags": [
+      "serde",
+      "serialization",
+      "cycle-detection",
+      "v0.19",
+      "scanner",
+      "serialize"
+    ],
+    "imports": [
+      ":std/serde"
+    ],
+    "code": ";; NEW in v0.19: Serialization and cycle detection framework\n;; NOT AVAILABLE in v0.18.x\n\n;; Core modules:\n;;   :std/serde/scan       — cycle detection scanner\n;;   :std/serde/scanner    — scanner implementation\n;;   :std/serde/serialize  — @serialize macro for safe traversal\n;;   :std/serde/interned   — interned object tracking\n;;   :std/serde/opaque     — opaque object handling\n\n;; The :std/serde module provides:\n;; 1. Cycle detection: detect when an object graph has cycles\n;; 2. Anchor/reference tracking: assign #N= anchors to shared objects\n;; 3. Safe serialization: traverse object graphs without infinite loops\n\n;; @serialize macro pattern (from :std/format/io):\n;; (@serialize obj scan do-object do-anchor do-reference)\n;;   scan          — scanner (from FormatEnv or SerdeEnv)\n;;   do-object     — (lambda (obj) ...) called for first-time objects\n;;   do-anchor     — (lambda (obj id) ...) called when object needs anchor\n;;   do-reference  — (lambda (id) ...) called for back-references\n\n;; Example usage (from :std/format/io.ss):\n;; (defwriter-ext (format writer obj (env : FormatEnv))\n;;   (defrule (do-object obj)\n;;     (writer.format-raw obj env))\n;;   (defrule (do-anchor obj id)\n;;     (writer.format-anchor obj id env))\n;;   (defrule (do-reference id)\n;;     (writer.format-reference id env))\n;;   (@serialize obj env.scan do-object do-anchor do-reference))\n\n;; This emits output like:\n;;   #0=(1 2 #0#)  ;; #0= is anchor, #0# is back-reference\n\n;; NOTE: Full API examples will be added once v0.19 is compiled.\n;; This is a foundational module for :std/format and future serializers.",
+    "notes": "The :std/serde module is COMPLETELY NEW in v0.19 — it did not exist in v0.18.x. It provides a generic serialization framework with cycle detection. The @serialize macro traverses object graphs and calls: do-object for new objects, do-anchor when an object is seen multiple times (needs #N= anchor), do-reference for back-references (#N#). This prevents infinite loops when serializing cyclic structures. The scanner tracks which objects have been seen and assigns IDs. This is used by :std/format for safe object formatting and will be used by future serializers (JSON, protobuf, etc.). Interned objects (symbols, keywords) can be tracked separately. Opaque objects can be marked as non-traversable.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "io-bio-refactor-v019",
+    "title": "Buffered I/O (bio) refactored with reader/writer split (v0.19)",
+    "tags": [
+      "io",
+      "bio",
+      "buffered-io",
+      "reader",
+      "writer",
+      "v0.19",
+      "refactor"
+    ],
+    "imports": [
+      ":std/io/bio"
+    ],
+    "code": ";; MAJOR REFACTOR in v0.19: :std/io/bio split into reader/writer modules\n;; In v0.18.x, bio had: input.ss, output.ss, util.ss (large monoliths)\n;; In v0.19+, bio was reorganized:\n\n;; NEW modules:\n;;   :std/io/bio/reader   — BufferedReader API (563 lines, new)\n;;   :std/io/bio/writer   — BufferedWriter API (312 lines, new)\n;;   :std/io/bio/buffer   — Buffer management (54 lines, new)\n;;   :std/io/bio/cache    — Cache support (43 lines, new)\n;;   :std/io/bio/memory   — In-memory streams (93 lines, new)\n;;   :std/io/bio/message  — Message framing (13 lines, new)\n;;   :std/io/bio/srcsnk   — Source/sink abstractions (129 lines, new)\n;;   :std/io/bio/macros   — Shared macros (48 lines, new)\n\n;; REMOVED modules:\n;;   :std/io/bio/chunked  — removed (24 lines deleted)\n;;   :std/io/bio/inline   — removed (74 lines deleted)\n\n;; REFACTORED modules:\n;;   :std/io/bio/util     — shrunk from 732 lines to much smaller\n;;   :std/io/bio/input    — refactored (491 lines changed)\n;;   :std/io/bio/output   — refactored (160 lines changed)\n;;   :std/io/bio/delimited — refactored (177 lines changed)\n\n;; The strio/ package was REMOVED entirely:\n;;   :std/io/strio/*      — deleted (1223 lines removed)\n\n;; API impact: The public :std/io/bio API should remain compatible.\n;; Internal refactor: better separation between reader/writer,\n;; cleaner buffer management, memory streams as first-class.\n\n;; NOTE: Full migration examples will be added once v0.19 is compiled\n;; and the new bio API is tested.",
+    "notes": "The :std/io/bio refactor in v0.19 is a MAJOR internal reorganization. The main changes: (1) Split reader/writer into separate modules with dedicated APIs (BufferedReader, BufferedWriter). (2) Added new abstractions: buffer management, cache, memory streams, message framing, source/sink. (3) Removed chunked and inline modules. (4) Shrunk util.ss from 732 lines. (5) Deleted the entire strio/ package (1223 lines) — its functionality was absorbed into bio/. The goal is cleaner separation of concerns and better abstractions. Public API compatibility should be maintained through :std/io/bio/api, but internal code using bio internals will need updates. This refactor supports the new :std/format framework's BufferedWriter/BufferedReader interfaces.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "net-address-module-v019",
+    "title": "New network address abstractions in :std/net/address (v0.19)",
+    "tags": [
+      "network",
+      "address",
+      "inet",
+      "resolver",
+      "v0.19",
+      "ip",
+      "dns"
+    ],
+    "imports": [
+      ":std/net/address"
+    ],
+    "code": ";; NEW in v0.19: Network address abstractions\n;; NOT AVAILABLE in v0.18.x\n\n;; Core modules:\n;;   :std/net/address/types    — Address type definitions\n;;   :std/net/address/inet     — Internet address (IPv4/IPv6)\n;;   :std/net/address/format   — Address formatting\n;;   :std/net/address/resolver — DNS resolution\n\n;; This provides higher-level abstractions over raw socket addresses.\n;; In v0.18.x, socket code used raw sockaddr structs directly.\n;; In v0.19+, :std/net/address provides typed address objects.\n\n;; Related OS-level modules (also new in v0.19):\n;;   :std/os/sockaddr  — OS-level sockaddr FFI\n;;   :std/os/sockopt   — Socket options FFI\n;;   :std/os/device    — Device/interface info\n;;   :std/os/file      — File operations\n;;   :std/os/time      — OS time FFI\n\n;; Socket modules also refactored:\n;;   :std/io/socket/client  — NEW: client connection helpers\n;;   :std/io/socket/types   — refactored type definitions\n;;   :std/io/socket/basic   — refactored basic operations\n\n;; NOTE: Full API examples will be added once v0.19 is compiled.\n;; This is part of a broader network stack refactor.",
+    "notes": "The :std/net/address module is COMPLETELY NEW in v0.19 — it did not exist in v0.18.x. It provides higher-level network address abstractions (types, inet, format, resolver) to replace raw sockaddr manipulation. This is part of a broader v0.19 refactor of the network stack: new :std/os/sockaddr, :std/os/sockopt, :std/os/device, :std/os/file, :std/os/time modules for OS-level FFI, plus refactored :std/io/socket/* modules with a new :std/io/socket/client module. The goal is cleaner separation between OS FFI (:std/os/*), protocol abstractions (:std/net/address), and I/O operations (:std/io/socket/*). This brings the network stack closer to Go's net package organization.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "v019-migration-overview",
+    "title": "Gerbil v0.19 migration guide: breaking changes and new modules",
+    "tags": [
+      "migration",
+      "v0.19",
+      "breaking-changes",
+      "upgrade",
+      "refactor",
+      "new-modules"
+    ],
+    "imports": [],
+    "code": ";; ============================================================================\n;; GERBIL v0.19 MIGRATION GUIDE\n;; ============================================================================\n\n;; BREAKING CHANGES — Code that MUST be updated:\n\n;; 1. List modules moved from :std/misc to :std/list\n;;    OLD: (import :std/misc/alist)\n;;    NEW: (import :std/list/alist)\n;;    Affected: alist, plist, list, list-builder, walist\n\n;; 2. Deprecated JSON aliases removed (in progress, not enforced yet)\n;;    Deprecated: json-symbolic-keys, json-sort-keys, json-list-wrapper\n;;    Use: read-json-key-as-symbol?, write-json-sort-keys? instead\n\n;; 3. JSON module relocation (deferred to later in v0.19 cycle)\n;;    FUTURE: :std/text/json → :std/encoding/json\n;;    CURRENT: Still use :std/text/json (compatibility shim exists)\n\n;; ============================================================================\n;; NEW MODULES — Features added in v0.19:\n\n;; :std/log               — Structured logging framework\n;;   Levels: CRITICAL/ERROR/WARN/INFO/DEBUG/VERBOSE\n;;   Features: timestamped records, metadata, sinks, log rotation\n;;   Config: GERBIL_LOG_LEVEL environment variable\n\n;; :std/time              — Time abstractions and timeout handling\n;;   Types: Time, ExactTime, InexactTime\n;;   Timeout: IOTimeout, AbsTimeout interface\n;;   NOTE: ExactTime (timeval/timespec FFI) is TODO\n\n;; :std/format            — Generic object formatting and serialization\n;;   Interfaces: ObjectWriter, ObjectReader, Stringer\n;;   Features: cycle detection, #N= anchors, display/debug styles\n;;   Integration: Used by :std/log and future :std/encoding/json\n\n;; :std/serde             — Serialization framework with cycle detection\n;;   Features: @serialize macro, scanner, interned/opaque objects\n;;   Purpose: Safe object graph traversal without infinite loops\n\n;; :std/test              — Enhanced unit testing framework\n;;   Structure: TestHarness → TestModule → TestSuite → TestCase\n;;   Features: configurable verbosity (0-7), output capture, structured results\n;;   NOTE: API changed from v0.18 (simpler check/test-suite model)\n\n;; :std/net/address       — Network address abstractions\n;;   Modules: types, inet, format, resolver\n;;   Purpose: Higher-level API over raw sockaddr\n\n;; :std/os/sockaddr       — OS-level socket address FFI\n;; :std/os/sockopt        — Socket options FFI\n;; :std/os/device         — Device/interface info\n;; :std/os/file           — File operations\n;; :std/os/time           — OS time FFI\n\n;; ============================================================================\n;; REFACTORED MODULES — Internal changes, API mostly compatible:\n\n;; :std/iter              — Split into submodules\n;;   Old: monolithic 926-line file\n;;   New: iter/api, iter/interface, iter/iterators, iter/macros\n;;   NEW iterators: in-range-inclusive, in-number-series, in-integers\n\n;; :std/io/bio            — Buffered I/O refactor\n;;   Split: reader.ss (563 lines), writer.ss (312 lines)\n;;   Added: buffer, cache, memory, message, srcsnk modules\n;;   Removed: chunked, inline modules\n;;   Deleted: entire :std/io/strio package (1223 lines)\n\n;; :std/io/socket         — Socket modules refactored\n;;   NEW: socket/client module\n;;   Refactored: types, basic, stream, datagram, server\n\n;; ============================================================================\n;; MODULES MOVED TO v0.19-TODO (deferred, may return later):\n\n;; Most of :std/os, :std/net/websocket, :std/parser, :std/protobuf,\n;; :std/pregexp, :std/text/*, :std/values, :std/source, :std/stxutil\n\n;; These modules exist in src/std/v0.19-TODO/ and are not yet compiled.\n;; They will be reintegrated after core refactoring is complete.",
+    "notes": "Gerbil v0.19 is a MAJOR refactoring release with breaking changes and significant new features. The most critical breaking change is the list module migration (:std/misc/* → :std/list/*). New capabilities include structured logging (:std/log), time abstractions (:std/time), generic formatting (:std/format), serialization framework (:std/serde), enhanced testing (:std/test), and network address abstractions (:std/net/address). Many modules were refactored internally (iter, io/bio, io/socket) with mostly compatible public APIs. A large number of modules were temporarily moved to v0.19-TODO/ to focus on core infrastructure — they will be reintegrated in later v0.19 commits. The JSON refactor to :std/encoding/json is incomplete — continue using :std/text/json for now.",
+    "gerbil_version": "v0.19"
   }
 ]

@@ -2,29 +2,38 @@
 # discover-v19.sh — Discover v0.19 Gerbil patterns and save as cookbook recipes
 #
 # Usage:
-#   ./discover-v19.sh                  # analyze last 10 non-bootstrap commits
-#   ./discover-v19.sh -n 5             # analyze last 5 commits
+#   ./discover-v19.sh                  # analyze NEW commits since last run
+#   ./discover-v19.sh -n 5             # analyze last 5 commits (ignores watcher)
+#   ./discover-v19.sh --all            # analyze all commits (ignores watcher)
 #   ./discover-v19.sh -m std/iter      # focus on a specific module
 #   ./discover-v19.sh -f src/std/io    # focus on files under a path
 #   ./discover-v19.sh --since 2025-01-01  # commits since date
 #   ./discover-v19.sh --dry-run        # show the prompt but don't run claude
 #   ./discover-v19.sh --model haiku    # use a cheaper model for exploration
 #
+# State is tracked in ~/.gerbil-watcher.json. After each successful run,
+# the current HEAD commit is saved so the next run only processes new commits.
+#
 # Requires: claude CLI, git
 # MCP: Expects gerbil MCP server configured in ~/.claude/mcp.json
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MCP_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 GERBIL_DIR="${GERBIL_DIR:-$HOME/mine/gerbil}"
 BRANCH="v0.19-dev-test-basis"
 BASE_BRANCH="master"
-NUM_COMMITS=10
+NUM_COMMITS=""
 MODULE_FOCUS=""
 FILE_FOCUS=""
 SINCE=""
 DRY_RUN=false
 MODEL="sonnet"
 MAX_BUDGET=""
+USE_ALL=false
+WATCHER_FILE="$HOME/.gerbil-watcher.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +49,8 @@ while [[ $# -gt 0 ]]; do
       MODEL="$2"; shift 2 ;;
     --max-budget)
       MAX_BUDGET="$2"; shift 2 ;;
+    --all)
+      USE_ALL=true; shift ;;
     --dry-run)
       DRY_RUN=true; shift ;;
     -h|--help)
@@ -61,17 +72,61 @@ fi
 
 git pull --ff-only 2>/dev/null || true
 
-# Build the git log command for recent changes
-log_args=(--oneline)
+# Read the current HEAD commit
+HEAD_COMMIT=$(git rev-parse HEAD)
+HEAD_SHORT=$(git rev-parse --short HEAD)
+
+# Read last-checked commit from watcher file
+LAST_COMMIT=""
+if [[ -f "$WATCHER_FILE" ]]; then
+  LAST_COMMIT=$(python3 -c "
+import json, sys
+try:
+  d = json.load(open('$WATCHER_FILE'))
+  print(d.get('last_commit', ''))
+except: pass
+" 2>/dev/null || true)
+fi
+
+# Determine commit range mode:
+#   --since / -n / --all  => explicit override, ignore watcher
+#   otherwise             => use watcher state (new commits only)
+COMMIT_RANGE=""
 if [[ -n "$SINCE" ]]; then
-  log_args+=(--since "$SINCE")
+  # Explicit --since flag
+  log_args=(--oneline --since "$SINCE")
+elif [[ -n "$NUM_COMMITS" ]]; then
+  # Explicit -n flag
+  log_args=(--oneline -n "$NUM_COMMITS")
+elif $USE_ALL; then
+  # --all flag: show everything on branch vs base
+  log_args=(--oneline)
+  COMMIT_RANGE="${BASE_BRANCH}..${BRANCH}"
+elif [[ -n "$LAST_COMMIT" ]] && git cat-file -e "$LAST_COMMIT" 2>/dev/null; then
+  # Watcher mode: only new commits since last run
+  if [[ "$LAST_COMMIT" == "$HEAD_COMMIT" ]]; then
+    echo "No new commits since last run (HEAD=$HEAD_SHORT)."
+    echo "Use --all or -n N to re-analyze."
+    exit 0
+  fi
+  COMMIT_RANGE="${LAST_COMMIT}..HEAD"
+  log_args=(--oneline)
+  echo "=== New commits since last run (${LAST_COMMIT:0:7}..${HEAD_SHORT}) ==="
 else
-  log_args+=(-n "$NUM_COMMITS")
+  # First run or invalid watcher state — default to last 10
+  log_args=(--oneline -n 10)
 fi
 
 # Get the commit range info
-echo "=== Recent commits on $BRANCH ==="
-git log "${log_args[@]}"
+if [[ -z "$COMMIT_RANGE" ]]; then
+  echo "=== Recent commits on $BRANCH ==="
+  git log "${log_args[@]}"
+else
+  if [[ "$COMMIT_RANGE" != "${LAST_COMMIT}..HEAD" ]]; then
+    echo "=== Commits on $BRANCH (vs $BASE_BRANCH) ==="
+  fi
+  git log "${log_args[@]}" "$COMMIT_RANGE"
+fi
 echo ""
 
 # Get the diff summary, excluding bootstrap
@@ -80,8 +135,9 @@ if [[ -n "$FILE_FOCUS" ]]; then
   diff_filter="-- $FILE_FOCUS"
 fi
 
-echo "=== Changed source files (non-bootstrap) ==="
-eval git diff --stat "${BASE_BRANCH}..${BRANCH}" -- \
+DIFF_RANGE="${COMMIT_RANGE:-${BASE_BRANCH}..${BRANCH}}"
+echo "=== Changed source files (non-bootstrap) [$DIFF_RANGE] ==="
+eval git diff --stat "$DIFF_RANGE" -- \
   "'src/std/*.ss'" "'src/std/**/*.ss'" \
   "'src/gerbil/*.ss'" "'src/gerbil/**/*.ss'" \
   $diff_filter \
@@ -109,6 +165,7 @@ You are analyzing Gerbil Scheme v0.19 changes to discover new patterns and API u
 
 WORKING DIRECTORY: $GERBIL_DIR
 BRANCH: $BRANCH (compared against $BASE_BRANCH)
+DIFF RANGE: $DIFF_RANGE
 ${module_clause}${file_clause}
 
 ## Your Task
@@ -153,15 +210,20 @@ ${module_clause}${file_clause}
 ## Git commands to help you explore
 
 Run these via bash to understand changes:
-- git diff ${BASE_BRANCH}..${BRANCH} -- src/std/MODULE.ss  (see specific file changes)
-- git diff ${BASE_BRANCH}..${BRANCH} --name-only -- 'src/std/' ':(exclude)src/bootstrap/'  (list changed files)
-- git log --oneline ${BASE_BRANCH}..${BRANCH} -- src/std/MODULE.ss  (commits touching a file)
+- git diff ${DIFF_RANGE} -- src/std/MODULE.ss  (see specific file changes)
+- git diff ${DIFF_RANGE} --name-only -- 'src/std/' ':(exclude)src/bootstrap/'  (list changed files)
+- git log --oneline ${DIFF_RANGE} -- src/std/MODULE.ss  (commits touching a file)
 PROMPT_EOF
 )"
 
 if $DRY_RUN; then
   echo "=== PROMPT (dry run) ==="
   echo "$prompt"
+  echo ""
+  echo "=== Watcher state ==="
+  echo "HEAD: $HEAD_COMMIT"
+  echo "Last: ${LAST_COMMIT:-<none>}"
+  echo "File: $WATCHER_FILE"
   exit 0
 fi
 
@@ -178,7 +240,55 @@ if [[ -n "$MAX_BUDGET" ]]; then
   claude_args+=(--max-budget-usd "$MAX_BUDGET")
 fi
 
+# Save watcher state after successful run
+update_watcher() {
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  python3 -c "
+import json, os
+path = '$WATCHER_FILE'
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except: pass
+data['last_commit'] = '$HEAD_COMMIT'
+data['last_branch'] = '$BRANCH'
+data['last_run'] = '$timestamp'
+data['gerbil_dir'] = '$GERBIL_DIR'
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
+  echo ""
+  echo "=== Watcher updated ==="
+  echo "Saved HEAD=$HEAD_SHORT to $WATCHER_FILE"
+}
+
+# Commit and push cookbooks.json if it has changes
+commit_cookbooks() {
+  local cookbook="$MCP_REPO_DIR/cookbooks.json"
+  if [[ ! -f "$cookbook" ]]; then
+    return
+  fi
+  # Check for uncommitted changes to cookbooks.json
+  if git -C "$MCP_REPO_DIR" diff --quiet -- cookbooks.json && \
+     git -C "$MCP_REPO_DIR" diff --cached --quiet -- cookbooks.json; then
+    echo "=== cookbooks.json unchanged — nothing to commit ==="
+    return
+  fi
+  echo "=== Committing cookbooks.json ==="
+  git -C "$MCP_REPO_DIR" add cookbooks.json
+  git -C "$MCP_REPO_DIR" commit -m "Update cookbooks.json with v0.19 discoveries (${HEAD_SHORT})"
+  echo "=== Pushing to remote ==="
+  git -C "$MCP_REPO_DIR" push
+  echo "=== cookbooks.json committed and pushed ==="
+}
+
 # Stream output and show progress: tool calls, results, and assistant text
+# Disable pipefail temporarily so we can capture PIPESTATUS reliably
+set +o pipefail
 claude "${claude_args[@]}" | while IFS= read -r line; do
   type=$(echo "$line" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('type',''))" 2>/dev/null || true)
   case "$type" in
@@ -252,3 +362,14 @@ if c: print(f'Cost: \${c:.4f}')
       ;;
   esac
 done
+claude_exit=${PIPESTATUS[0]}
+set -o pipefail
+
+# Update watcher state and commit cookbooks after successful run
+if [[ $claude_exit -eq 0 ]]; then
+  update_watcher
+  commit_cookbooks
+else
+  echo ""
+  echo "=== claude exited with error (code $claude_exit) — watcher NOT updated ==="
+fi
