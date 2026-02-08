@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "id": "batch-import-conflict-check",
+    "title": "Detect import conflicts before build",
+    "description": "When a module defines a symbol that conflicts with an imported module's exports (e.g., defining string-prefix? while importing :std/srfi/13), the build fails with a cryptic 'Bad binding; import conflict' error. A pre-build lint check could statically detect these conflicts by comparing each file's local definitions against its imports' exported symbols, reporting exactly which symbols conflict and from which modules.",
+    "impact": "medium",
+    "tags": [
+      "import",
+      "conflict",
+      "lint",
+      "build",
+      "duplicate"
+    ],
+    "use_case": "When adding new imports to a module that already has local definitions, or when refactoring to use standard library functions that might clash with existing local definitions.",
+    "example_scenario": "util.ss defined string-prefix? and string-trim-both locally. format.ss imported both :std/srfi/13 and ./util. Build failed with 'Bad binding; import conflict' for string-prefix?. Had to debug by reading both modules and figuring out the overlap manually.",
+    "estimated_token_reduction": "~500-1000 tokens per conflict (eliminates build-fail-read-diagnose-fix cycle)",
+    "votes": 0
+  }
+]
