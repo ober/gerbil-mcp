@@ -133,5 +133,60 @@
       "error-check",
       "init"
     ]
+  },
+  {
+    "id": "ffi-null-pointer-dereference",
+    "title": "FFI c-lambda dereferences pointer argument without null check",
+    "severity": "high",
+    "scope": "ffi-boundary",
+    "pattern": "___arg\\d+\\)\\s*->",
+    "message": "C code in c-lambda dereferences a pointer argument (___argN->field) without checking for NULL. If the Gambit pointer type allows NULL (which it does by default), this causes a segfault when NULL is passed. Common in FFI accessor functions for linked list traversal (next, children, properties, ns fields).",
+    "remediation": "Add a NULL check before dereferencing: '___return(___arg1 ? ((xmlNodePtr)___arg1)->field : ___FAL);' or ensure all call sites in the .ss wrapper guard with a truthy check before calling the accessor.",
+    "tags": [
+      "ffi",
+      "null",
+      "pointer",
+      "dereference",
+      "segfault",
+      "c-lambda",
+      "accessor"
+    ]
+  },
+  {
+    "id": "ffi-mutex-no-unwind-protect",
+    "title": "Port mutex lock without unwind-protect risks deadlock on exception",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "macro-port-mutex-lock!",
+    "message": "Code acquires a port mutex via macro-port-mutex-lock! but may not release it if an exception occurs between lock and unlock. This causes a permanent deadlock on the port.",
+    "remediation": "Wrap the critical section between lock and unlock with unwind-protect or dynamic-wind to ensure the mutex is always released. See recipe: mutex-unwind-protect-deadlock-prevention.",
+    "related_recipe": "mutex-unwind-protect-deadlock-prevention",
+    "tags": [
+      "mutex",
+      "port",
+      "deadlock",
+      "unwind-protect",
+      "exception",
+      "lock"
+    ]
+  },
+  {
+    "id": "ffi-scheme-object-stored-in-c-struct",
+    "title": "Scheme object stored in C struct without GC protection",
+    "severity": "high",
+    "scope": "c-shim",
+    "pattern": "___SCMOBJ\\s+\\w+;|->data\\s*=\\s*___arg",
+    "message": "A raw ___SCMOBJ (Scheme object handle) is stored in a C struct field. If this struct is used across GC safe points or in multithreaded code, the GC may relocate the object, making the stored handle point to stale memory. This causes silent data corruption or segfaults.",
+    "remediation": "Either: (1) copy the Scheme data to a C-allocated buffer before storing, (2) use ##still-copy to pin the object, or (3) ensure the code path is single-threaded and contains no GC safe points (no Scheme allocations).",
+    "related_recipe": "ffi-scheme-object-gc-safety-long-running",
+    "tags": [
+      "ffi",
+      "gc",
+      "scheme-object",
+      "SCMOBJ",
+      "struct",
+      "stale",
+      "multithreaded"
+    ]
   }
 ]

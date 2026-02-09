@@ -8574,5 +8574,89 @@
       "debug-compiled-only-segfault",
       "debugging-compiled-vs-repl"
     ]
+  },
+  {
+    "id": "ffi-scheme-object-gc-safety-long-running",
+    "title": "GC safety: scheme-object pointers can go stale during long-running C calls in multithreaded programs",
+    "tags": [
+      "ffi",
+      "scheme-object",
+      "gc",
+      "garbage-collection",
+      "safety",
+      "multithreaded",
+      "callback",
+      "U8_DATA",
+      "pointer-stale"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When passing scheme-object to a long-running C function\n;; (e.g. xmlReadIO, parsing callbacks), the GC can relocate the\n;; Scheme objects if another thread triggers collection.\n;;\n;; DANGEROUS PATTERN (gerbil-libxml style):\n;;\n;; ;; C struct stores raw ___SCMOBJ handle:\n;; ;; typedef struct { ___SCMOBJ data; int off; } *io_context_t;\n;; ;;\n;; ;; C callback traverses Scheme list via ___CAR/___CDR and\n;; ;; extracts raw pointers via U8_DATA() — all without GC protection.\n;; ;; If GC runs (triggered by another thread), pointers go stale.\n;;\n;; (define my-parse\n;;   (c-lambda (scheme-object char-string char-string int) xmlDocPtr\n;;     \"struct io_context ctx; ctx.data = ___arg1;\"\n;;     \"___return(xmlReadIO(my_read_cb, my_close_cb, &ctx, ...));\"))\n;;\n;; SAFER ALTERNATIVES:\n;;\n;; 1. Copy all data to C-allocated buffers before the long call\n;; 2. Use ##still-copy to pin objects (prevents GC relocation)\n;; 3. In single-threaded use, c-lambda body is safe (GC won't run)\n;;\n;; KEY INSIGHT: scheme-object in c-lambda prevents COLLECTION\n;; but does NOT prevent RELOCATION. Single-threaded is safe.\n;; Multithreaded is NOT safe.",
+    "notes": "Discovered auditing gerbil-libxml's xmlRead-u8vector* which passes a Scheme list of u8vectors to a C callback via xmlReadIO. Safe in single-threaded use. Unsafe in multithreaded Gerbil programs. Related: ffi-scheme-object-u8vector-data.",
+    "related": [
+      "ffi-scheme-object-u8vector-data",
+      "force-gc-gambit"
+    ]
+  },
+  {
+    "id": "ffi-node-traversal-handle-all-types",
+    "title": "Handle all XML node types in custom SXML traversal (PI, entity-ref, etc.)",
+    "tags": [
+      "sxml",
+      "xml",
+      "node-type",
+      "processing-instruction",
+      "PI",
+      "entity-ref",
+      "traversal",
+      "libxml",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Custom XML-to-SXML traversal that only handles ELEMENT,\n;; TEXT, CDATA, and COMMENT nodes will crash on PI nodes.\n;;\n;; WRONG — crashes on PI nodes (<?xml-stylesheet ...?>):\n;; (cond\n;;   ((eq? type XML_ELEMENT_NODE) ...)\n;;   ((eq? type XML_TEXT_NODE) ...)\n;;   ((eq? type XML_CDATA_SECTION_NODE) ...)\n;;   ((eq? type XML_COMMENT_NODE) rest)\n;;   (else (error \"Unexpected node\" type)))  ;; CRASH on PI!\n;;\n;; CORRECT — handle PI and entity-ref nodes gracefully:\n;; (cond\n;;   ((eq? type XML_ELEMENT_NODE) ...)\n;;   ((eq? type XML_TEXT_NODE)\n;;    [(node-content node) rest ...])\n;;   ((eq? type XML_CDATA_SECTION_NODE)\n;;    [['*CDATA* (node-content node)] rest ...])\n;;   ((eq? type XML_PI_NODE)\n;;    ;; SXML standard: (*PI* target \"content\")\n;;    [['*PI* (string->symbol (node-name node))\n;;            (or (node-content node) \"\")]\n;;     rest ...])\n;;   ((eq? type XML_ENTITY_REF_NODE)\n;;    ;; Appears when XML_PARSE_NOENT is NOT set\n;;    (let ((children (recur (node-children node))))\n;;      [children ... rest ...]))\n;;   ((eq? type XML_COMMENT_NODE) rest)\n;;   (else rest))  ;; skip unknown gracefully",
+    "notes": "Discovered auditing gerbil-libxml where xmlNode->sxml raises an error on unhandled node types. PI nodes are legitimate XML children and will crash the parser. Entity-ref nodes appear when XML_PARSE_NOENT is omitted from options. Best practice: handle all expected types or skip gracefully.",
+    "related": [
+      "sxml-skip-pi-nodes",
+      "xml-parse-sxml"
+    ]
+  },
+  {
+    "id": "iterative-linked-list-traversal-reverse-accumulate",
+    "title": "Convert recursive linked-list traversal to iterative with reverse-accumulate to avoid stack overflow",
+    "tags": [
+      "iterative",
+      "recursion",
+      "stack-overflow",
+      "linked-list",
+      "reverse",
+      "accumulate",
+      "sibling",
+      "traversal",
+      "tail-call"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Naive recursive linked-list processing overflows the stack\n;; for long lists (e.g., 100K+ XML siblings under one parent).\n;;\n;; WRONG — stack depth = list length:\n;; (let recur ((node node))\n;;   (if node\n;;     (let ((rest (recur (node-next node))))  ;; NOT tail-recursive\n;;       [(process node) rest ...])\n;;     []))\n;;\n;; CORRECT — iterative with reverse-accumulate:\n;; (let lp ((node node) (racc []))\n;;   (if node\n;;     (lp (node-next node)           ;; tail-recursive!\n;;         (cons (process node) racc)) ;; accumulate in reverse\n;;     (reverse racc)))               ;; reverse once at end\n;;\n;; SPLICING CHILDREN (e.g., entity-ref nodes that expand to multiple items):\n;; When an item expands to a list that should be spliced in:\n;; (let ((children (process-children node)))  ;; returns forward-order list\n;;   (let splice ((cs children) (racc racc))\n;;     (if (pair? cs)\n;;       (splice (cdr cs) (cons (car cs) racc))  ;; foldl cons\n;;       (lp (node-next node) racc))))\n;;\n;; WHY THIS WORKS:\n;; - racc = [c b a] is the reversed accumulator\n;; - children = [x y z] is in forward order\n;; - foldl cons gives [z y x c b a]\n;; - final (reverse racc) gives [a b c x y z] ✓\n;;\n;; NESTED RECURSION IS OK for tree depth:\n;; - Sibling traversal (wide): use iterative lp — prevents stack overflow\n;; - Child traversal (deep): recursive call is fine — depth is bounded",
+    "notes": "Discovered while fixing gerbil-libxml's xmlNode->sxml which used non-tail recursion on sibling chains. The pattern applies whenever you're processing a linked list by following ->next pointers and building a result list. The key insight: accumulate in reverse with cons (O(1) per item), then reverse once at the end (O(n) total) — much better than append which is O(n) per item. For splicing sub-lists, use foldl-cons pattern to maintain correct order after final reverse.",
+    "related": [
+      "ffi-node-traversal-handle-all-types"
+    ]
+  },
+  {
+    "id": "mutex-minimize-critical-section",
+    "title": "Minimize mutex critical section by capturing state under lock, then working outside it",
+    "tags": [
+      "mutex",
+      "critical-section",
+      "lock",
+      "exception-safety",
+      "port",
+      "deadlock",
+      "pattern"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Calling potentially-failing functions while holding a mutex\n;; causes deadlock if an exception is thrown.\n;;\n;; WRONG — substring->bytes can throw (OOM), leaving mutex locked:\n;; (macro-port-mutex-lock! port)\n;; (let ((buf (substring->bytes rbuf rlo rhi)))  ;; can throw!\n;;   (macro-character-port-rlo-set! port rhi)\n;;   (macro-port-mutex-unlock! port)\n;;   buf)\n;;\n;; CORRECT — capture state under lock, work outside:\n;; (macro-port-mutex-lock! port)\n;; (let* ((rbuf (macro-character-port-rbuf port))   ;; capture\n;;        (rlo (macro-character-port-rlo port))      ;; capture\n;;        (rhi (macro-character-port-rhi port)))     ;; capture\n;;   (macro-character-port-rlo-set! port rhi)        ;; advance position\n;;   (macro-port-mutex-unlock! port)                 ;; release FIRST\n;;   (substring->bytes rbuf rlo rhi))                ;; work outside lock\n;;\n;; ALTERNATIVE when work MUST be inside the lock:\n;; Use unwind-protect or dynamic-wind:\n;; (dynamic-wind\n;;   (lambda () (mutex-lock! mtx))\n;;   (lambda () (do-work))\n;;   (lambda () (mutex-unlock! mtx)))\n;;\n;; WHEN TO USE EACH:\n;; - Minimize: when you can separate reading state from processing\n;; - unwind-protect: when processing must happen atomically under lock\n;; - In (declare (not safe)) code where dynamic-wind may not be\n;;   available in the namespace, minimizing is the safer choice",
+    "notes": "Discovered fixing gerbil-libxml's drain-char-buffer! which called substring->bytes while holding a port mutex. The fix was to capture the buffer reference, rlo, and rhi under the lock, advance the port position, release the lock, then call substring->bytes outside the critical section. This works because the captured region [rlo, rhi] is already consumed (position advanced), so no other thread will touch it.",
+    "related": [
+      "mutex-unwind-protect-deadlock-prevention"
+    ]
   }
 ]

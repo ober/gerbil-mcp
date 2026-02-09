@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "id": "ffi-null-safety-audit",
+    "title": "FFI null-pointer safety audit for .scm files",
+    "description": "A tool that statically analyzes .scm FFI files to find c-lambda declarations that dereference pointer arguments (___arg1->field) without null checks. Reports each accessor that could segfault on NULL input, cross-referenced with call sites in .ss wrapper files to check whether the wrapper guards the call with a null/truthy check. This catches the common pattern where FFI accessors blindly dereference pointers that can legitimately be NULL (e.g. xmlNode-children, xmlNode-ns, xmlNode-content returning NULL).",
+    "impact": "medium",
+    "tags": [
+      "ffi",
+      "null",
+      "pointer",
+      "safety",
+      "audit",
+      "c-lambda",
+      "dereference",
+      "segfault"
+    ],
+    "use_case": "When auditing FFI bindings to C libraries that use NULL to represent absence (linked list terminators, optional fields). Common in libxml2, libyaml, SQLite, and most C APIs.",
+    "example_scenario": "Auditing gerbil-libxml: 15+ c-lambda accessors like xmlNode-content, xmlNode-name, xmlNs-href blindly dereference ___arg1->field. Some are guarded by null checks in the .ss wrapper (xmlNode-children via `if node`), but others are not (xmlNode-content on TEXT nodes, xmlNs-href). Manual cross-referencing took multiple tool calls to Read both files and trace each call path. A dedicated tool could report: 'xmlNode-content (line 163): dereferences ___arg1->content, called unguarded at libxml.ss:151'.",
+    "estimated_token_reduction": "~2000 tokens per audit — eliminates manual cross-referencing of .scm accessors with .ss call sites, currently requires 2 Read calls + manual analysis",
+    "votes": 1
+  }
+]
