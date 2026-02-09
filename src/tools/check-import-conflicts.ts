@@ -180,6 +180,10 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
         'conflict" errors), and if multiple imports export the same symbol. ' +
         'Resolves standard library exports at runtime and project-local exports statically. ' +
         'Handles only-in filtered imports. Provide either file_path or project_path.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

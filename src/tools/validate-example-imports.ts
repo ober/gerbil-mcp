@@ -78,6 +78,10 @@ export function registerValidateExampleImportsTool(server: McpServer): void {
       description:
         'Validate that imported modules actually export the symbols used in a Gerbil source file. ' +
         'Detects symbols used but not available from any import or local definition.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

@@ -17,6 +17,10 @@ export function registerMakeTool(server: McpServer): void {
         'Run a Makefile target in a Gerbil project directory. ' +
         'Returns structured output with exit code, stdout, and stderr. ' +
         'Defaults to the default target if none specified.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         project_path: z
           .string()

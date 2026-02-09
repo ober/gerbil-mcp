@@ -34,6 +34,10 @@ export function registerCheckArityTool(server: McpServer): void {
         'from Gerbil source files, resolves arities from local definitions and imported ' +
         'modules, and reports mismatches where a function is called with the wrong ' +
         'number of arguments.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

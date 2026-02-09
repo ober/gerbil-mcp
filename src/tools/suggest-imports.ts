@@ -53,6 +53,10 @@ export function registerSuggestImportsTool(server: McpServer): void {
         'Find which standard library module exports a given symbol. ' +
         'Scans common :std/* modules and reports matching import statements. ' +
         'For less common modules, use gerbil_apropos + gerbil_module_exports as a fallback.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbol: z
           .string()

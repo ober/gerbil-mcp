@@ -14,6 +14,10 @@ export function registerHeapProfileTool(server: McpServer): void {
         'Reports heap size, allocation, live objects, movable objects, and still objects. ' +
         'Forces garbage collection before each snapshot for accurate measurements. ' +
         'Uses :std/debug/heap memory-usage function.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z
           .string()

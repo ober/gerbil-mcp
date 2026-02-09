@@ -28,6 +28,10 @@ export function registerScaffoldTool(server: McpServer): void {
         'Generates gerbil.pkg, build.ss, Makefile, and initial source files. ' +
         'If project_path is omitted, creates a temporary directory. ' +
         'Refuses to run if the target already contains gerbil.pkg, Makefile, or build.ss.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         project_path: z
           .string()

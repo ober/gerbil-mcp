@@ -208,6 +208,10 @@ export function registerSecurityScanTool(server: McpServer): void {
         'Static security scanner for Gerbil code. Analyzes .ss and .c/.h files for ' +
         'known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, ' +
         'unsafe C patterns). Reports findings with severity, line, and remediation guidance.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

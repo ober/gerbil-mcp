@@ -13,6 +13,10 @@ export function registerPackageInfoTool(server: McpServer): void {
       description:
         'List installed Gerbil packages, search the package directory, ' +
         'or show metadata for a specific package. Uses gxpkg for package management.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         action: z
           .enum(['list', 'search', 'info'])

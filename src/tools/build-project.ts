@@ -11,6 +11,10 @@ export function registerBuildProjectTool(server: McpServer): void {
         'Build or clean a Gerbil project directory using gxpkg. ' +
         'The project directory should contain a gerbil.pkg file. ' +
         'Supports release, optimized, and debug build modes.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         project_path: z
           .string()

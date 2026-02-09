@@ -17,6 +17,10 @@ export function registerProjectMapTool(server: McpServer): void {
         'Single call that returns all modules in a project with their exports, ' +
         'key definitions grouped by kind, and import dependencies. ' +
         'Reads gerbil.pkg for package context and scans all .ss files.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

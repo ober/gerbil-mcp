@@ -92,6 +92,10 @@ export function registerStaleLinkedPkgTool(server: McpServer): void {
         'Checks .gerbil/pkg/ for symlinked packages, compares source .ss files against ' +
         'compiled .ssi/.scm artifacts in .gerbil/lib/, and reports which linked packages ' +
         'need rebuilding with `gerbil pkg build`.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

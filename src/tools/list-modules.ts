@@ -41,6 +41,10 @@ export function registerListModulesTool(server: McpServer): void {
         'List available Gerbil standard library modules by scanning the installation. ' +
         'Optionally filter by prefix (e.g. "std/text", "std/net", "gerbil"). ' +
         'Returns module paths like :std/text/json, :std/iter, etc.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         prefix: z
           .string()

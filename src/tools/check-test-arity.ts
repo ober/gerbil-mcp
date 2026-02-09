@@ -21,6 +21,10 @@ export function registerCheckTestArityTool(server: McpServer): void {
         'that call that function and reports whether their call sites match ' +
         'the current arity. Useful after modifying a function signature ' +
         'to quickly find which tests need updating.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbol: z
           .string()

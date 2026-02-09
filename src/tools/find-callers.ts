@@ -13,6 +13,10 @@ export function registerFindCallersTool(server: McpServer): void {
         'Find all files that reference a given symbol. Recursively scans .ss files ' +
         'in a directory for occurrences and reports file paths with line numbers. ' +
         'Optionally verifies that the file imports the expected module.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbol: z.string().describe('Symbol name to find usages of'),
         directory: z

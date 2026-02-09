@@ -19,6 +19,10 @@ export function registerHowtoVerifyTool(server: McpServer): void {
         'and expand correctly. Reports pass/fail for each recipe. ' +
         'Use compile_check: true to also run gxc compilation, which catches unbound identifiers ' +
         'and other issues that the expander alone misses (e.g. REPL-only patterns).',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         cookbook_path: z
           .string()

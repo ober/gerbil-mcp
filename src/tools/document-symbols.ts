@@ -11,6 +11,10 @@ export function registerDocumentSymbolsTool(server: McpServer): void {
       description:
         'List all definitions in a Gerbil source file with name, kind, and line number. ' +
         'Returns structs, classes, procedures, macros, methods, constants, imports, and exports.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

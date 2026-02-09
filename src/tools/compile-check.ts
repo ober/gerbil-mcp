@@ -16,6 +16,10 @@ export function registerCompileCheckTool(server: McpServer): void {
         'such as unbound identifiers and type issues that syntax checking alone misses. ' +
         'Validates the full Gerbil compilation pipeline without producing C output. ' +
         'Provide either code as a string or a file_path to an existing .ss file.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         code: z
           .string()

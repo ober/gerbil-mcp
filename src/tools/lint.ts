@@ -73,6 +73,10 @@ export function registerLintTool(server: McpServer): void {
         'dot in brackets, missing exported definitions, re-export awareness), ' +
         'SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, ' +
         'byte/char port type mismatch (fdopen with char I/O), and compilation errors via gxc.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

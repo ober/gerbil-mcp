@@ -10,6 +10,10 @@ export function registerCheckSyntaxTool(server: McpServer): void {
       description:
         'Check if Gerbil Scheme code is syntactically valid without evaluating it. ' +
         'Uses the Gerbil expander to verify the code can be expanded.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         code: z.string().describe('The Gerbil Scheme code to check'),
         imports: z

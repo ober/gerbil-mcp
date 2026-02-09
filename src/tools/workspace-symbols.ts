@@ -12,6 +12,10 @@ export function registerWorkspaceSymbolsTool(server: McpServer): void {
       description:
         'Search for symbol definitions across all .ss files in a project directory. ' +
         'Returns matching definitions with name, kind, line number, and file path.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         query: z
           .string()

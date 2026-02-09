@@ -15,6 +15,10 @@ export function registerResolveImportsTool(server: McpServer): void {
         'Analyze a Gerbil source file for unbound identifiers (via gxc compilation), ' +
         'then search standard library modules for matching exports. ' +
         'Returns a suggested import block and lists unresolved symbols.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

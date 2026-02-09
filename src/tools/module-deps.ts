@@ -15,6 +15,10 @@ export function registerModuleDepsTool(server: McpServer): void {
         'Returns the direct dependency module IDs. ' +
         'Use transitive: true to recursively resolve the full dependency tree. ' +
         'Example: module_path ":std/text/json" shows its sub-module dependencies.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

@@ -14,6 +14,10 @@ export function registerProfileTool(server: McpServer): void {
         'Reports per-function call count, cumulative time, average time, and percentage of wall time. ' +
         'Also reports overall wall time, CPU time, GC time, and bytes allocated. ' +
         'Instruments top-level bindings via set!; does not work on lexical bindings.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z
           .string()

@@ -13,6 +13,10 @@ export function registerBenchmarkTool(server: McpServer): void {
         'Time a Gerbil Scheme expression\'s execution and return performance statistics. ' +
         'Reports wall-clock time, CPU time (user/system), GC time, GC count, ' +
         'and bytes allocated. Supports multiple iterations for averaging.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z
           .string()

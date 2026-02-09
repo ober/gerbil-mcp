@@ -14,6 +14,10 @@ export function registerTraceMacroTool(server: McpServer): void {
         'Each step shows one level of expansion, from the original sugar form down to core forms (%#if, %#call, etc.). ' +
         'Useful for understanding what macros like when, if-let, defstruct, etc. actually expand to. ' +
         'Example: "(when #t (displayln 42))" shows when→if→%#if step by step.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         expression: z
           .string()

@@ -19,6 +19,10 @@ export function registerFunctionSignatureTool(server: McpServer): void {
         'Detects keyword arguments at runtime even when source is unavailable. ' +
         'Example: module_path ":std/text/json" returns all exports with their signatures. ' +
         'Optionally filter to a single symbol.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

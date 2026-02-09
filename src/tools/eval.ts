@@ -15,6 +15,10 @@ export function registerEvalTool(server: McpServer): void {
         'Captures stdout output (displayln, etc.) separately from the return value. ' +
         'Use the imports parameter to make module bindings available. ' +
         'Example: expression "(json-object->string (hash (\\"a\\" 1)))" with imports [":std/text/json"].',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z.string().describe('The Gerbil Scheme expression to evaluate'),
         imports: z

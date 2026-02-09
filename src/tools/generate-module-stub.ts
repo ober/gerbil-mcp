@@ -13,6 +13,10 @@ export function registerGenerateModuleStubTool(server: McpServer): void {
         'Generate a module skeleton by introspecting an existing module\'s exports and signatures. ' +
         'Produces (def ...) stubs for procedures, (defrules ...) for macros, and (def ...) for values. ' +
         'Does not write to disk — returns the generated text.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         module_path: z
           .string()

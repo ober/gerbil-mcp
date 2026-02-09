@@ -506,6 +506,10 @@ export function registerHowtoTool(server: McpServer): void {
         'Search curated Gerbil Scheme idioms and recipes by keyword. ' +
         'Returns code examples with imports and usage notes. ' +
         'Examples: "read json", "hash table iterate", "http post", "error handling".',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         query: z
           .string()

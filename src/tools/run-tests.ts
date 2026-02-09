@@ -38,6 +38,10 @@ export function registerRunTestsTool(server: McpServer): void {
         'Returns pass/fail counts and failure details. ' +
         'Use file_path for a single test file, or directory for project-wide tests via "gerbil test". ' +
         'Use filter to match test names by pattern, quiet for errors-only output.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         file_path: z
           .string()

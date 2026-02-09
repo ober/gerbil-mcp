@@ -122,6 +122,10 @@ export function registerDemangleTool(server: McpServer): void {
         'Useful when debugging crashes via GDB, reading core dumps, or inspecting compiled C output. ' +
         'Accepts one or more mangled names (newline-separated). ' +
         'Recognizes prefixes like ___H_ (module init), ___G_ (global), ___PRM_ (primitive).',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbols: z
           .string()

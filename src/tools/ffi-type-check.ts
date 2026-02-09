@@ -261,6 +261,10 @@ export function registerFfiTypeCheckTool(server: McpServer): void {
         'Detect FFI type mismatches between c-lambda/define-c-lambda declarations and call sites. ' +
         'Flags known incompatible combinations like u8vector passed to (pointer void), ' +
         'string passed to int, etc. Static analysis — no subprocess required.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

@@ -33,6 +33,10 @@ export function registerLoadFileTool(server: McpServer): void {
         'Read a Gerbil source file (.ss, .scm, or .sld) and extract its top-level definitions. ' +
         'Shows imports, exports, and all defined symbols categorized by type (procedure, struct, class, macro, etc.). ' +
         'Does NOT execute the file — only parses it.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

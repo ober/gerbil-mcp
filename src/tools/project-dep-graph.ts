@@ -18,6 +18,10 @@ export function registerProjectDepGraphTool(server: McpServer): void {
         'Shows which project modules import from which other project modules. ' +
         'External dependencies are listed separately. ' +
         'Pure static analysis — no subprocess, fast.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

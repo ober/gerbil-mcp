@@ -13,6 +13,10 @@ export function registerErrorHierarchyTool(server: McpServer): void {
         'Show the full Gerbil exception/error class hierarchy as a tree. ' +
         'Displays all known error types from :std/error and their inheritance relationships. ' +
         'Optionally import additional modules to include their error types.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         modules: z
           .array(z.string())

@@ -76,6 +76,10 @@ export function registerBuildAndReportTool(server: McpServer): void {
         'Uses the modern `gerbil` CLI (not gxpkg). ' +
         'Auto-detects external dependencies from gerbil.pkg depend: entries and ' +
         'adds ~/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         project_path: z
           .string()

@@ -14,6 +14,10 @@ export function registerFindDefinitionTool(server: McpServer): void {
         'Find where a Gerbil symbol is defined. Returns the qualified name, ' +
         'module file path, source file path (if available), kind (procedure/macro/value), ' +
         'and arity for procedures. Uses runtime introspection and module resolution.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbol: z
           .string()

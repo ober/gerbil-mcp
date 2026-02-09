@@ -84,6 +84,10 @@ export function registerBalancedReplaceTool(server: McpServer): void {
         'Like Edit/string-replace but validates parenthesis/bracket/brace balance before and after. ' +
         'Rejects edits that break balance. Dry-run by default. ' +
         'Pure TypeScript — no subprocess, runs in milliseconds.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         file_path: z.string().describe('Absolute path to the Gerbil source file'),
         old_string: z.string().describe('The exact text to find and replace'),

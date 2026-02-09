@@ -14,6 +14,10 @@ export function registerSxmlInspectTool(server: McpServer): void {
         'then display the tree structure with node types and summaries. ' +
         'Identifies DOCUMENT (*TOP*), PI (*PI*), ATTRIBUTES (@), NAMESPACES, ' +
         'ELEMENT, ATTR, and TEXT nodes. Exactly one of xml_text or expression is required.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         xml_text: z
           .string()

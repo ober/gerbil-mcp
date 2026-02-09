@@ -61,6 +61,10 @@ export function registerStaleStaticTool(server: McpServer): void {
         'shadow the current project build during executable linking. Reports mismatched sizes ' +
         'and timestamps. Stale global artifacts are a common cause of segfaults and #!unbound ' +
         'errors in compiled Gerbil executables that don\'t reproduce in the REPL.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

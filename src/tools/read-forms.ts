@@ -96,6 +96,10 @@ export function registerReadFormsTool(server: McpServer): void {
         'Read a Gerbil source file using the actual Gerbil reader and list all top-level forms ' +
         'with their index, start/end line numbers, and a summary (car of list or type). ' +
         'On reader error, reports the error position plus any forms read before the error.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

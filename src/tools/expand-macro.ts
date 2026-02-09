@@ -11,6 +11,10 @@ export function registerExpandMacroTool(server: McpServer): void {
         'Show the macro expansion of a Gerbil Scheme expression. ' +
         'Returns the core-expanded form using syntax->datum. ' +
         'Example: "(when #t (displayln \\"hi\\"))" expands to a %#if form.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         expression: z.string().describe('The Gerbil expression to expand'),
         imports: z

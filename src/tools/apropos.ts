@@ -11,6 +11,10 @@ export function registerAproposTool(server: McpServer): void {
         'Search for Gerbil/Gambit symbols matching a pattern string. ' +
         'Uses Gambit ##apropos to find symbols across all namespaces. ' +
         'Example: pattern "hash-get" returns hash-get and related symbols.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         pattern: z.string().describe('Search pattern (substring match against symbol names)'),
       },

@@ -15,6 +15,10 @@ export function registerTraceEvalTool(server: McpServer): void {
         'showing the name, type summary, and value of each variable as it is bound. ' +
         'For non-let expressions, evaluates and reports the result. ' +
         'Useful for debugging complex binding chains.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z
           .string()

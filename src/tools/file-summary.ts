@@ -13,6 +13,10 @@ export function registerFileSummaryTool(server: McpServer): void {
         'Structural overview of a Gerbil source file without reading the whole file. ' +
         'Shows imports, exports, definitions grouped by kind, and top-level form locations. ' +
         'Pure TypeScript — no subprocess, fast.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

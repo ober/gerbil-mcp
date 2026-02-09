@@ -11,6 +11,10 @@ export function registerVersionTool(server: McpServer): void {
       description:
         'Report Gerbil and Gambit versions, installation path, and system type. ' +
         'Useful for diagnostics and ensuring compatibility.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {},
     },
     async () => {
