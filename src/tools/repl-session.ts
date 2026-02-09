@@ -55,12 +55,19 @@ export function registerReplSessionTool(server: McpServer): void {
             'Path to a .ss file whose imports will be loaded into the session (used with "create" action). ' +
             'This lets you immediately use functions from the file\'s imported modules.',
           ),
+        env: z
+          .record(z.string())
+          .optional()
+          .describe(
+            'Environment variables to pass to the REPL subprocess (used with "create" action). ' +
+            'E.g. {"DYLD_LIBRARY_PATH": "/usr/local/lib"}',
+          ),
       },
     },
-    async ({ action, session_id, expression, loadpath, project_path, preload_file }) => {
+    async ({ action, session_id, expression, loadpath, project_path, preload_file, env: extraEnv }) => {
       switch (action) {
         case 'create':
-          return await handleCreate(loadpath, project_path, preload_file);
+          return await handleCreate(loadpath, project_path, preload_file, extraEnv);
         case 'eval':
           return await handleEval(session_id, expression);
         case 'destroy':
@@ -86,6 +93,7 @@ async function handleCreate(
   loadpath?: string[],
   projectPath?: string,
   preloadFile?: string,
+  extraEnv?: Record<string, string>,
 ) {
   // Build loadpath from explicit array and/or project_path
   const effectiveLoadpath: string[] = [...(loadpath ?? [])];
@@ -95,12 +103,14 @@ async function handleCreate(
     effectiveLoadpath.push(gerbilLib);
   }
 
-  const env =
+  const loadpathEnv =
     effectiveLoadpath.length > 0
       ? buildLoadpathEnv(effectiveLoadpath)
       : undefined;
+  const env = { ...loadpathEnv, ...extraEnv };
+  const hasEnv = Object.keys(env).length > 0;
 
-  const result = await createReplSession(env ? { env } : undefined);
+  const result = await createReplSession(hasEnv ? { env } : undefined);
 
   if (result.error) {
     return {

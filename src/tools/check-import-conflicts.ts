@@ -420,6 +420,66 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
         }
       }
 
+      // Project-wide cross-module export collision detection
+      // If two modules in the project export the same symbol, and any file imports both,
+      // that will cause a "Bad binding; import conflict" error at build time.
+      if (project_path && packagePrefix) {
+        // Build a reverse map: symbol -> list of modules that export it
+        const symbolToModules = new Map<string, string[]>();
+        for (const [modPath, symbols] of projectExports) {
+          for (const sym of symbols) {
+            if (!symbolToModules.has(sym)) {
+              symbolToModules.set(sym, []);
+            }
+            symbolToModules.get(sym)!.push(modPath);
+          }
+        }
+
+        // Find symbols exported by multiple project modules
+        const collisions = new Map<string, string[]>();
+        for (const [sym, modules] of symbolToModules) {
+          if (modules.length > 1) {
+            collisions.set(sym, modules);
+          }
+        }
+
+        // Check if any file imports two modules that both export the same symbol
+        if (collisions.size > 0) {
+          for (const f of filesToCheck) {
+            const importedModules = new Set<string>();
+            for (const imp of f.analysis.imports) {
+              const modPaths = extractModulePaths(imp.raw);
+              for (const mp of modPaths) {
+                importedModules.add(mp);
+                // Resolve relative imports
+                if (mp.startsWith('./') && packagePrefix) {
+                  const importingFileAbs = f.path.startsWith('/')
+                    ? f.path : join(project_path, f.path);
+                  const importingDir = dirname(importingFileAbs);
+                  const targetAbs = resolvePath(importingDir, mp.replace(/^\.\//, ''));
+                  const targetRel = relative(project_path, targetAbs)
+                    .replace(/\.ss$/, '').replace(/\.scm$/, '');
+                  importedModules.add(`:${packagePrefix}/${targetRel}`);
+                }
+              }
+            }
+
+            for (const [sym, modules] of collisions) {
+              const importedColliders = modules.filter((m) => importedModules.has(m));
+              if (importedColliders.length > 1) {
+                diagnostics.push({
+                  file: f.path,
+                  line: f.analysis.imports[0]?.line ?? null,
+                  severity: 'error',
+                  code: 'cross-module-export-collision',
+                  message: `Symbol "${sym}" exported by ${importedColliders.join(' and ')} — will conflict when both are imported`,
+                });
+              }
+            }
+          }
+        }
+      }
+
       if (diagnostics.length === 0) {
         const target = file_path || project_path;
         return {

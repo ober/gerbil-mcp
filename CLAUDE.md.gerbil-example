@@ -11,14 +11,14 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_howto`** (**MUST call FIRST**): Before writing ANY non-trivial Gerbil code, search the cookbook for relevant patterns. The cookbook contains verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g., `"dialog create"`, `"layout parent"`, `"shortcut keyboard"`, `"hash iterate"`). **Skipping this step has repeatedly caused bugs that were already solved in the cookbook.**
 - **`gerbil_security_scan`** (**MUST run on new/modified code**): Before finalizing ANY Gerbil code that involves FFI, shell commands, file I/O, or C shims, run the security scanner. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation guidance. Run on a single file or an entire project. **Skipping this step risks shipping code with known vulnerability patterns that the scanner would have caught.**
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
-- **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable.
+- **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable. Shows positional vs keyword args for keyword-dispatch functions.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
 - **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax. Combines stdout/stderr for complete error output.
 - **`gerbil_doc`**: Look up any symbol for type, arity, qualified name, and related symbols.
 
 ### When Exploring or Debugging
 
-- **`gerbil_eval`**: Test expressions interactively to verify assumptions and reproduce issues. Cleanly captures stdout output separately from the return value using `parameterize`.
+- **`gerbil_eval`**: Test expressions interactively to verify assumptions and reproduce issues. Cleanly captures stdout output separately from the return value using `parameterize`. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`, `LD_LIBRARY_PATH`).
 - **`gerbil_apropos`**: Search for symbols by substring when you're unsure of exact names.
 - **`gerbil_list_std_modules`**: Discover available standard library modules, optionally filtered by prefix.
 - **`gerbil_find_definition`**: Locate where a symbol is defined (source file, module, kind, arity). Use `source_preview: true` to include a code preview.
@@ -38,21 +38,23 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_ffi_inspect`**: Classify a module's FFI exports (C constants, C functions, Gerbil wrappers).
 - **`gerbil_ffi_scaffold`**: Parse a C header file and generate Gambit FFI binding code with `c-define-type`, `c-lambda`, and `define-const` declarations. Recognizes create/destroy pairs for automatic GC cleanup.
 - **`gerbil_ffi_callback_debug`**: Static analysis of FFI `c-define`/`extern` linkage in `.ss` files. Detects orphan callbacks (c-define without matching extern), missing callbacks (extern without c-define), duplicate C names, and c-define outside `begin-foreign` blocks.
+- **`gerbil_ffi_type_check`**: Detect FFI type mismatches between `c-lambda`/`define-c-lambda` declarations and call sites. Flags known incompatible combinations like u8vector passed to `(pointer void)`, string passed to int. Static analysis, no subprocess.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 
 ### For Multi-Step Exploration
 
-- **`gerbil_repl_session`**: Maintain persistent state across evaluations. Define functions, import modules, test incrementally. Use `preload_file` to load a file's imports into the session automatically.
+- **`gerbil_repl_session`**: Maintain persistent state across evaluations. Define functions, import modules, test incrementally. Use `preload_file` to load a file's imports into the session automatically. Use `env` parameter for FFI library paths.
 
 ### For Building and Testing
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
-- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Auto-detects external dependencies from `gerbil.pkg` `depend:` entries and sets `GERBIL_LOADPATH` automatically. Use `loadpath` to override.
-- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output.
+- **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Auto-detects external dependencies from `gerbil.pkg` `depend:` entries and sets `GERBIL_LOADPATH` automatically. Auto-retries with clean on lock errors or missing exe C files. Detects missing C system headers and suggests package install commands. Use `loadpath` to override.
+- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output. Auto-detects `GERBIL_LOADPATH` from `gerbil.pkg` `depend:` entries. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`).
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages. Automatically defaults to `$HOME` as working directory when in a project directory (with `gerbil.pkg`) to prevent destructive operations on local package context.
 - **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
 - **`gerbil_stale_static`**: Compare compiled artifacts in global `$GERBIL_PATH/lib/static/` vs project-local `.gerbil/lib/static/` to detect stale global copies that could shadow the current build. Common cause of segfaults and `#!unbound` errors in compiled executables.
+- **`gerbil_stale_linked_pkg`**: Detect stale linked packages (via `gerbil pkg link`) whose source `.ss` files are newer than compiled `.ssi`/`.scm` artifacts. Reports which packages need rebuilding with `gerbil pkg build`.
 
 ### For Performance Analysis
 
@@ -65,7 +67,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_lint`**: Static analysis for common issues: unused imports, duplicate definitions, style warnings, shadowed bindings, hash literal symbol key warnings, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions (re-export aware), port-type mismatches (fdopen byte ports used with char I/O), and compilation errors.
 - **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
 - **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
-- **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Checks if locally defined symbols conflict with imported module exports (causing "Bad binding; import conflict" errors), and if multiple imports export the same symbol. Resolves standard library exports at runtime and project-local exports statically. Handles `only-in` filtered imports.
+- **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Checks if locally defined symbols conflict with imported module exports (causing "Bad binding; import conflict" errors), and if multiple imports export the same symbol. Detects cross-module export collisions where sibling modules export the same symbol. Resolves standard library exports at runtime and project-local exports statically. Handles `only-in` filtered imports.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
 
@@ -109,7 +111,10 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 - **`gerbil_howto`**: Search curated Gerbil idioms and code examples by keyword. Covers common tasks like file I/O, JSON, HTTP, hash tables, iteration, error handling, concurrency, testing, and more. Use this **before writing Gerbil code** for common patterns — it returns verified, working examples with correct imports. The server automatically loads both built-in recipes and any accumulated recipes from previous sessions.
   - Example queries: `"json parse"`, `"file read"`, `"channel thread"`, `"hash iterate"`, `"error handling"`
+  - Use `compact: true` for a brief listing (id, title, tags only — no code blocks), then `gerbil_howto_get` to fetch full recipe by id. This saves tokens when browsing.
+  - Use `max_results` to limit the number of results (default: 5).
   - Optionally pass `cookbook_path` to merge in additional project-specific recipes from a JSON file.
+- **`gerbil_howto_get`**: Fetch a single cookbook recipe by its ID. Returns the full recipe with code, imports, notes, and related recipes. Use after `gerbil_howto` with `compact: true` to retrieve only the recipes you need.
 - **`gerbil_howto_add`**: Save new Gerbil recipes directly to the gerbil-mcp server's cookbook. No path needed — recipes are written to the server's own `cookbooks.json` and become available to all future sessions across all projects. Each recipe needs an `id` (kebab-case), `title`, `tags` (search keywords), `imports`, and `code`. Optional: `notes`, `related` recipe IDs, `supersedes` (ID of an older recipe to mark as deprecated), and `valid_for` (list of confirmed-working version strings, e.g. `["v0.18.1-173", "v0.19.0-42"]`).
   - If a recipe with the same `id` already exists, it is replaced (update semantics). Existing `valid_for` is preserved when updating without providing a new one.
   - Use `supersedes` to deprecate an older recipe — sets `deprecated: true` and `superseded_by` on the old recipe. Deprecated recipes are deprioritized in search results and shown with a `[DEPRECATED]` marker.

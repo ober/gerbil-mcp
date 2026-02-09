@@ -1,7 +1,30 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { runGxiFile, runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
+
+/**
+ * Auto-detect loadpath from gerbil.pkg depend: entries.
+ * If the project has external dependencies, add ~/.gerbil/lib to loadpath.
+ * Same logic as build-and-report.ts autoDetectLoadpath.
+ */
+async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
+  try {
+    const content = await readFile(join(projectPath, 'gerbil.pkg'), 'utf-8');
+    if (/\bdepend:/.test(content)) {
+      const gerbilLib = join(
+        process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'),
+        'lib',
+      );
+      return [gerbilLib];
+    }
+  } catch {
+    // No gerbil.pkg or can't read it — no auto-detection
+  }
+  return [];
+}
 
 export function registerRunTestsTool(server: McpServer): void {
   server.registerTool(
@@ -59,9 +82,16 @@ export function registerRunTestsTool(server: McpServer): void {
           .describe(
             'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib (file_path mode only)',
           ),
+        env: z
+          .record(z.string())
+          .optional()
+          .describe(
+            'Environment variables to pass to the subprocess ' +
+            '(e.g. {"DYLD_LIBRARY_PATH": "/usr/local/lib"})',
+          ),
       },
     },
-    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path }) => {
+    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path, env: extraEnv }) => {
       // Validate: exactly one of file_path or directory
       if (file_path && directory) {
         return {
@@ -95,17 +125,23 @@ export function registerRunTestsTool(server: McpServer): void {
       const effectiveLoadpath: string[] = [...(loadpath ?? [])];
       if (project_path) {
         effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
+        // Auto-detect loadpath from gerbil.pkg depend: when not explicitly provided
+        if (!loadpath || loadpath.length === 0) {
+          const autoPath = await autoDetectLoadpath(project_path);
+          effectiveLoadpath.push(...autoPath);
+        }
       }
 
-      return await runSingleFileTest(file_path!, timeout, effectiveLoadpath);
+      return await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
     },
   );
 }
 
-async function runSingleFileTest(filePath: string, timeout?: number, loadpath?: string[]) {
+async function runSingleFileTest(filePath: string, timeout?: number, loadpath?: string[], extraEnv?: Record<string, string>) {
   const effectiveTimeout = timeout ?? 30_000;
-  const env = loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
-  const testResult = await runGxiFile(filePath, { timeout: effectiveTimeout, env });
+  const loadpathEnv = loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
+  const env = { ...loadpathEnv, ...extraEnv };
+  const testResult = await runGxiFile(filePath, { timeout: effectiveTimeout, env: Object.keys(env).length > 0 ? env : undefined });
 
   if (testResult.timedOut) {
     return {

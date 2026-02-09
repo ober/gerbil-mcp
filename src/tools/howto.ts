@@ -526,9 +526,22 @@ export function registerHowtoTool(server: McpServer): void {
             'When provided, excludes version-tagged recipes that don\'t match. ' +
             'Untagged recipes always pass through. If omitted, auto-detects the running version.',
           ),
+        compact: z
+          .boolean()
+          .optional()
+          .describe(
+            'If true, return only id, title, and tags for each match (no code). ' +
+            'Use gerbil_howto_get to fetch full recipe by id. Default: false.',
+          ),
+        max_results: z
+          .number()
+          .optional()
+          .describe(
+            'Maximum number of results to return (default: 5).',
+          ),
       },
     },
-    async ({ query, cookbook_path, gerbil_version: explicitVersion }) => {
+    async ({ query, cookbook_path, gerbil_version: explicitVersion, compact, max_results }) => {
       const words = query
         .toLowerCase()
         .split(/\s+/)
@@ -596,10 +609,11 @@ export function registerHowtoTool(server: McpServer): void {
       });
 
       // Sort by score descending, take top results
+      const effectiveMaxResults = max_results ?? MAX_RESULTS;
       const matches = scored
         .filter((s) => s.score > 0)
         .sort((a, b) => b.score - a.score)
-        .slice(0, MAX_RESULTS);
+        .slice(0, effectiveMaxResults);
 
       if (matches.length === 0) {
         const available = [...new Set(recipes.flatMap((r) => r.tags))]
@@ -612,6 +626,28 @@ export function registerHowtoTool(server: McpServer): void {
               text: `No recipes found for "${query}".\n\nAvailable topics: ${available}`,
             },
           ],
+        };
+      }
+
+      // Compact mode: return only id, title, tags — no code
+      if (compact) {
+        const sections: string[] = [
+          `Found ${matches.length} recipe(s) for "${query}" (compact):`,
+          '',
+        ];
+        for (const { recipe } of matches) {
+          const deprecated = recipe.deprecated ? ' [DEPRECATED]' : '';
+          const versionTag = recipe.gerbil_version ? ` [${recipe.gerbil_version}]` : '';
+          sections.push(`  ${recipe.id}${deprecated}${versionTag} — ${recipe.title}`);
+          sections.push(`    tags: ${recipe.tags.join(', ')}`);
+          if (recipe.imports.length > 0) {
+            sections.push(`    imports: ${recipe.imports.join(' ')}`);
+          }
+        }
+        sections.push('');
+        sections.push('Use gerbil_howto_get with recipe id to fetch full code.');
+        return {
+          content: [{ type: 'text' as const, text: sections.join('\n') }],
         };
       }
 

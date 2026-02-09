@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 274 tests must pass before considering any change complete. The test suite covers:
+All 286 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -115,6 +115,14 @@ All 274 tests must pass before considering any change complete. The test suite c
 - Cross-version cookbook testing (valid_for field in Recipe, prefix matching for version filtering, valid_for storage and preservation in howto_add, valid_for display in howto search and verify, shared verify-utils extraction)
 - Security scan tool (shell injection detection, FFI pointer-void mismatch, static global buffer in C, port without unwind-protect, clean file no issues, severity threshold filter, project-wide scan, missing file error, port-open with guard skipped)
 - Security pattern add tool (new rules file creation, update semantics, corrupt JSON error)
+- Howto compact search (compact mode brief listings, max_results limit, howto_get fetch by id, unknown id error)
+- FFI type check tool (declaration extraction, type mismatch detection, no-declarations handling, required params validation)
+- Stale linked pkg tool (no symlinks handling, no pkg dir handling)
+- Eval with env vars (env parameter passes through to subprocess)
+- Cross-module export collision detection (shared exports across sibling modules)
+- Run tests auto-loadpath (gerbil.pkg depend: auto-detection)
+- Build and report auto-retry (lock error detection, missing exe_c detection, missing C header detection)
+- Function signature keyword breakdown (positional vs keyword arg extraction from compiled artifacts)
 
 
 ### Adding a New Tool
@@ -124,7 +132,7 @@ All 274 tests must pass before considering any change complete. The test suite c
 3. Import and call the register function in `src/index.ts`
 4. Add the tool to the `INSTRUCTIONS` string in `src/index.ts`
 5. Add corresponding test(s) in `test/tools.test.ts`
-6. Add the tool to `CLAUDE.md.gerbil-example` under the appropriate section
+6. Add the tool to `CLAUDE.md.gerbil-example` under the appropriate section (this is the template that users copy into their Gerbil projects as CLAUDE.md — it documents all available MCP tools)
 7. Update the test count and coverage list in this file (`CLAUDE.md`)
 8. If the tool was listed in `features.json`, remove that entry (it's now implemented)
 9. Run `npm run build && npm run test` to verify

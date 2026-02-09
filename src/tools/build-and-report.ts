@@ -1,11 +1,67 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { readFile, stat, access, constants } from 'node:fs/promises';
+import { readFile, stat, access, constants, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
+
+/** Known C header -> package name mappings for helpful install hints. */
+const HEADER_PACKAGE_MAP: Record<string, string> = {
+  'yaml.h': 'libyaml-dev (apt) / libyaml (brew)',
+  'fuse.h': 'libfuse-dev (apt) / macfuse (brew)',
+  'fuse_lowlevel.h': 'libfuse3-dev (apt) / macfuse (brew)',
+  'openssl/ssl.h': 'libssl-dev (apt) / openssl (brew)',
+  'sqlite3.h': 'libsqlite3-dev (apt) / sqlite (brew)',
+  'zlib.h': 'zlib1g-dev (apt) / zlib (brew)',
+  'curl/curl.h': 'libcurl4-openssl-dev (apt) / curl (brew)',
+  'lmdb.h': 'liblmdb-dev (apt) / lmdb (brew)',
+  'leveldb/c.h': 'libleveldb-dev (apt) / leveldb (brew)',
+  'uuid/uuid.h': 'uuid-dev (apt) / ossp-uuid (brew)',
+  'png.h': 'libpng-dev (apt) / libpng (brew)',
+  'jpeglib.h': 'libjpeg-dev (apt) / jpeg (brew)',
+};
+
+/**
+ * Check if build output contains a lock error (__with-lock).
+ */
+function hasLockError(output: string): boolean {
+  return /__with-lock/.test(output) || /lock file/i.test(output);
+}
+
+/**
+ * Check if build output contains a missing exe C file error.
+ */
+function hasExeCMissing(output: string): boolean {
+  return /exe_\.c:\s*No such file or directory/i.test(output);
+}
+
+/**
+ * Extract missing C header names from build output.
+ * Returns array of header file names (e.g. ["yaml.h", "fuse.h"]).
+ */
+function extractMissingHeaders(output: string): string[] {
+  const headers: string[] = [];
+  const seen = new Set<string>();
+  // Match patterns like: fatal error: yaml.h: No such file or directory
+  // or: fatal error: 'yaml.h' file not found
+  const patterns = [
+    /fatal error:\s*['"]?([a-zA-Z0-9_/]+\.h)['"]?\s*:\s*No such file/gi,
+    /fatal error:\s*['"]([a-zA-Z0-9_/]+\.h)['"]\s*file not found/gi,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(output)) !== null) {
+      const header = match[1];
+      if (!seen.has(header)) {
+        seen.add(header);
+        headers.push(header);
+      }
+    }
+  }
+  return headers;
+}
 
 export function registerBuildAndReportTool(server: McpServer): void {
   server.registerTool(
@@ -120,6 +176,64 @@ export function registerBuildAndReportTool(server: McpServer): void {
       if (buildSsPermissionHint) {
         return {
           content: [{ type: 'text' as const, text: buildSsPermissionHint }],
+          isError: true,
+        };
+      }
+
+      // Check for retryable errors: lock files or missing exe C file
+      const combinedForRetry = [result.stdout, result.stderr].filter(Boolean).join('\n');
+      const isLockError = hasLockError(combinedForRetry);
+      const isExeCMissing = hasExeCMissing(combinedForRetry);
+      if (isLockError || isExeCMissing) {
+        // Auto-clean and retry
+        const reason = isLockError ? 'stale lock file' : 'missing exe C file';
+        try {
+          await runGerbilCmd(['clean'], { cwd: project_path, timeout: 30_000 });
+        } catch {
+          // If gerbil clean fails, try removing .gerbil directory directly
+          try {
+            await rm(join(project_path, '.gerbil'), { recursive: true, force: true });
+          } catch {
+            // ignore
+          }
+        }
+        const retryResult = await runGerbilCmd(args, {
+          cwd: project_path,
+          timeout: 120_000,
+          env: loadpathEnv,
+        });
+        if (!retryResult.timedOut && retryResult.exitCode === 0) {
+          const output = [retryResult.stdout, retryResult.stderr]
+            .filter(Boolean).join('\n').trim();
+          const sections: string[] = [
+            `Build succeeded after auto-clean (detected ${reason}).`,
+          ];
+          if (output) { sections.push(''); sections.push(output); }
+          if (makefileNote) { sections.push(''); sections.push(makefileNote); }
+          return {
+            content: [{ type: 'text' as const, text: sections.join('\n') }],
+          };
+        }
+        // If retry also failed, fall through to normal error reporting
+      }
+
+      // Check for missing C system headers
+      const missingHeaders = extractMissingHeaders(combinedForRetry);
+      if (missingHeaders.length > 0) {
+        const sections: string[] = [
+          `Build failed: missing C system header(s)`,
+          '',
+        ];
+        for (const header of missingHeaders) {
+          const pkg = HEADER_PACKAGE_MAP[header];
+          const hint = pkg ? ` — install ${pkg}` : '';
+          sections.push(`  Missing header: ${header}${hint}`);
+        }
+        sections.push('');
+        sections.push('Install the missing development headers and rebuild.');
+        if (makefileNote) { sections.push(''); sections.push(makefileNote); }
+        return {
+          content: [{ type: 'text' as const, text: sections.join('\n') }],
           isError: true,
         };
       }

@@ -703,6 +703,56 @@ void copy_data(const uint8_t *src, int len) {
 `,
     );
 
+    // FFI type check fixtures
+    writeFileSync(
+      join(TEST_DIR, 'ffi-type-decls.ss'),
+      `(define-c-lambda ffi-write-buf (void* int) int "write_buf")
+(define-c-lambda ffi-strlen (char-string) int "strlen")
+(def (test-calls)
+  (ffi-write-buf (make-u8vector 10) 10)
+  (ffi-strlen 42))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'ffi-no-decls.ss'),
+      `(def (f x) (+ x 1))
+`,
+    );
+
+    // Stale linked pkg fixtures
+    const stalePkgDir = join(TEST_DIR, 'stale-pkg-test');
+    mkdirSync(join(stalePkgDir, '.gerbil', 'pkg'), { recursive: true });
+
+    // Cross-module export collision fixture
+    const collisionDir = join(TEST_DIR, 'collision-project');
+    mkdirSync(collisionDir, { recursive: true });
+    writeFileSync(
+      join(collisionDir, 'gerbil.pkg'),
+      '(package: colltest)',
+    );
+    writeFileSync(
+      join(collisionDir, 'alpha.ss'),
+      `(export shared-fn other-a)
+(def (shared-fn x) x)
+(def (other-a) 1)
+`,
+    );
+    writeFileSync(
+      join(collisionDir, 'beta.ss'),
+      `(export shared-fn other-b)
+(def (shared-fn x) (* x 2))
+(def (other-b) 2)
+`,
+    );
+    writeFileSync(
+      join(collisionDir, 'consumer.ss'),
+      `(import :colltest/alpha :colltest/beta)
+(export run)
+(def (run) (shared-fn 42))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -4106,5 +4156,142 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.isError).toBe(true);
       expect(result.text).toContain('Error reading');
     });
+  });
+
+  // ── Howto compact search & howto-get ────────────────────────────
+
+  describe('Howto compact search', () => {
+    it('gerbil_howto compact mode returns brief listings', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'json parse',
+        compact: true,
+      });
+      expect(result.isError).toBe(false);
+      // Compact mode should NOT include code blocks
+      expect(result.text).not.toContain('```scheme');
+      // Should include recipe IDs
+      expect(result.text).toContain('json');
+      // Should mention howto_get for full details
+      expect(result.text).toContain('gerbil_howto_get');
+    });
+
+    it('gerbil_howto compact mode respects max_results', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'json file hash iterate thread',
+        compact: true,
+        max_results: 2,
+      });
+      expect(result.isError).toBe(false);
+      // Should have at most 2 entries - count the " — " separators
+      const entries = (result.text.match(/ — /g) || []).length;
+      expect(entries).toBeLessThanOrEqual(2);
+    });
+
+    it('gerbil_howto_get fetches recipe by id', async () => {
+      // First find a known recipe
+      const searchResult = await client.callTool('gerbil_howto', {
+        query: 'json parse',
+        compact: true,
+      });
+      expect(searchResult.isError).toBe(false);
+      // Extract first recipe ID from compact result (format: "  id — title")
+      const idMatch = searchResult.text.match(/^\s+([a-z0-9-]+)\s+—\s+/m);
+      expect(idMatch).toBeTruthy();
+      const recipeId = idMatch![1];
+
+      // Now fetch that recipe
+      const result = await client.callTool('gerbil_howto_get', {
+        id: recipeId,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('```scheme');
+      expect(result.text).toContain(recipeId);
+    });
+
+    it('gerbil_howto_get returns error for unknown id', async () => {
+      const result = await client.callTool('gerbil_howto_get', {
+        id: 'nonexistent-recipe-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+  });
+
+  // ── FFI type check ─────────────────────────────────────────────
+
+  describe('FFI type check tool', () => {
+    it('detects FFI type mismatches in call sites', async () => {
+      const result = await client.callTool('gerbil_ffi_type_check', {
+        file_path: join(TEST_DIR, 'ffi-type-decls.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Declarations found: 2');
+      // Should detect u8vector passed to void*
+      expect(result.text).toContain('u8vector');
+      // Should detect number passed to char-string
+      expect(result.text).toContain('ffi-strlen');
+    });
+
+    it('reports no declarations for non-FFI file', async () => {
+      const result = await client.callTool('gerbil_ffi_type_check', {
+        file_path: join(TEST_DIR, 'ffi-no-decls.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No FFI declarations');
+    });
+
+    it('requires file_path or project_path', async () => {
+      const result = await client.callTool('gerbil_ffi_type_check', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('required');
+    });
+  });
+
+  // ── Stale linked pkg ──────────────────────────────────────────
+
+  describe('Stale linked pkg tool', () => {
+    it('reports no linked packages when pkg dir has no symlinks', async () => {
+      const result = await client.callTool('gerbil_stale_linked_pkg', {
+        project_path: join(TEST_DIR, 'stale-pkg-test'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No linked packages');
+    });
+
+    it('reports no pkg dir when missing', async () => {
+      const emptyDir = join(TEST_DIR, 'stale-pkg-empty');
+      mkdirSync(emptyDir, { recursive: true });
+      const result = await client.callTool('gerbil_stale_linked_pkg', {
+        project_path: emptyDir,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No .gerbil/pkg/');
+    });
+  });
+
+  // ── Eval with env vars ────────────────────────────────────────
+
+  describe('Eval with env vars', () => {
+    it('gerbil_eval passes env vars to subprocess', async () => {
+      const result = await client.callTool('gerbil_eval', {
+        expression: '(getenv "GERBIL_MCP_TEST_VAR" "not-set")',
+        env: { GERBIL_MCP_TEST_VAR: 'hello-from-env' },
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('hello-from-env');
+    });
+  });
+
+  // ── Cross-module export collision ─────────────────────────────
+
+  describe('Cross-module export collision', () => {
+    it('detects shared export across sibling modules', async () => {
+      const result = await client.callTool('gerbil_check_import_conflicts', {
+        project_path: join(TEST_DIR, 'collision-project'),
+      });
+      // Should detect that alpha.ss and beta.ss both export shared-fn
+      // and consumer.ss imports both
+      expect(result.text).toContain('shared-fn');
+    }, 30000);
   });
 });

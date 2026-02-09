@@ -243,9 +243,14 @@ export function registerFunctionSignatureTool(server: McpServer): void {
           if (e.kind === 'procedure') {
             let sig = formalsMap.get(e.name);
             if (!sig && e.keywords) {
-              // Build signature from arity + keyword args
-              const kwList = e.keywords.split(/\s+/).filter(Boolean);
-              sig = `(... keywords: [${kwList.join(' ')}])`;
+              // Check if keywords already includes positional args (parenthesized form)
+              if (e.keywords.startsWith('(')) {
+                sig = e.keywords;
+              } else {
+                // Build signature from arity + keyword args
+                const kwList = e.keywords.split(/\s+/).filter(Boolean);
+                sig = `(... keywords: [${kwList.join(' ')}])`;
+              }
             }
             if (!sig) {
               sig = `arity:${e.arity}`;
@@ -313,9 +318,8 @@ async function scanCompiledArtifacts(
       let match: RegExpExecArray | null;
       while ((match = kwPattern.exec(content)) !== null) {
         const kwContent = match[1];
-        const kws = kwContent
-          .split(/\s+/)
-          .filter((t) => t.endsWith(':') && t !== '#f');
+        const allTokens = kwContent.split(/\s+/).filter(Boolean);
+        const kws = allTokens.filter((t) => t.endsWith(':') && t !== '#f');
 
         if (kws.length === 0) continue;
 
@@ -326,7 +330,29 @@ async function scanCompiledArtifacts(
         if (nameMatch) {
           const lastDef = nameMatch[nameMatch.length - 1];
           const funcName = lastDef.replace(/^define\s+\(/, '');
-          result.set(funcName, kws.join(' '));
+
+          // Try to extract positional args from the __% lambda
+          // Pattern: (define (name__% positional1 positional2 ... key1: key1-default ...)
+          const percentPattern = new RegExp(
+            `define\\s+\\(${funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_%\\s+([^)]+)\\)`,
+          );
+          const percentMatch = content.match(percentPattern);
+          let positionals: string[] = [];
+          if (percentMatch) {
+            const params = percentMatch[1].trim().split(/\s+/).filter(Boolean);
+            // Positional args are those before the first keyword arg
+            for (const p of params) {
+              if (p.endsWith(':') || p === '#!key' || p === '#!rest') break;
+              positionals.push(p);
+            }
+          }
+
+          // Build signature: (positional1 positional2 key1: key2:)
+          if (positionals.length > 0) {
+            result.set(funcName, `(${[...positionals, ...kws].join(' ')})`);
+          } else {
+            result.set(funcName, kws.join(' '));
+          }
         }
       }
 

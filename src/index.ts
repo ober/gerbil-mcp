@@ -76,6 +76,9 @@ import { registerBisectCrashTool } from './tools/bisect-crash.js';
 import { registerCheckImportConflictsTool } from './tools/check-import-conflicts.js';
 import { registerSecurityScanTool } from './tools/security-scan.js';
 import { registerSecurityPatternAddTool } from './tools/security-pattern-add.js';
+import { registerHowtoGetTool } from './tools/howto-get.js';
+import { registerStaleLinkedPkgTool } from './tools/stale-linked-pkg.js';
+import { registerFfiTypeCheckTool } from './tools/ffi-type-check.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
@@ -84,8 +87,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - BEFORE finalizing Gerbil code involving FFI, shell commands, file I/O, or C shims: run gerbil_security_scan on the file or project. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation. Skipping this step risks shipping code with known vulnerability patterns.
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures. Use loadpath or project_path to resolve project-local dependency modules.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
-- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules.
-- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context.
+- When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
+- When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context. Use env parameter for FFI library paths.
 - To trace let bindings: use gerbil_trace_eval to step through let*/let/letrec/letrec* bindings, showing each variable's name, type, and value as it is bound.
 - To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
@@ -96,8 +99,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
-- For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context.
-- To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output.
+- For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context. Use env parameter for FFI library paths.
+- To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
 - To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol. Set source_preview: true to include the actual source code.
@@ -125,11 +128,12 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
 - To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
 - To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports. Saves time writing boilerplate test files.
-- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Use \`loadpath\` to override.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files. Detects missing C system headers and suggests package install commands.
 - To generate module stubs: use gerbil_generate_module_stub to create a module skeleton matching another module's exported signatures.
 - To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent across a project.
 - To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to an existing template file.
-- To find code recipes: use gerbil_howto to search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use cookbook_path to merge in additional recipes from a JSON file.
+- To find code recipes: use gerbil_howto to search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use compact: true for a brief listing, then gerbil_howto_get to fetch full recipe by id.
+- To fetch a recipe by id: use gerbil_howto_get with a recipe id to retrieve the full code, imports, and notes.
 - To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session to a cookbook JSON file (convention: \`.claude/cookbooks.json\` in the project root). Use gerbil_version to tag version-specific recipes (e.g. "v0.18", "v0.19"). Use valid_for to record confirmed-working versions (e.g. ["v0.18.1-173", "v0.19.0-42"]).
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
@@ -156,6 +160,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To detect import conflicts: use gerbil_check_import_conflicts to find local definitions that clash with imported module exports before building. Catches "Bad binding; import conflict" errors early with clear messages showing which symbol conflicts with which module. Also detects cross-import conflicts where multiple imports provide the same symbol.
 - To scan for security issues: use gerbil_security_scan to analyze Gerbil .ss and C .c/.h files for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns). Scans a single file or entire project. Reports findings with severity, line number, and remediation guidance.
 - To add security patterns: use gerbil_security_pattern_add to contribute new security detection rules to the scanner. Each pattern has an id, severity, scope (scheme/c-shim/ffi-boundary), regex pattern, and remediation guidance.
+- To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages (via gerbil pkg link) have source files newer than their compiled artifacts. Reports which packages need rebuilding with \`gerbil pkg build\`.
+- To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches between c-lambda/define-c-lambda declarations and call sites. Flags known incompatible combinations like u8vector passed to (pointer void), string passed to int. Static analysis, no subprocess.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -238,6 +244,9 @@ registerBisectCrashTool(server);
 registerCheckImportConflictsTool(server);
 registerSecurityScanTool(server);
 registerSecurityPatternAddTool(server);
+registerHowtoGetTool(server);
+registerStaleLinkedPkgTool(server);
+registerFfiTypeCheckTool(server);
 
 registerPrompts(server);
 

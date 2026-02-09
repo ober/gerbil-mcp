@@ -36,9 +36,16 @@ export function registerEvalTool(server: McpServer): void {
           .describe(
             'Project directory for auto-configuring GERBIL_LOADPATH from .gerbil/lib',
           ),
+        env: z
+          .record(z.string())
+          .optional()
+          .describe(
+            'Environment variables to pass to the gxi subprocess ' +
+            '(e.g. {"DYLD_LIBRARY_PATH": "/usr/local/lib", "LD_LIBRARY_PATH": "/usr/local/lib"})',
+          ),
       },
     },
-    async ({ expression, imports, loadpath, project_path }) => {
+    async ({ expression, imports, loadpath, project_path, env: extraEnv }) => {
       const escaped = escapeSchemeString(expression);
 
       const exprs: string[] = [];
@@ -77,8 +84,9 @@ export function registerEvalTool(server: McpServer): void {
       if (project_path) {
         effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
       }
-      const env = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
-      const result = await runGxi(exprs, { env });
+      const loadpathEnv = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
+      const env = { ...loadpathEnv, ...extraEnv };
+      const result = await runGxi(exprs, { env: Object.keys(env).length > 0 ? env : undefined });
 
       if (result.timedOut) {
         return {
