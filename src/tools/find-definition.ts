@@ -239,11 +239,7 @@ function buildFindExpr(escapedSym: string, modulePath?: string): string {
     `                             (display "${RESULT_MARKER}ssi-path\\t")`,
     '                             (display resolved)',
     '                             (newline)',
-    '                             (let ((ss-path (string-append (path-strip-extension resolved) ".ss")))',
-    '                               (when (file-exists? ss-path)',
-    `                                 (display "${RESULT_MARKER}source-path\\t")`,
-    '                                 (display ss-path)',
-    '                                 (newline)))))))',
+    '                             ' + buildSourcePathEmit('resolved') + '))))',
     `                     ${modResolution}))))`,
     '              (else',
     `               (display "${RESULT_MARKER}kind\\tvalue\\n")`,
@@ -365,11 +361,40 @@ function extractFormPreview(
   return result.join('\n');
 }
 
+/**
+ * Generate Scheme code that emits source-path for a resolved .ssi path variable.
+ * First checks for .ss adjacent to .ssi in lib/, then falls back to lib/ → src/ rewrite.
+ */
+function buildSourcePathEmit(resolvedVar: string): string {
+  return [
+    `(let ((ss-path (string-append (path-strip-extension ${resolvedVar}) ".ss")))`,
+    '  (if (file-exists? ss-path)',
+    '    (begin',
+    `      (display "${RESULT_MARKER}source-path\\t")`,
+    '      (display ss-path)',
+    '      (newline))',
+    // Fallback: try src/ tree parallel to lib/
+    `    (let ((lib-idx (string-contains ${resolvedVar} "/lib/")))`,
+    '      (when lib-idx',
+    '        (let ((src-path (string-append',
+    `                          (substring ${resolvedVar} 0 lib-idx)`,
+    '                          "/src/"',
+    `                          (substring ${resolvedVar} (+ lib-idx 5)`,
+    `                                     (- (string-length ${resolvedVar}) 4))`,
+    '                          ".ss")))',
+    '          (when (file-exists? src-path)',
+    `            (display "${RESULT_MARKER}source-path\\t")`,
+    '            (display src-path)',
+    '            (newline)))))))',
+  ].join(' ');
+}
+
 function buildModuleResolution(modulePath: string): string {
   const modPath = modulePath.startsWith(':')
     ? modulePath
     : `:${modulePath}`;
 
+  const sourceEmit = buildSourcePathEmit('resolved');
   return [
     '(with-catch (lambda (e3) (void))',
     '  (lambda ()',
@@ -377,10 +402,6 @@ function buildModuleResolution(modulePath: string): string {
     `      (display "${RESULT_MARKER}ssi-path\\t")`,
     '      (display resolved)',
     '      (newline)',
-    '      (let ((ss-path (string-append (path-strip-extension resolved) ".ss")))',
-    '        (when (file-exists? ss-path)',
-    `          (display "${RESULT_MARKER}source-path\\t")`,
-    '          (display ss-path)',
-    '          (newline))))))',
+    '      ' + sourceEmit + ')))',
   ].join(' ');
 }

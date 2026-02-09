@@ -403,6 +403,7 @@ const REPL_SENTINEL = 'GERBIL-MCP-REPL-DONE';
 const MAX_SESSIONS = 5;
 const SESSION_IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 const EVAL_TIMEOUT = 30_000; // 30 seconds per expression
+const MAX_REPL_BUFFER = 512 * 1024; // 512KB per buffer — prevents unbounded growth
 
 export interface ReplSessionInfo {
   id: string;
@@ -465,10 +466,17 @@ export async function createReplSession(options?: {
 
   proc.stdout!.on('data', (chunk: Buffer) => {
     session.stdoutBuffer += chunk.toString();
+    // Trim buffer to prevent unbounded growth in long-running sessions
+    if (session.stdoutBuffer.length > MAX_REPL_BUFFER) {
+      session.stdoutBuffer = session.stdoutBuffer.slice(-MAX_REPL_BUFFER);
+    }
   });
 
   proc.stderr!.on('data', (chunk: Buffer) => {
     session.stderrBuffer += chunk.toString();
+    if (session.stderrBuffer.length > MAX_REPL_BUFFER) {
+      session.stderrBuffer = session.stderrBuffer.slice(-MAX_REPL_BUFFER);
+    }
   });
 
   proc.on('exit', () => {
@@ -567,35 +575,56 @@ function waitForSentinel(
   timeout: number,
 ): Promise<{ ok: boolean; text: string }> {
   return new Promise((resolve) => {
-    const startLen = session.stdoutBuffer.length;
+    let resolved = false;
+
     const timer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
       resolve({ ok: false, text: '' });
     }, timeout);
 
-    const check = (): void => {
+    const tryResolve = (): boolean => {
       const idx = session.stdoutBuffer.indexOf(REPL_SENTINEL);
       if (idx !== -1) {
-        clearTimeout(timer);
+        if (resolved) return true;
+        resolved = true;
+        cleanup();
         const text = session.stdoutBuffer.slice(0, idx);
         // Remove sentinel and trailing newline from buffer
         session.stdoutBuffer = session.stdoutBuffer.slice(
           idx + REPL_SENTINEL.length + 1,
         );
         resolve({ ok: true, text });
-        return;
+        return true;
       }
-
-      // Check if process has exited
-      if (session.process.exitCode !== null) {
-        clearTimeout(timer);
-        resolve({ ok: false, text: session.stdoutBuffer });
-        return;
-      }
-
-      setTimeout(check, 50);
+      return false;
     };
 
-    // Start checking after a small delay to let data arrive
-    setTimeout(check, 10);
+    const onData = (): void => {
+      tryResolve();
+    };
+
+    const onExit = (): void => {
+      if (resolved) return;
+      // Try one last time — data may have arrived before exit
+      if (tryResolve()) return;
+      resolved = true;
+      cleanup();
+      resolve({ ok: false, text: session.stdoutBuffer });
+    };
+
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      session.process.stdout?.removeListener('data', onData);
+      session.process.removeListener('exit', onExit);
+    };
+
+    // Listen for new data events instead of polling
+    session.process.stdout?.on('data', onData);
+    session.process.on('exit', onExit);
+
+    // Check if sentinel is already in the buffer (from before we started listening)
+    tryResolve();
   });
 }

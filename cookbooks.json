@@ -8448,5 +8448,131 @@
     ],
     "code": "(import :scheme/mapping/hash :scheme/comparator)\n\n;; Create hash-based immutable mapping\n(def cmp (make-default-comparator))\n(def m (hashmap cmp 'x 10 'y 20 'z 30))\n(hashmap? m)                    ; => #t\n(hashmap-size m)                ; => 3\n(hashmap-ref m 'x)              ; => 10\n\n;; Functional update\n(hashmap->alist (hashmap-set m 'w 40))    ; adds w\n(hashmap->alist (hashmap-delete m 'y))    ; removes y\n\n;; Access\n(hashmap-keys m)    ; => (y z x) (unordered)\n(hashmap-values m)  ; => (20 30 10)\n(hashmap->alist m)  ; => ((y . 20) (z . 30) (x . 10))\n\n;; Same API as :scheme/mapping but hash-based (unordered, O(1) average)",
     "notes": "Hash-based mappings are unordered (vs ordered tree-based :scheme/mapping). Same API surface but prefixed with hashmap- instead of mapping-. O(1) average access vs O(log n) for ordered mappings. Use when key ordering doesn't matter. Also provides: hashmap-union, hashmap-intersection, hashmap-difference, hashmap-fold, hashmap-map, hashmap-filter, etc."
+  },
+  {
+    "id": "syntax-case-macro-writing",
+    "title": "Writing macros with syntax-case",
+    "tags": [
+      "syntax-case",
+      "macro",
+      "defsyntax",
+      "pattern",
+      "template",
+      "hygiene",
+      "transformer",
+      "metaprogramming"
+    ],
+    "imports": [],
+    "code": ";; Basic syntax-case macro: custom 'my-when'\n(defsyntax (my-when stx)\n  (syntax-case stx ()\n    ((_ test body ...)\n     #'(if test (begin body ...)))))\n\n(my-when #t (displayln \"hello\"))  ;=> prints \"hello\"\n\n;; syntax-case with multiple patterns\n(defsyntax (swap! stx)\n  (syntax-case stx ()\n    ((_ a b)\n     #'(let ((tmp a))\n         (set! a b)\n         (set! b tmp)))))\n\n;; syntax-case with fender (guard clause)\n(defsyntax (assert-type stx)\n  (syntax-case stx ()\n    ((_ expr pred msg)\n     #'(let ((v expr))\n         (unless (pred v)\n           (error msg v))\n         v))))\n\n;; Generating identifiers with datum->syntax\n(defsyntax (define-accessor stx)\n  (syntax-case stx ()\n    ((_ name field)\n     (with-syntax ((getter (datum->syntax #'name\n                    (string->symbol\n                      (string-append (symbol->string (syntax->datum #'name))\n                                     \"-\"\n                                     (symbol->string (syntax->datum #'field)))))))\n       #'(def (getter obj) (hash-get obj 'field))))))",
+    "notes": "syntax-case is the core macro system in Gerbil. Use defsyntax to define a macro transformer. The stx parameter is the full syntax object including the macro name. Patterns use _ for the macro name itself, ... for repetition. #' is short for (syntax ...) to construct output templates. Use datum->syntax to create hygienic identifiers. For simple pattern-matching macros, prefer defrules (simpler syntax). Use syntax-case when you need: fenders (guard clauses), programmatic identifier generation, or complex transformations."
+  },
+  {
+    "id": "gerbil-loadpath-configuration",
+    "title": "GERBIL_LOADPATH configuration patterns",
+    "tags": [
+      "loadpath",
+      "GERBIL_LOADPATH",
+      "configuration",
+      "build",
+      "module",
+      "resolution",
+      "path",
+      "project"
+    ],
+    "imports": [],
+    "code": ";; GERBIL_LOADPATH tells gxi/gxc where to find compiled modules.\n;; It's a colon-separated list of directories (like PATH).\n\n;; For a project that depends on locally-linked packages:\n;;   export GERBIL_LOADPATH=/path/to/dep1/.gerbil/lib:/path/to/dep2/.gerbil/lib\n\n;; For a project with its own build output:\n;;   export GERBIL_LOADPATH=.gerbil/lib\n\n;; In gerbil.pkg, use depend: to declare dependencies:\n;;   (package: myproject\n;;    depend: (github.com/user/lib1 github.com/user/lib2))\n;; The build system auto-resolves these from ~/.gerbil/lib\n\n;; Common issues:\n;; 1. \"module not found\" → check GERBIL_LOADPATH includes the .gerbil/lib dir\n;; 2. Build works but run fails → set GERBIL_LOADPATH at runtime too\n;; 3. Stale modules → rebuild dependencies: gerbil pkg build\n;; 4. Multiple versions → GERBIL_LOADPATH is searched left-to-right, first match wins\n\n;; Shell setup for development:\n;; export GERBIL_LOADPATH=\"$PWD/.gerbil/lib:$HOME/.gerbil/lib\"\n;; gxi -e '(import :myproject/main) (run)'",
+    "notes": "GERBIL_LOADPATH is the most common source of 'module not found' errors. Always set it when working with multi-project setups. The gerbil-mcp tools accept loadpath and project_path parameters to handle this automatically. For gerbil.pkg depend: entries, the build system looks in ~/.gerbil/pkg/ for installed packages."
+  },
+  {
+    "id": "reader-macros-datum-comment",
+    "title": "Gerbil reader extensions and datum comments",
+    "tags": [
+      "reader",
+      "macro",
+      "datum",
+      "comment",
+      "hash",
+      "syntax",
+      "read",
+      "special"
+    ],
+    "imports": [],
+    "code": ";; Datum comment: #; comments out the next datum (any S-expression)\n(list 1 #;2 3)        ;=> (1 3) — the 2 is skipped\n\n;; Useful for temporarily disabling code blocks:\n#;(def (debug-fn)\n    (displayln \"debug output\"))\n\n;; Hash reader extensions in Gerbil:\n;; #t #f     — boolean true/false\n;; #\\c       — character literal (#\\space, #\\newline, #\\tab)\n;; #(1 2 3)  — vector literal\n;; #u8(1 2)  — u8vector literal\n;; #!void    — void value\n;; #!eof     — eof object\n;; #!optional #!key #!rest — parameter markers (Gambit)\n;; #;datum   — datum comment (skip next form)\n;; #|...|#   — block comment (nestable)\n;; #'expr    — (syntax expr) — syntax template\n;; #`expr    — (quasisyntax expr)\n;; #,expr    — (unsyntax expr)\n;; #,@expr   — (unsyntax-splicing expr)\n\n;; Note: Gerbil uses [ ] for lists (not vectors like Racket)\n[1 2 3]   ;=> list: (1 2 3)\n#(1 2 3)  ;=> vector: #(1 2 3)",
+    "notes": "Datum comments (#;) are extremely useful for debugging — they comment out exactly one S-expression regardless of how many lines it spans. Block comments #|...|# are nestable (unlike C /* */). The [ ] vs #( ) distinction from Racket is a common source of confusion for people porting code."
+  },
+  {
+    "id": "defrules-vs-syntax-case",
+    "title": "defrules vs syntax-case: when to use which",
+    "tags": [
+      "defrules",
+      "syntax-case",
+      "macro",
+      "comparison",
+      "when",
+      "pattern",
+      "simple",
+      "complex"
+    ],
+    "imports": [],
+    "code": ";; defrules: simple pattern-matching macros (like syntax-rules but Gerbil-native)\n(defrules my-or ()\n  ((_) #f)\n  ((_ e) e)\n  ((_ e1 e2 ...)\n   (let ((t e1))\n     (if t t (my-or e2 ...)))))\n\n;; syntax-case: full macro transformer with programmatic control\n(defsyntax (my-or2 stx)\n  (syntax-case stx ()\n    ((_) #'#f)\n    ((_ e) #'e)\n    ((_ e1 e2 ...)\n     #'(let ((t e1))\n         (if t t (my-or2 e2 ...))))))\n\n;; USE defrules WHEN:\n;; - Pure pattern matching with templates\n;; - No need for computed identifiers\n;; - No guard clauses needed\n;; - Simpler, more readable\n\n;; USE syntax-case WHEN:\n;; - Need guard clauses (fenders): ((_ x) (identifier? #'x) #'...)\n;; - Need to generate identifiers: (datum->syntax ...)\n;; - Need to inspect syntax at expand time\n;; - Need to call helper functions during expansion\n;; - Need to use with-syntax for intermediate bindings\n\n;; Example: syntax-case with fender (can't do this with defrules)\n(defsyntax (assert-id stx)\n  (syntax-case stx ()\n    ((_ x)\n     (identifier? #'x)  ;; fender: only matches identifiers\n     #'(displayln (quote x)))))",
+    "notes": "defrules is syntactic sugar over syntax-case — it's simpler but less powerful. Most macros can be written with defrules. Switch to syntax-case when you need guards (fenders), programmatic identifier construction, or complex compile-time computation. Both produce hygienic macros."
+  },
+  {
+    "id": "debugging-compiled-vs-repl",
+    "title": "Debugging compiled vs REPL differences",
+    "tags": [
+      "debug",
+      "compiled",
+      "REPL",
+      "difference",
+      "gxc",
+      "gxi",
+      "build",
+      "troubleshoot"
+    ],
+    "imports": [],
+    "code": ";; Common reasons code works in REPL but fails when compiled:\n\n;; 1. MISSING IMPORTS\n;; REPL has many builtins available; compiled code needs explicit imports\n;; Fix: Add all required (import ...) declarations\n\n;; 2. TOP-LEVEL SIDE EFFECTS\n;; REPL evaluates sequentially; compiled modules may reorder\n;; Fix: Use (def ...) for definitions, put side effects in explicit init functions\n\n;; 3. STALE ARTIFACTS\n;; Old compiled files shadow new code\n;; Fix: gerbil clean && gerbil build\n;; Or use gerbil_stale_static to detect stale global artifacts\n\n;; 4. LOADPATH DIFFERENCES\n;; REPL may find modules that compiled binary can't\n;; Fix: Set GERBIL_LOADPATH consistently for both\n\n;; 5. MACRO PHASE ISSUES\n;; Macros used before they're defined in compiled module\n;; Fix: Put macro definitions before their first use, or use begin-syntax\n\n;; Debugging workflow:\n;; 1. gerbil_compile_check — catches unbound identifiers\n;; 2. gerbil_stale_static — finds artifact conflicts\n;; 3. gerbil_bisect_crash — isolates the crashing form\n;; 4. gerbil_demangle — decode C symbols from crash backtrace\n;; 5. Run with: gxi -e '(import :mymod) (my-function)' to test in REPL",
+    "notes": "The #1 cause of 'works in REPL, fails compiled' is missing imports. The REPL has many Gambit builtins available implicitly. Use gerbil_compile_check (gxc -S) to catch these before building. Stale artifacts in ~/.gerbil/lib/static/ are the #1 cause of segfaults in compiled code."
+  },
+  {
+    "id": "profiling-optimization-workflow",
+    "title": "Profiling and optimizing Gerbil code",
+    "tags": [
+      "profile",
+      "optimize",
+      "performance",
+      "benchmark",
+      "timing",
+      "gc",
+      "memory",
+      "declare"
+    ],
+    "imports": [],
+    "code": ";; Step 1: Benchmark to establish baseline\n;; Use gerbil_benchmark tool or:\n(time (my-expensive-function))\n\n;; Step 2: Profile specific functions\n;; Use gerbil_profile tool to instrument functions with timing\n\n;; Step 3: Check memory allocation\n;; Use gerbil_heap_profile to measure GC pressure\n\n;; Step 4: Apply optimizations\n\n;; COMPILATION FLAGS (biggest impact):\n;; gerbil build --release  ;; enables -O and static linking\n;; Or in build.ss: (compile! ... \"-O\")\n\n;; SAFE DECLARATIONS (for inner loops only):\n(def (fast-sum vec)\n  (declare (not safe) (fixnum))\n  (let loop ((i 0) (acc 0))\n    (if (fx< i (vector-length vec))\n      (loop (fx+ i 1) (fx+ acc (vector-ref vec i)))\n      acc)))\n\n;; TYPED ACCESS with 'using' (avoids dispatch overhead):\n(defstruct point (x y) transparent:)\n(def (distance p1 p2)\n  (using (p1 :~ point)\n    (using (p2 :~ point)\n      (sqrt (+ (expt (- (point-x p2) (point-x p1)) 2)\n               (expt (- (point-y p2) (point-y p1)) 2))))))\n\n;; AVOID ALLOCATION in hot loops:\n;; BAD: (string-append a b) in loop (allocates new string each time)\n;; GOOD: use output string port and get-output-string at the end\n(def (join-strings lst)\n  (let ((port (open-output-string)))\n    (for-each (lambda (s) (display s port)) lst)\n    (get-output-string port)))",
+    "notes": "The -O flag is the single biggest optimization (10-100x). Only use (declare (not safe)) in proven hot loops — it disables bounds checking and type checking. Use fx+ fl+ for fixnum/flonum arithmetic without boxing. The 'using' macro enables direct slot access for structs."
+  },
+  {
+    "id": "bisect-crash-workflow",
+    "title": "Bisect a crashing Gerbil file to isolate the failing form",
+    "tags": [
+      "bisect",
+      "crash",
+      "debug",
+      "segfault",
+      "isolate",
+      "binary-search",
+      "stale",
+      "static",
+      "workflow",
+      "compiled"
+    ],
+    "imports": [],
+    "code": ";; Workflow for isolating crashes in compiled Gerbil code:\n;;\n;; Step 1: Check for stale static artifacts first\n;;   Use gerbil_stale_static with project_path to compare\n;;   global $GERBIL_PATH/lib/static/ vs project-local .gerbil/lib/static/\n;;   Stale global copies shadow current build → segfaults, #!unbound errors\n;;\n;; Step 2: If stale files found, remove them and rebuild:\n;;   rm ~/.gerbil/lib/static/<stale-files>\n;;   gerbil build\n;;\n;; Step 3: If crash persists, use gerbil_bisect_crash with file_path\n;;   It binary-searches top-level forms while keeping preamble\n;;   (imports, exports, declarations, begin-foreign, extern)\n;;   Returns the minimal set of forms that reproduce the crash\n;;\n;; Step 4: For compiled-only crashes (works in REPL but not compiled):\n;;   - Check for unquoted symbols that REPL auto-quotes\n;;   - Check for hash literal symbol keys: (hash (foo 1)) vs (hash ('foo 1))\n;;   - Check for begin-foreign c-define without matching extern\n;;   - Use gerbil_demangle on GDB backtrace symbols to identify crash location\n;;\n;; Step 5: Check linked package staleness\n;;   Use gerbil_stale_linked_pkg to find packages linked via\n;;   gerbil pkg link whose source is newer than compiled artifacts\n;;   Rebuild with: gerbil pkg build <package-name>",
+    "notes": "This is a workflow recipe, not runnable code. It documents the diagnostic sequence for crashes in compiled Gerbil binaries. The gerbil_bisect_crash tool automates the binary search, but checking for stale artifacts first often resolves the issue without bisection. Common root causes: stale global static files after a Gerbil upgrade, stale linked packages after source edits, and hash literal symbol keys that work in REPL but fail when compiled.",
+    "related": [
+      "stale-global-static-files-segfault",
+      "debug-compiled-only-segfault",
+      "debugging-compiled-vs-repl"
+    ]
   }
 ]

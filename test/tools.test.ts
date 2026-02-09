@@ -1945,6 +1945,45 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.text).toContain('Kind: procedure');
       expect(result.text).not.toContain('Source preview');
     });
+
+    it('gerbil_find_definition resolves stdlib source via src/ tree', async () => {
+      const result = await client.callTool('gerbil_find_definition', {
+        symbol: 'read-json',
+        module_path: ':std/text/json',
+        source_preview: true,
+        preview_lines: 10,
+      });
+      expect(result.isError).toBe(false);
+      // The lib/ → src/ rewrite should find the actual source file
+      expect(result.text).toContain('Source file:');
+      expect(result.text).toContain('/src/');
+      expect(result.text).toContain('.ss');
+      expect(result.text).not.toContain('not available');
+      // With source_preview: true, we should get actual Scheme code
+      expect(result.text).toContain('Source preview');
+      expect(result.text).toContain('```scheme');
+    });
+
+    it('gerbil_find_definition resolves source via module_path fallback', async () => {
+      // Use a macro symbol that goes through buildModuleResolution path
+      const result = await client.callTool('gerbil_find_definition', {
+        symbol: 'defrules',
+        module_path: ':std/sugar',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Source file:');
+      expect(result.text).toContain('/src/');
+      expect(result.text).not.toContain('not available');
+    });
+
+    it('gerbil_find_definition gracefully handles missing source', async () => {
+      // Gambit primitive — no source available
+      const result = await client.callTool('gerbil_find_definition', {
+        symbol: 'car',
+      });
+      expect(result.isError).toBe(false);
+      // car is a Gambit built-in, no module .ssi to resolve
+    });
   });
 
   // ── Check exports tool ──────────────────────────────────────────────
@@ -4519,6 +4558,472 @@ void copy_data(const uint8_t *src, int len) {
     it('gerbil://cookbooks/{id} returns not found for unknown id', async () => {
       const result = await client.readResource('gerbil://cookbooks/nonexistent-recipe-xyz');
       expect(result.contents[0].text).toContain('not found');
+    });
+  });
+
+  // ── Smart complete tool ──────────────────────────────────────
+
+  describe('Smart complete tool', () => {
+    it('returns completions for a prefix using apropos', async () => {
+      const result = await client.callTool('gerbil_smart_complete', {
+        prefix: 'hash-',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('hash-');
+    });
+
+    it('returns completions scoped to specific modules', async () => {
+      const result = await client.callTool('gerbil_smart_complete', {
+        prefix: 'read-',
+        modules: [':std/text/json'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('read-json');
+    });
+
+    it('returns no completions for nonexistent prefix', async () => {
+      const result = await client.callTool('gerbil_smart_complete', {
+        prefix: 'zzzznonexistent',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text.toLowerCase()).toContain('no');
+    });
+  });
+
+  // ── Explain error tool ───────────────────────────────────────
+
+  describe('Explain error tool', () => {
+    it('classifies wrong number of arguments error', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Wrong number of arguments passed to procedure hash-get',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Arity Error');
+      expect(result.text).toContain('gerbil_function_signature');
+    });
+
+    it('classifies unbound identifier error', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Unbound identifier: my-missing-function',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Unbound Identifier');
+      expect(result.text).toContain('gerbil_suggest_imports');
+    });
+
+    it('classifies import conflict error', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Bad binding; import conflict for symbol map',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Import Conflict');
+    });
+
+    it('classifies segfault error', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Segmentation fault (core dumped)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Segfault');
+      expect(result.text).toContain('gerbil_stale_static');
+    });
+
+    it('handles unknown error gracefully', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Some completely unknown error xyzzy',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Unknown');
+    });
+
+    it('includes code analysis suggestions when code is provided', async () => {
+      const result = await client.callTool('gerbil_explain_error', {
+        error_message: 'Wrong number of arguments',
+        code: '(hash-get table key default)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Code Analysis');
+    });
+  });
+
+  // ── Diff modules tool ────────────────────────────────────────
+
+  describe('Diff modules tool', () => {
+    it('compares two different modules', async () => {
+      const result = await client.callTool('gerbil_diff_modules', {
+        module_a: ':std/text/json',
+        module_b: ':std/text/csv',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Module Diff');
+      expect(result.text).toContain(':std/text/json');
+      expect(result.text).toContain(':std/text/csv');
+    });
+
+    it('shows shared exports when comparing same module', async () => {
+      const result = await client.callTool('gerbil_diff_modules', {
+        module_a: ':std/text/json',
+        module_b: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Shared');
+    });
+
+    it('handles non-existent module gracefully', async () => {
+      const result = await client.callTool('gerbil_diff_modules', {
+        module_a: ':std/text/json',
+        module_b: ':std/nonexistent/module/xyz',
+      });
+      // Should still return some output (partial results or error)
+      expect(result.text.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── Migration check tool ─────────────────────────────────────
+
+  describe('Migration check tool', () => {
+    it('detects getopt module rename', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-migration-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      const testFile = join(tempDir, 'test.ss');
+      writeFileSync(testFile, '(import :std/getopt)\n(def (main) (call-with-getopt ...))\n');
+
+      try {
+        const result = await client.callTool('gerbil_migration_check', {
+          file_path: testFile,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('getopt');
+        expect(result.text).toContain(':std/cli/getopt');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no issues for clean file', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-migration-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      const testFile = join(tempDir, 'clean.ss');
+      writeFileSync(testFile, '(import :std/sugar)\n(def (hello) (displayln "hi"))\n');
+
+      try {
+        const result = await client.callTool('gerbil_migration_check', {
+          file_path: testFile,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No migration issues');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing file', async () => {
+      const result = await client.callTool('gerbil_migration_check', {
+        file_path: '/tmp/nonexistent-file-xyz.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Error reading file');
+    });
+  });
+
+  // ── Dead code tool ───────────────────────────────────────────
+
+  describe('Dead code tool', () => {
+    it('detects unused definitions', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-dead-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(export used-fn)\n(def (used-fn) 42)\n(def (unused-helper) 99)\n');
+
+      try {
+        const result = await client.callTool('gerbil_dead_code', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('unused-helper');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no dead code for well-used project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-dead-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(export my-fn)\n(def (my-fn) (helper))\n(def (helper) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_dead_code', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        // helper is used by my-fn so should not be reported
+        expect(result.text).not.toContain('helper');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing directory', async () => {
+      const result = await client.callTool('gerbil_dead_code', {
+        project_path: '/tmp/nonexistent-dir-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+  });
+
+  // ── Dependency cycles tool ───────────────────────────────────
+
+  describe('Dependency cycles tool', () => {
+    it('detects no cycles in acyclic project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-cycles-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'gerbil.pkg'), '(package: mytest)');
+      writeFileSync(join(tempDir, 'a.ss'), '(import :std/sugar)\n(export a-fn)\n(def (a-fn) 42)\n');
+      writeFileSync(join(tempDir, 'b.ss'), '(import :mytest/a)\n(export b-fn)\n(def (b-fn) (a-fn))\n');
+
+      try {
+        const result = await client.callTool('gerbil_dependency_cycles', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No circular dependencies');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('detects cycles in circular project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-cycles-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'gerbil.pkg'), '(package: mytest)');
+      writeFileSync(join(tempDir, 'a.ss'), '(import :mytest/b)\n(export a-fn)\n(def (a-fn) (b-fn))\n');
+      writeFileSync(join(tempDir, 'b.ss'), '(import :mytest/a)\n(export b-fn)\n(def (b-fn) (a-fn))\n');
+
+      try {
+        const result = await client.callTool('gerbil_dependency_cycles', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('cycle');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('requires gerbil.pkg', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-cycles-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'a.ss'), '(def (a-fn) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_dependency_cycles', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain('gerbil.pkg');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+  });
+
+  // ── Generate API docs tool ───────────────────────────────────
+
+  describe('Generate API docs tool', () => {
+    it('generates docs for a standard module', async () => {
+      const result = await client.callTool('gerbil_generate_api_docs', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('API Reference');
+      expect(result.text).toContain(':std/text/json');
+      expect(result.text).toContain('exports');
+    });
+
+    it('accepts custom title', async () => {
+      const result = await client.callTool('gerbil_generate_api_docs', {
+        module_path: ':std/text/json',
+        title: 'JSON Module Docs',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('JSON Module Docs');
+    });
+
+    it('handles non-existent module', async () => {
+      const result = await client.callTool('gerbil_generate_api_docs', {
+        module_path: ':std/nonexistent/module/xyz',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── New prompts (optimize, migrate, ffi, refactor) ──────────
+
+  describe('New prompts (D1)', () => {
+    it('optimize-gerbil-code returns optimization guidance', async () => {
+      const result = await client.callPrompt('optimize-gerbil-code', {
+        code: '(def (slow) (for-each displayln (iota 1000)))',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('Optimize');
+      expect(result.messages[0].content.text).toContain('declare');
+    });
+
+    it('migrate-gerbil-version returns migration guidance', async () => {
+      const result = await client.callPrompt('migrate-gerbil-version', {
+        code: '(import :std/getopt)',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('Migrate');
+      expect(result.messages[0].content.text).toContain(':std/cli/getopt');
+    });
+
+    it('design-ffi-bindings returns FFI design guidance', async () => {
+      const result = await client.callPrompt('design-ffi-bindings', {
+        header_or_api: 'void* create_context(); void destroy_context(void* ctx);',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('FFI');
+      expect(result.messages[0].content.text).toContain('c-lambda');
+    });
+
+    it('refactor-gerbil-module returns refactoring guidance', async () => {
+      const result = await client.callPrompt('refactor-gerbil-module', {
+        module_path: ':myapp/handler',
+        goal: 'split into smaller modules',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain(':myapp/handler');
+      expect(result.messages[0].content.text).toContain('split');
+    });
+  });
+
+  // ── Updated prompts (D2 improvements) ────────────────────────
+
+  describe('Prompt improvements (D2)', () => {
+    it('debug-gerbil-error mentions gerbil_describe', async () => {
+      const result = await client.callPrompt('debug-gerbil-error', {
+        error_message: 'some error',
+      });
+      expect(result.messages[0].content.text).toContain('gerbil_describe');
+    });
+
+    it('debug-gerbil-error mentions gerbil_explain_error', async () => {
+      const result = await client.callPrompt('debug-gerbil-error', {
+        error_message: 'some error',
+      });
+      expect(result.messages[0].content.text).toContain('gerbil_explain_error');
+    });
+
+    it('review-code mentions security scan', async () => {
+      const result = await client.callPrompt('review-code', {
+        code: '(def (foo) 42)',
+      });
+      expect(result.messages[0].content.text).toContain('gerbil_security_scan');
+    });
+
+    it('review-code mentions FFI safety', async () => {
+      const result = await client.callPrompt('review-code', {
+        code: '(def (foo) 42)',
+      });
+      expect(result.messages[0].content.text).toContain('FFI');
+    });
+
+    it('write-gerbil-module mentions cookbook', async () => {
+      const result = await client.callPrompt('write-gerbil-module', {
+        module_name: 'myapp/test',
+        purpose: 'test things',
+      });
+      expect(result.messages[0].content.text).toContain('gerbil_howto');
+    });
+
+    it('convert-to-gerbil mentions keyword arguments', async () => {
+      const result = await client.callPrompt('convert-to-gerbil', {
+        code: 'def hello(): print("hi")',
+        source_language: 'Python',
+      });
+      expect(result.messages[0].content.text).toContain('trailing colon');
+    });
+
+    it('port-to-gerbil mentions quasiquote', async () => {
+      const result = await client.callPrompt('port-to-gerbil', {
+        code: '(define (hello) (display "hi"))',
+      });
+      expect(result.messages[0].content.text).toContain('quasiquote');
+    });
+
+    it('generate-tests mentions async testing', async () => {
+      const result = await client.callPrompt('generate-tests', {
+        module_path: ':myapp/utils',
+      });
+      expect(result.messages[0].content.text).toContain('async');
+    });
+  });
+
+  // ── Multi-module integration tests (F1) ──────────────────────
+
+  describe('Multi-module integration tests', () => {
+    it('check_exports works across multiple modules', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-multi-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'gerbil.pkg'), '(package: testpkg)');
+      writeFileSync(join(tempDir, 'utils.ss'),
+        '(export add-nums)\n(def (add-nums a b) (+ a b))\n');
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(import :testpkg/utils)\n(export run)\n(def (run) (add-nums 3 4))\n');
+
+      try {
+        const result = await client.callTool('gerbil_check_exports', {
+          project_path: tempDir,
+        });
+        // Should return results without error (could report issues or clean)
+        expect(result.text.length).toBeGreaterThan(0);
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('project_dep_graph shows module relationships', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-multi-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'gerbil.pkg'), '(package: testpkg)');
+      writeFileSync(join(tempDir, 'a.ss'), '(export a-fn)\n(def (a-fn) 1)\n');
+      writeFileSync(join(tempDir, 'b.ss'), '(import :testpkg/a)\n(export b-fn)\n(def (b-fn) (a-fn))\n');
+      writeFileSync(join(tempDir, 'c.ss'), '(import :testpkg/a :testpkg/b)\n(export c-fn)\n(def (c-fn) (+ (a-fn) (b-fn)))\n');
+
+      try {
+        const result = await client.callTool('gerbil_project_dep_graph', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('testpkg');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('dependency_cycles and dep_graph agree on acyclic project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-multi-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'gerbil.pkg'), '(package: testpkg)');
+      writeFileSync(join(tempDir, 'a.ss'), '(export a)\n(def (a) 1)\n');
+      writeFileSync(join(tempDir, 'b.ss'), '(import :testpkg/a)\n(export b)\n(def (b) (a))\n');
+
+      try {
+        const cyclesResult = await client.callTool('gerbil_dependency_cycles', {
+          project_path: tempDir,
+        });
+        expect(cyclesResult.text).toContain('No circular');
+
+        const graphResult = await client.callTool('gerbil_project_dep_graph', {
+          project_path: tempDir,
+        });
+        expect(graphResult.isError).toBe(false);
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
     });
   });
 });

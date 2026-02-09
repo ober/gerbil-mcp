@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 302 tests must pass before considering any change complete. The test suite covers:
+All 344 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -127,6 +127,17 @@ All 302 tests must pass before considering any change complete. The test suite c
 - Describe tool (hash table, list, number, string, boolean, procedure description, error handling)
 - New prompts (write-gerbil-module, debug-gerbil-error, port-to-gerbil)
 - Cookbook resources (gerbil://cookbooks index, gerbil://cookbooks/{id} detail, unknown id handling)
+- Smart complete tool (prefix-based symbol completion, module-scoped completion)
+- Explain error tool (arity mismatch classification, unbound identifier classification, unknown error fallback, cookbook recipe lookup)
+- Diff modules tool (added/removed/shared export comparison, same-module comparison)
+- Migration check tool (v0.18→v0.19 pattern detection, clean file no issues)
+- Dead code tool (unexported uncalled definition detection, project-wide scan)
+- Dependency cycles tool (circular import detection, cycle-free project handling)
+- Generate API docs tool (procedure/macro/value classification, custom title)
+- New prompts (optimize-gerbil-code, migrate-gerbil-version, design-ffi-bindings, refactor-gerbil-module)
+- Prompt improvements (debug-error with describe/explain, review with security scan, write-module with howto, convert with keywords, generate-tests with async, port with quasiquote)
+- Multi-module integration tests (check_exports + dep_graph + dependency_cycles agreement)
+- Find definition stdlib source lookup (lib/ → src/ path rewrite, module_path fallback, missing source graceful handling)
 
 
 ### Adding a New Tool

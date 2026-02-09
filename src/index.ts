@@ -80,32 +80,64 @@ import { registerHowtoGetTool } from './tools/howto-get.js';
 import { registerStaleLinkedPkgTool } from './tools/stale-linked-pkg.js';
 import { registerFfiTypeCheckTool } from './tools/ffi-type-check.js';
 import { registerDescribeTool } from './tools/describe.js';
+import { registerSmartCompleteTool } from './tools/smart-complete.js';
+import { registerExplainErrorTool } from './tools/explain-error.js';
+import { registerDiffModulesTool } from './tools/diff-modules.js';
+import { registerMigrationCheckTool } from './tools/migration-check.js';
+import { registerDeadCodeTool } from './tools/dead-code.js';
+import { registerDependencyCyclesTool } from './tools/dependency-cycles.js';
+import { registerGenerateApiDocsTool } from './tools/generate-api-docs.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
-- BEFORE writing ANY Gerbil code: FIRST use gerbil_howto to search the cookbook for relevant patterns. The cookbook contains 240+ verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g. "dialog create", "layout parent", "hash iterate", "json parse"). Skipping this step has repeatedly caused bugs that were already solved in the cookbook.
+## Essential Tools (Always Use)
+
+- BEFORE writing ANY Gerbil code: FIRST use gerbil_howto to search the cookbook for relevant patterns. The cookbook contains 394+ verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g. "dialog create", "layout parent", "hash iterate", "json parse"). Skipping this step has repeatedly caused bugs that were already solved in the cookbook.
 - BEFORE finalizing Gerbil code involving FFI, shell commands, file I/O, or C shims: run gerbil_security_scan on the file or project. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation. Skipping this step risks shipping code with known vulnerability patterns.
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures. Use loadpath or project_path to resolve project-local dependency modules.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
+- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors. Use loadpath or project_path for dependency modules.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
+- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files.
+- To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths.
+- When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
+- To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
+
+## Common Tools (Use Frequently)
+
+- To get smart completions: use gerbil_smart_complete with a partial symbol prefix and optional module list. Returns valid completions scoped to imported modules, dramatically reducing guessing.
+- To debug errors: use gerbil_explain_error with an error message for automated classification, cause analysis, relevant cookbook recipes, and suggested tool calls to investigate.
 - When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context. Use env parameter for FFI library paths.
 - To trace let bindings: use gerbil_trace_eval to step through let*/let/letrec/letrec* bindings, showing each variable's name, type, and value as it is bound.
 - To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
 - When understanding macros: use gerbil_expand_macro to see what sugar forms expand to.
-- BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors. Use loadpath or project_path for dependency modules.
 - When understanding module structure: use gerbil_module_deps to see what a module imports and depends on.
 - When analyzing user code: use gerbil_load_file to extract definitions from Gerbil source files.
-- When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
-- To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
 - To understand complex macros: use gerbil_trace_macro for step-by-step expansion showing each transformation.
 - For multi-step exploration: use gerbil_repl_session to maintain persistent state across evaluations. Use project_path or loadpath on create to work within a project's build context. Use env parameter for FFI library paths.
-- To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
-- To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol. Set source_preview: true to include the actual source code.
+- To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol. Set source_preview: true to include the actual source code. Automatically resolves standard library source files via the Gerbil installation's src/ tree (lib/ → src/ path rewrite).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions with re-export awareness, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, byte/char port type mismatch, compilation errors).
+- To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
+- To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
+- To find imports: use gerbil_suggest_imports to discover which module exports a given symbol.
+- To find code recipes: use gerbil_howto to search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use compact: true for a brief listing, then gerbil_howto_get to fetch full recipe by id.
+- To fetch a recipe by id: use gerbil_howto_get with a recipe id to retrieve the full code, imports, and notes.
+- To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session. Use gerbil_version to tag version-specific recipes.
+- To get a module catalog: use gerbil_module_catalog for a compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for :std/sugar, :std/iter. Replaces multiple gerbil_doc calls.
+
+## Specialized Tools
+
+- To compare module exports: use gerbil_diff_modules to see added/removed/shared exports between two modules. Critical for version migration.
+- To check migration compatibility: use gerbil_migration_check to scan a file for v0.18 patterns that need updating for v0.19.
+- To detect dead code: use gerbil_dead_code to find unexported, uncalled definitions across a project.
+- To detect circular dependencies: use gerbil_dependency_cycles to find circular module imports that cause compilation errors.
+- To generate API docs: use gerbil_generate_api_docs to produce markdown documentation from a module's exports with arities and types.
 - To build a Gerbil project: use gerbil_build_project to compile or clean a project directory using gxpkg.
 - To explore packages: use gerbil_package_info to list installed packages, search the package directory, or view package metadata.
 - To format Gerbil code: use gerbil_format to pretty-print expressions using Gambit's pretty-print.
@@ -115,56 +147,71 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To create a new project: use gerbil_scaffold to generate a project template with gerbil.pkg and build.ss.
 - To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages.
 - To find symbol usages: use gerbil_find_callers to search a directory for files that reference a given symbol.
-- To find imports: use gerbil_suggest_imports to discover which module exports a given symbol.
 - To get structured diagnostics: use gerbil_diagnostics for file/project compilation diagnostics with file, line, column, severity.
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
 - To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
 - To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
-- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions with re-export awareness, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, byte/char port type mismatch, compilation errors).
-- To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
-- To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess. Handles #! reader directives and suggests cross-checking with gerbil_read_forms on errors.
+- To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
 - To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.
-- To profile function performance: use gerbil_profile to instrument specific functions with call counting and timing while running an expression. Shows per-function call count, time, and percentage.
-- To analyze memory usage: use gerbil_heap_profile to capture GC heap metrics (heap size, allocation, live objects) before and after running an expression.
-- To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead. Useful for finding hot functions.
-- To visualize call relationships: use gerbil_call_graph to see which functions call which other functions in a source file (static analysis).
-- To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports. Saves time writing boilerplate test files.
-- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files. Detects missing C system headers and suggests package install commands.
+- To profile function performance: use gerbil_profile to instrument specific functions with call counting and timing.
+- To analyze memory usage: use gerbil_heap_profile to capture GC heap metrics before and after running an expression.
+- To count function calls: use gerbil_trace_calls for lightweight call counting without timing overhead.
+- To visualize call relationships: use gerbil_call_graph to see which functions call which in a source file (static analysis).
+- To scaffold tests: use gerbil_scaffold_test to generate a :std/test skeleton from a module's exports.
 - To generate module stubs: use gerbil_generate_module_stub to create a module skeleton matching another module's exported signatures.
-- To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent across a project.
-- To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to an existing template file.
-- To find code recipes: use gerbil_howto to search curated Gerbil idioms and code examples by keyword (e.g. "json parse", "file read", "channel thread"). Use compact: true for a brief listing, then gerbil_howto_get to fetch full recipe by id.
-- To fetch a recipe by id: use gerbil_howto_get with a recipe id to retrieve the full code, imports, and notes.
-- To save a new Gerbil recipe: use gerbil_howto_add to append idioms discovered during a session to a cookbook JSON file (convention: \`.claude/cookbooks.json\` in the project root). Use gerbil_version to tag version-specific recipes (e.g. "v0.18", "v0.19"). Use valid_for to record confirmed-working versions (e.g. ["v0.18.1-173", "v0.19.0-42"]).
-- To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
+- To check export consistency: use gerbil_check_exports to verify that exports match definitions and cross-module imports are consistent.
+- To generate modules from templates: use gerbil_generate_module to create new modules by applying substitutions to a template.
 - To run Makefile targets: use gerbil_make to run make targets in a Gerbil project directory.
-- To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments across a project or single file. Reports mismatches between call sites and known arities.
-- To find tests affected by signature changes: use gerbil_check_test_arity to scan *-test.ss files for calls to a specific function and compare against its current arity. Quickly identifies which tests need updating after a refactor.
-- To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports. Reports pass/fail for each recipe. Use compile_check: true to also run gxc compilation, which catches unbound identifiers and REPL-only patterns. Shows valid_for (tested versions) per recipe.
-- To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers, search standard library modules, and generate a suggested import block.
-- To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion to the features file for future consideration. Use gerbil_version to tag version-specific features (e.g. "v0.18", "v0.19").
-- To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions and check for duplicates before suggesting new ones. Use gerbil_version to filter by Gerbil version.
-- To vote for a feature: use gerbil_vote_feature to increment the vote count for a feature you could have used. Votes help prioritize which features to implement next.
-- To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers from GDB/core dumps back to readable Gerbil module/function paths.
-- To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files and find stale copies that could shadow the current build.
-- For balance-safe editing: use gerbil_balanced_replace instead of string replace. It validates delimiter balance before and after the edit, rejecting changes that break balance. Dry-run by default.
-- To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form (e.g. when, let, begin) with guaranteed matching parentheses. Auto-detects form boundaries. Dry-run by default.
-- To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children. The inverse of wrap. Dry-run by default.
-- To generate FFI bindings: use gerbil_ffi_scaffold to parse a C header file and generate Gambit FFI binding code with c-define-type, c-lambda, and define-const declarations. Recognizes create/destroy pairs for automatic GC cleanup.
-- To visualize project dependencies: use gerbil_project_dep_graph to see which project modules import from which other modules as an ASCII dependency tree. Lists external dependencies separately.
-- To check test coverage: use gerbil_test_coverage to compare a module's exports against its test file and identify untested symbols. Auto-discovers *-test.ss files.
-- To get a module catalog: use gerbil_module_catalog for a compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for :std/sugar, :std/iter. Replaces multiple gerbil_doc calls.
-- To debug FFI callbacks: use gerbil_ffi_callback_debug to analyze c-define/extern linkage in a .ss file. Detects orphan callbacks, missing externs, duplicate C names, and callbacks outside begin-foreign.
-- To check example API coverage: use gerbil_example_api_coverage to see which module exports are referenced in example/doc files. Scans .ss files in a directory or explicit file list.
-- To validate example imports: use gerbil_validate_example_imports to check that imported modules actually export the symbols used in a file. Detects potentially undefined symbols.
-- To bisect crashes: use gerbil_bisect_crash to binary-search a crashing Gerbil file and find the minimal set of top-level forms that reproduce the crash. Keeps preamble (imports, exports, declarations) and bisects body forms. Useful for isolating segfaults and uncaught exceptions in FFI code.
-- To detect import conflicts: use gerbil_check_import_conflicts to find local definitions that clash with imported module exports before building. Catches "Bad binding; import conflict" errors early with clear messages showing which symbol conflicts with which module. Also detects cross-import conflicts where multiple imports provide the same symbol.
-- To scan for security issues: use gerbil_security_scan to analyze Gerbil .ss and C .c/.h files for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns). Scans a single file or entire project. Reports findings with severity, line number, and remediation guidance.
-- To add security patterns: use gerbil_security_pattern_add to contribute new security detection rules to the scanner. Each pattern has an id, severity, scope (scheme/c-shim/ffi-boundary), regex pattern, and remediation guidance.
-- To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages (via gerbil pkg link) have source files newer than their compiled artifacts. Reports which packages need rebuilding with \`gerbil pkg build\`.
-- To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches between c-lambda/define-c-lambda declarations and call sites. Flags known incompatible combinations like u8vector passed to (pointer void), string passed to int. Static analysis, no subprocess.
-- To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
+- To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments.
+- To find tests affected by signature changes: use gerbil_check_test_arity to scan *-test.ss files for calls to a specific function.
+- To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports.
+- To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers and generate a suggested import block.
+- To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion for future consideration.
+- To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions.
+- To vote for a feature: use gerbil_vote_feature to increment the vote count for a feature you could have used.
+- To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers back to readable module/function paths.
+- To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files.
+- For balance-safe editing: use gerbil_balanced_replace instead of string replace. Validates delimiter balance before and after.
+- To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form with guaranteed matching parentheses.
+- To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children.
+- To generate FFI bindings: use gerbil_ffi_scaffold to parse a C header file and generate Gambit FFI binding code.
+- To visualize project dependencies: use gerbil_project_dep_graph to see module dependency tree.
+- To check test coverage: use gerbil_test_coverage to compare a module's exports against its test file.
+- To debug FFI callbacks: use gerbil_ffi_callback_debug to analyze c-define/extern linkage.
+- To check example API coverage: use gerbil_example_api_coverage to see which exports are referenced in example files.
+- To validate example imports: use gerbil_validate_example_imports to check that imports match used symbols.
+- To bisect crashes: use gerbil_bisect_crash to binary-search a crashing file for minimal reproducing forms.
+- To detect import conflicts: use gerbil_check_import_conflicts to find clashing symbol definitions before building.
+- To scan for security issues: use gerbil_security_scan for vulnerability pattern detection in Gerbil and C code.
+- To add security patterns: use gerbil_security_pattern_add to contribute new detection rules.
+- To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages need rebuilding.
+- To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches in c-lambda declarations.
+
+## Common Workflows
+
+- **Debug a segfault**: gerbil_stale_static → gerbil_bisect_crash → gerbil_demangle → gerbil_ffi_type_check
+- **Add a feature**: gerbil_howto → write code → gerbil_check_syntax → gerbil_compile_check → gerbil_build_and_report
+- **Understand unfamiliar code**: gerbil_file_summary → gerbil_document_symbols → gerbil_call_graph → gerbil_module_deps
+- **Port from another Scheme**: gerbil_howto → gerbil_suggest_imports → gerbil_module_exports → gerbil_check_syntax
+- **Refactor a module**: gerbil_check_exports → gerbil_find_callers → gerbil_rename_symbol → gerbil_check_import_conflicts
+- **Migrate between versions**: gerbil_migration_check → gerbil_diff_modules → gerbil_howto "v0.19" → gerbil_compile_check
+- **Debug an error**: gerbil_explain_error → follow suggested tools → gerbil_howto for fix patterns
+- **Write a new module**: gerbil_howto → gerbil_module_exports (check APIs) → write code → gerbil_lint → gerbil_security_scan
+
+## Important Guidance
+
+- Don't use gerbil_eval for syntax checking — use gerbil_check_syntax instead
+- Don't guess function names — use gerbil_module_exports to verify
+- Don't assume arity — use gerbil_function_signature to check
+- Don't skip the cookbook — use gerbil_howto before writing code
+
+## Troubleshooting
+
+- Tool returns empty results → check loadpath, check module path spelling, ensure module is installed
+- Compile check passes but build fails → check for stale artifacts with gerbil_stale_static
+- REPL session hangs → destroy and recreate, check for infinite loops
+- Module not found → check GERBIL_LOADPATH, use gerbil_list_std_modules to discover available modules
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -251,6 +298,13 @@ registerHowtoGetTool(server);
 registerStaleLinkedPkgTool(server);
 registerFfiTypeCheckTool(server);
 registerDescribeTool(server);
+registerSmartCompleteTool(server);
+registerExplainErrorTool(server);
+registerDiffModulesTool(server);
+registerMigrationCheckTool(server);
+registerDeadCodeTool(server);
+registerDependencyCyclesTool(server);
+registerGenerateApiDocsTool(server);
 
 registerPrompts(server);
 registerResources(server);

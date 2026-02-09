@@ -21,7 +21,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_eval`**: Test expressions interactively to verify assumptions and reproduce issues. Cleanly captures stdout output separately from the return value using `parameterize`. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`, `LD_LIBRARY_PATH`).
 - **`gerbil_apropos`**: Search for symbols by substring when you're unsure of exact names.
 - **`gerbil_list_std_modules`**: Discover available standard library modules, optionally filtered by prefix.
-- **`gerbil_find_definition`**: Locate where a symbol is defined (source file, module, kind, arity). Use `source_preview: true` to include a code preview.
+- **`gerbil_find_definition`**: Locate where a symbol is defined (source file, module, kind, arity). Use `source_preview: true` to include a code preview. Automatically resolves standard library source files via the Gerbil installation's `src/` tree (`lib/` → `src/` path rewrite).
+- **`gerbil_smart_complete`**: Context-aware symbol completion for partial identifiers. Optionally scope completions to specific modules.
+- **`gerbil_explain_error`**: Classify Gerbil/Gambit error messages with likely causes, suggested fixes, and relevant cookbook recipes.
 - **`gerbil_load_file`**: Parse a `.ss` file to extract its imports, exports, and definitions without executing it.
 - **`gerbil_module_deps`**: See what a module imports. Use `transitive: true` for full dependency tree.
 - **`gerbil_demangle`**: Decode Gambit-mangled C symbol names from GDB backtraces or core dumps back to readable Gerbil module/function paths. Recognizes prefixes like `___H_` (module init), `___G_` (global).
@@ -69,6 +71,10 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
 - **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
 - **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Checks if locally defined symbols conflict with imported module exports (causing "Bad binding; import conflict" errors), and if multiple imports export the same symbol. Detects cross-module export collisions where sibling modules export the same symbol. Resolves standard library exports at runtime and project-local exports statically. Handles `only-in` filtered imports.
+- **`gerbil_dead_code`**: Detect unexported, uncalled definitions across a project. Finds functions/values that are defined but never referenced from other files and not exported.
+- **`gerbil_dependency_cycles`**: Detect circular module dependencies in a project using DFS cycle detection. Reports all unique cycles found.
+- **`gerbil_migration_check`**: Scan Gerbil source files for v0.18 → v0.19 migration issues. Detects deprecated patterns (e.g. `define` → `def`, `hash-ref` → `hash-get`, getopt module rename) with severity levels and suggested fixes.
+- **`gerbil_diff_modules`**: Compare exports between two modules, showing added, removed, and shared symbols. Useful for understanding API differences between module versions.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
 
@@ -97,6 +103,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_balanced_replace`**: Like Edit/string-replace but validates delimiter balance before and after. Rejects edits that would break balance, but tolerates matching imbalance where old and new fragments have the same net delimiter change. Dry-run by default.
 - **`gerbil_wrap_form`**: Wrap lines in a new Scheme form (e.g. `when`, `let`, `begin`) with guaranteed matching parentheses. Auto-detects form boundaries when `end_line` is omitted. Dry-run by default.
 - **`gerbil_splice_form`**: Remove a wrapper form while keeping selected children (inverse of wrap). Child indices are 1-based. Default: keep all children except the head. Dry-run by default.
+- **`gerbil_generate_api_docs`**: Generate markdown API documentation from a module's exports. Introspects procedures (with arities), macros, and values to produce a complete API reference.
 
 ### For Project Context
 
