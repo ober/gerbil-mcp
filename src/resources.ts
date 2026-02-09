@@ -8,10 +8,12 @@ import { dirname } from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load cookbooks.json
+// Load cookbooks.json from project root (parent of dist)
 let cookbooksData: any[] = [];
 try {
-  const cookbooksPath = join(__dirname, '..', '..', 'cookbooks.json');
+  // When running from dist/resources.js, go up one level to reach project root
+  const projectRoot = join(__dirname, '..');
+  const cookbooksPath = join(projectRoot, 'cookbooks.json');
   const content = await readFile(cookbooksPath, 'utf-8');
   cookbooksData = JSON.parse(content);
 } catch (err) {

@@ -1,6 +1,14 @@
 # gerbil-mcp
 
-An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, profile function performance, analyze heap memory usage, trace call counts, visualize call graphs, manage packages, scaffold projects and test files, generate module stubs, build projects with structured diagnostics, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
+An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It provides:
+
+**Tools** (80+): Evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion, describe value types, maintain persistent REPL sessions, profile performance, manage packages, scaffold projects, build with diagnostics, find symbol references, suggest imports, run tests, check security patterns, and more — all against a real Gerbil runtime.
+
+**Resources**: Access Gerbil documentation (syntax reference, language guide) and cookbook recipes (240+ verified code examples) directly from your MCP client.
+
+**Prompts**: Structured workflows for writing modules, debugging errors, porting from other Scheme dialects, generating tests, and code review — optimized for Gerbil's idioms.
+
+All tools include metadata (read-only, idempotent) to help AI assistants make better decisions about when and how to use them.
 
 ## Prerequisites
 
@@ -220,6 +228,32 @@ expression: "(config-omit-events (load-config))"
 imports: [":myproject/config"]
 loadpath: ["/path/to/myproject/.gerbil/lib"]
 => Result: ("event-a" "event-b")
+```
+
+### gerbil_describe
+
+Evaluate an expression and return a description of its type and structure, not just its value. Useful for understanding what kind of data a function returns.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | Gerbil expression to evaluate |
+| `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` |
+| `project_path` | string | no | Project directory for auto-configuring GERBIL_LOADPATH |
+
+```
+expression: "(hash ((\"a\" 1) (\"b\" 2)))"
+=> hash-table (2 entries, keys: "a" "b")
+
+expression: "[1 2 3 4 5]"
+=> list (length 5)
+
+expression: "#u8(72 101 108 108 111)"
+=> u8vector/bytes (length 5)
+
+expression: "(make-point 10 20)"
+imports: [":myapp/types"]
+=> struct/class instance: point (2 fields)
 ```
 
 ### gerbil_module_exports
@@ -1451,6 +1485,71 @@ Review Gerbil Scheme code for issues with a checklist of common Gerbil pitfalls 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
 | `code` | string | yes | The Gerbil Scheme code to review |
+
+### write-gerbil-module
+
+Guide for writing a new Gerbil module following standard conventions (package declaration, exports, imports, `gerbil.pkg`, `build.ss`).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `module_name` | string | yes | Name of the module to create |
+| `purpose` | string | no | Brief description of module purpose |
+
+### debug-gerbil-error
+
+Structured workflow for debugging Gerbil errors: syntax check → macro expansion → compile check → evaluate subexpressions → identify and fix.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The Gerbil code producing an error |
+| `error_message` | string | no | The error message (if available) |
+
+### port-to-gerbil
+
+Guidance for porting code from other Scheme dialects (Racket, Guile, Chicken, Chez, Gambit) to Gerbil, including stdlib mapping and syntax differences.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The Scheme code to port to Gerbil |
+| `source_dialect` | string | yes | Source dialect (racket, guile, chicken, chez, gambit, mit-scheme, other) |
+
+## Resources
+
+The server exposes Gerbil documentation and cookbook recipes as MCP resources that clients can fetch and inject into context.
+
+### gerbil://docs/guide
+
+Introductory guide to Gerbil Scheme covering key features (bracket syntax, `def`, keywords, error handling, iteration, pattern matching, data types) and standard library modules.
+
+**MIME Type**: `text/markdown`
+
+### gerbil://docs/syntax
+
+Reference for Gerbil-specific syntax and forms (`def`, `defstruct`, `defclass`, `match`, `defrule`, control flow, iteration, error handling, hash tables, module system, FFI).
+
+**MIME Type**: `text/markdown`
+
+### gerbil://docs/module/{module_path}
+
+Documentation for a specific Gerbil module. Provides guidance on using MCP tools to explore the module (`gerbil_module_exports`, `gerbil_doc`, etc.).
+
+**MIME Type**: `text/markdown`
+
+**Example**: `gerbil://docs/module/:std/text/json`
+
+### gerbil://cookbooks
+
+List of all available cookbook recipes (240+ verified Gerbil code examples) with id, title, and tags.
+
+**MIME Type**: `application/json`
+
+### gerbil://cookbooks/{id}
+
+Individual cookbook recipe with full code, imports, notes, and related recipes.
+
+**MIME Type**: `application/json`
+
+**Example**: `gerbil://cookbooks/json-parse`
 
 ## How It Works
 
