@@ -8776,5 +8776,151 @@
     "code": ";; GERBIL v0.19 MAJOR CHANGES OVERVIEW\n;; This is a development/staging branch with significant architectural changes\n\n;; ============================================================================\n;; NEW SUBSYSTEMS (completely new functionality)\n;; ============================================================================\n\n;; 1. Structured Logging System (:std/log/*)\n;;    - Comprehensive logging framework with levels (CRITICAL/ERROR/WARN/INFO/DEBUG/VERBOSE)\n;;    - Log records with timestamps, sources, messages, and structured metadata\n;;    - Configurable sinks (console, file, rotating logs)\n;;    - Environment-based configuration (GERBIL_LOG_LEVEL)\n;;    - Similar to Python's logging or Go's zap/logrus\n(import :std/log/default)\n(log.info \"Server started\" port: 8080)\n(log.error \"Connection failed\" error: err)\n\n;; 2. Format Subsystem (:std/format/*)\n;;    - Comprehensive formatting infrastructure\n;;    - FormatEnv with configurable settings (cycles, precision, compression)\n;;    - Writer/reader extensions\n;;    - Used by logging and future serialization systems\n\n;; 3. Network Address Types (:std/net/address/*)\n;;    - Type hierarchy: IP4Address, IP6Address, InetAddress, UnixAddress, URL\n;;    - Type-safe network programming\n;;    - Integration with socket I/O\n\n;; 4. OS Abstraction Layer (:std/os/*)\n;;    - device.ss: File descriptor and device management\n;;    - socket.ss: Low-level socket operations\n;;    - file.ss, fcntl.ss: File operations\n;;    - error.ss: OS error handling\n\n;; 5. Object Utilities (:std/object)\n;;    - defobject-cache: Object pooling pattern\n;;    - Performance optimization for reusable objects\n\n;; 6. FFI Macrology (:std/ffi)\n;;    - Simplified FFI interface (will replace :std/foreign)\n;;    - C-include, C-declare for header/code inclusion\n;;    - def-C-syscall with automatic errno trapping\n;;    - ___TRAP_ERRNO and ___U8VECTOR_AS macros\n\n;; ============================================================================\n;; MODULE REORGANIZATION (imports need updating!)\n;; ============================================================================\n\n;; List modules moved: :std/misc/* → :std/list/*\n(import :std/list/list)         ;; was :std/misc/list\n(import :std/list/alist)        ;; was :std/misc/alist\n(import :std/list/plist)        ;; was :std/misc/plist\n(import :std/list/list-builder) ;; was :std/misc/list-builder\n(import :std/list/walist)       ;; NEW location\n\n;; JSON being refactored: :std/text/json → :std/encoding/json/*\n;; (Still incomplete, has XXX placeholders)\n\n;; Sugar moved: :std/sugar → :gerbil/core/sugar\n;; Hash utilities: :std/misc/hash → (reorganizing, in TODO)\n;; Iter/Sort: Being reorganized (in v0.19-TODO/)\n\n;; ============================================================================\n;; BREAKING CHANGES\n;; ============================================================================\n\n;; 1. Interface method invocations are now MACROS by default\n;;    - Contracts pushed to call site (can be pevaled)\n;;    - Interface unpacking at call site (can be hoisted out of loops)\n;;    - Major performance improvement, mostly transparent\n;;    - May affect macro expansion order and dynamic dispatch patterns\n\n;; 2. Core modules restructured\n;;    - New :gerbil/base prelude (combines core + runtime)\n;;    - Runtime type system extended (new class-type slots)\n\n;; ============================================================================\n;; ENHANCED SUBSYSTEMS\n;; ============================================================================\n\n;; Buffered I/O (:std/io/bio/*)\n;;    - reader/writer split architecture\n;;    - New modules: buffer.ss, cache.ss, memory.ss, message.ss\n;;    - srcsnk.ss: source/sink abstractions\n;;    - Removed: chunked.ss, inline.ss\n\n;; Socket I/O (:std/io/socket/*)\n;;    - New client.ss module\n;;    - Integration with :std/net/address types\n;;    - Type-safe socket operations\n\n;; ============================================================================\n;; MIGRATION NOTES\n;; ============================================================================\n\n;; v0.19 is a development branch — many features incomplete (XXX markers)\n;; Test thoroughly before migrating production code\n;; Update imports for reorganized modules (list, alist, plist)\n;; Logging system is ready for use\n;; FFI macrology is partial (def-C-* mostly unimplemented)\n;; JSON refactoring incomplete",
     "notes": "This recipe summarizes the major changes in Gerbil v0.19 development branch (v0.19-dev-test-basis). Key additions: (1) Complete logging system comparable to mature logging libraries, (2) Format subsystem for structured output, (3) Network address type hierarchy, (4) OS abstraction layer for low-level operations, (5) Object pooling utilities, (6) Simplified FFI interface. Major reorganization: list modules moved to :std/list/, JSON being refactored, sugar/hash/iter modules being reorganized. Breaking change: interface methods are now macros (performance optimization). This is a DEVELOPMENT branch — many features are incomplete (XXX placeholders). Not recommended for production until stable release. Use this recipe to understand the v0.19 landscape and plan migrations.",
     "gerbil_version": "v0.19"
+  },
+  {
+    "id": "dbi-connection-close-sql-close",
+    "title": "Close DBI connection: use sql-close, NOT method dispatch {close}",
+    "tags": [
+      "dbi",
+      "connection",
+      "close",
+      "sqlite",
+      "sql-close",
+      "method dispatch",
+      "database",
+      "resource leak"
+    ],
+    "imports": [
+      ":std/db/dbi",
+      ":std/db/sqlite"
+    ],
+    "code": ";; WRONG — DBI connections have no {close} method; this silently fails with \"contract violation\"\n;; (defmethod {close MyKvs}\n;;   (lambda (self) {close (Kvs-connection self)}))  ;; BROKEN\n\n;; RIGHT — use sql-close from :std/db/dbi\n;; Also finalize any prepared statements first\n(defmethod {close KvsSql}\n  (lambda (self)\n    (sql-finalize (KvsSql-read-stmt self))\n    (sql-finalize (KvsSql-write-stmt self))\n    (sql-finalize (KvsSql-delete-stmt self))\n    (sql-close (Kvs-connection self))))\n\n;; sql-close properly:\n;; 1. Finalizes internal txn statements (begin/commit/abort)\n;; 2. Calls the driver's close method (sqlite3_close)\n;; 3. Nils out the connection fields",
+    "notes": "The DBI connection struct from :std/db/dbi does NOT have a {close} method for Gerbil's method dispatch. Calling {close conn} where conn is a DBI connection raises a contract violation, which can be silently caught, leaving the connection open. With SQLite's EXCLUSIVE locking mode, this prevents the same database from being reopened — symptoms include 'database is locked' errors on PRAGMA statements during init. Always use sql-close for DBI connections and sql-finalize for prepared statements.",
+    "related": [
+      "sqlite-database-operations",
+      "leveldb-iterator-close-not-destroy"
+    ]
+  },
+  {
+    "id": "def-in-expression-context",
+    "title": "Cannot use def inside when/unless/match-arms — use let instead",
+    "tags": [
+      "def",
+      "let",
+      "when",
+      "unless",
+      "expression context",
+      "syntax error",
+      "illegal expression"
+    ],
+    "imports": [],
+    "code": ";; WRONG — def is a definition form, not allowed in expression context (inside when/unless/etc)\n;; (when condition\n;;   (def x (compute))    ;; ERROR: Bad syntax; illegal expression\n;;   (use x))\n\n;; RIGHT — use let instead\n(when condition\n  (let (x (compute))\n    (use x)))\n\n;; Also works: let* for multiple bindings\n(when condition\n  (let* ((x (compute-x))\n         (y (compute-y x)))\n    (use x y)))",
+    "notes": "In Gerbil, when/unless expand to (if test (begin body...)), and begin in expression position does NOT allow def forms. The compiler error is 'Bad syntax; illegal expression' with detail showing (%#define-values ...). This applies to any expression context: when, unless, match arms, cond clauses, and arms, or arms. Use let or let* for local bindings in these contexts."
+  },
+  {
+    "id": "postgresql-bytea-not-blob",
+    "title": "PostgreSQL uses BYTEA for binary data, NOT BLOB",
+    "tags": [
+      "postgresql",
+      "postgres",
+      "bytea",
+      "blob",
+      "binary",
+      "data type",
+      "create table",
+      "sql"
+    ],
+    "imports": [
+      ":std/db/dbi",
+      ":std/db/postgresql"
+    ],
+    "code": ";; WRONG — BLOB is SQLite/MySQL syntax, not PostgreSQL\n;; \"CREATE TABLE kvs (key BLOB PRIMARY KEY, value BLOB NOT NULL)\"\n\n;; RIGHT — PostgreSQL uses BYTEA for binary data\n(sql-eval conn \"CREATE TABLE IF NOT EXISTS kvs (key BYTEA PRIMARY KEY, value BYTEA NOT NULL)\")\n\n;; Also: PostgreSQL does NOT support WITHOUT ROWID (SQLite-only optimization)\n;; Also: Do NOT put trailing semicolons inside sql-eval strings\n;; (they can cause \"empty query\" errors with some drivers)",
+    "notes": "When porting SQL schemas from SQLite to PostgreSQL: (1) BLOB → BYTEA, (2) remove WITHOUT ROWID, (3) remove trailing semicolons from sql-eval strings. PostgreSQL's BYTEA handles binary data similarly to SQLite's BLOB but with different syntax for literals (E'\\\\x...' vs X'...').",
+    "related": [
+      "sqlite-database-operations",
+      "postgresql-database-queries"
+    ]
+  },
+  {
+    "id": "blst-compress-uncompress-not-serialize",
+    "title": "BLST: Use compress/uncompress (not serialize/deserialize) for 48/96-byte BLS key/sig formats",
+    "tags": [
+      "blst",
+      "bls",
+      "serialize",
+      "compress",
+      "uncompress",
+      "buffer-overflow",
+      "crypto",
+      "p1",
+      "p2",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; BLST serialize/deserialize = UNCOMPRESSED format:\n;;   blst_p1_affine_serialize → 96 bytes, blst_p1_deserialize ← 96 bytes\n;;   blst_p2_affine_serialize → 192 bytes, blst_p2_deserialize ← 192 bytes\n;;\n;; BLST compress/uncompress = COMPRESSED format:\n;;   blst_p1_affine_compress → 48 bytes, blst_p1_uncompress ← 48 bytes\n;;   blst_p2_affine_compress → 96 bytes, blst_p2_uncompress ← 96 bytes\n;;\n;; For standard BLS12-381 (48-byte pubkeys, 96-byte sigs), use COMPRESS/UNCOMPRESS:\n;;\n;; C FFI for P1 (public key, 48 bytes):\n;; static void ffi_blst_p1_serialize(___SCMOBJ out, const blst_p1* p) {\n;;   blst_p1_affine p1_aff;\n;;   blst_p1_to_affine(&p1_aff, p);\n;;   blst_p1_affine_compress(U8_DATA(out), &p1_aff);  // NOT _serialize!\n;; }\n;; static int ffi_blst_p1_deserialize(blst_p1 *p1, ___SCMOBJ in) {\n;;   blst_p1_affine p1_aff;\n;;   int result = blst_p1_uncompress(&p1_aff, U8_DATA(in));  // NOT _deserialize!\n;;   if (result == BLST_SUCCESS) blst_p1_from_affine(p1, &p1_aff);\n;;   return result;\n;; }\n;;\n;; C FFI for P2 (signature, 96 bytes):\n;; static void ffi_blst_p2_serialize(___SCMOBJ out, const blst_p2 *p2) {\n;;   blst_p2_affine p2_aff;\n;;   blst_p2_to_affine(&p2_aff, p2);\n;;   blst_p2_affine_compress(U8_DATA(out), &p2_aff);  // NOT _serialize!\n;; }\n;; static int ffi_blst_p2_deserialize(blst_p2 *p2, ___SCMOBJ in) {\n;;   blst_p2_affine p2_aff;\n;;   int result = blst_p2_uncompress(&p2_aff, U8_DATA(in));  // NOT _deserialize!\n;;   if (result == BLST_SUCCESS) blst_p2_from_affine(p2, &p2_aff);\n;;   return result;\n;; }",
+    "notes": "CRITICAL: Using blst_p*_affine_serialize with 48/96-byte buffers causes BUFFER OVERFLOW because serialize produces 96/192 bytes (uncompressed). The standard BLS12-381 format uses compressed points (48-byte G1, 96-byte G2), so you MUST use blst_p*_affine_compress and blst_p*_uncompress. Also note: blst_core_verify_pk_in_g1 returns BLST_SUCCESS=0 on success (not 1), so check with (zero? result) not (= 1 result)."
+  },
+  {
+    "id": "ffi-sodium-init-module-load",
+    "title": "Initialize libsodium (sodium_init) at module load time via FFI",
+    "tags": [
+      "libsodium",
+      "sodium_init",
+      "ffi",
+      "initialize",
+      "module-load",
+      "crypto",
+      "ed25519"
+    ],
+    "imports": [],
+    "code": ";; libsodium REQUIRES sodium_init() before any other function.\n;; Failure to call it leads to undefined behavior (potential crashes).\n;;\n;; Step 1: Add to begin-ffi export list and define c-lambda:\n;;\n;; (begin-ffi\n;;   (ffi_sodium_init ...)\n;;   (c-declare #<<END-C\n;;   #include <sodium.h>\n;;   ...\n;;   END-C)\n;;   (define-c-lambda ffi_sodium_init () int \"sodium_init\")\n;;   ...\n;; );ffi\n;;\n;; Step 2: Call at module load time (outside begin-ffi):\n(let ((rc (ffi_sodium_init)))\n  (when (= rc -1)\n    (error \"sodium_init failed\")))\n;; sodium_init returns: 0 = success, 1 = already initialized, -1 = failure\n;; So only -1 is an error; 0 and 1 are both OK.",
+    "notes": "sodium_init is idempotent (returns 1 if already called). Place the call right after );ffi so it runs when the module is first loaded. This is essential for any code using libsodium FFI (ed25519, X25519, hashing, AEAD, etc.).",
+    "related": [
+      "ffi-initialize-return-check"
+    ]
+  },
+  {
+    "id": "ffi-duplicate-mutex-module-boundary",
+    "title": "Avoid duplicate mutex definitions across module boundaries — use single source of truth",
+    "tags": [
+      "mutex",
+      "duplicate",
+      "thread-safety",
+      "module",
+      "import",
+      "export",
+      "defrule",
+      "with-lock"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; WRONG — Two modules each define their own mutex for the same shared resource:\n;;\n;; In ffi-module.ss:\n;;   (def my-mutex (make-mutex 'my-lib))\n;;   (defrule (with-my-mutex f a ...)\n;;     (with-lock my-mutex (lambda () (f a ...))))\n;;\n;; In wrapper-module.ss (imports ffi-module):\n;;   (def my-mutex (make-mutex 'my-lib))       ;; DIFFERENT mutex instance!\n;;   (defrule (with-my-mutex f a ...)\n;;     (with-lock my-mutex (lambda () (f a ...))))\n;;\n;; This creates TWO separate mutexes. Thread A can hold wrapper's mutex\n;; while Thread B holds ffi's mutex — no mutual exclusion at all!\n;;\n;; CORRECT — Define mutex and macro in ONE module, export and import:\n;;\n;; In ffi-module.ss:\n(export my-mutex with-my-mutex)   ;; <-- export both\n(def my-mutex (make-mutex 'my-lib))\n(defrule (with-my-mutex f a ...)\n  (with-lock my-mutex (lambda () (f a ...))))\n\n;; In wrapper-module.ss:\n;; (import ./ffi-module)  ;; gets the SAME mutex instance\n;; (with-my-mutex some-ffi-call arg1 arg2)  ;; uses ffi-module's mutex",
+    "notes": "This is especially dangerous because (make-mutex 'name) creates a NEW mutex each time — the symbol is just a label for debugging, not a lookup key. Two mutexes with the same name are completely independent. When using explicit (export ...) lists, remember to add the mutex AND the defrule macro to the export list.",
+    "related": [
+      "mutex-unwind-protect-deadlock-prevention",
+      "mutex-minimize-critical-section"
+    ]
+  },
+  {
+    "id": "blst-aggregate-initialize-from-first",
+    "title": "BLST: Initialize aggregate accumulator from first element, not malloc'd memory",
+    "tags": [
+      "blst",
+      "bls",
+      "aggregate",
+      "malloc",
+      "uninitialized",
+      "p1",
+      "p2",
+      "accumulator",
+      "crypto"
+    ],
+    "imports": [],
+    "code": ";; WRONG — malloc returns uninitialized memory, blst_p*_add accumulates into it:\n;;\n;; (def (blst-aggregate-signatures sig-vector)\n;;   (def result (new-blst-p2))  ;; malloc — GARBAGE initial value!\n;;   (for-each (lambda (sig) (blst-p2-aggregate result sig))\n;;             (vector->list sig-vector))\n;;   result)\n;;\n;; CORRECT — Copy first element as initial value, aggregate the rest:\n;;\n;; (def (blst-aggregate-signatures sig-vector)\n;;   (def len (vector-length sig-vector))\n;;   (when (zero? len) (error \"empty vector\"))\n;;   (def result (new-blst-p2))\n;;   ;; Serialize first element then deserialize into result (deep copy)\n;;   (def first-bytes (make-u8vector 96))\n;;   (blst-p2-serialize first-bytes (vector-ref sig-vector 0))\n;;   (blst-p2-deserialize result first-bytes)\n;;   ;; Aggregate remaining elements\n;;   (let loop ((i 1))\n;;     (when (< i len)\n;;       (blst-p2-aggregate result (vector-ref sig-vector i))\n;;       (loop (+ i 1))))\n;;   result)",
+    "notes": "The blst library's blst_p1_add/blst_p2_add functions do out = out + in. If out starts as uninitialized heap memory from malloc, the result is garbage. The serialize-then-deserialize pattern creates a proper deep copy of the first element as the starting accumulator. Same pattern applies to blst_p1 (public key) aggregation with 48-byte buffers.",
+    "related": [
+      "blst-compress-uncompress-not-serialize"
+    ]
   }
 ]

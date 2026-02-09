@@ -17,6 +17,44 @@
     "use_case": "When auditing FFI bindings to C libraries that use NULL to represent absence (linked list terminators, optional fields). Common in libxml2, libyaml, SQLite, and most C APIs.",
     "example_scenario": "Auditing gerbil-libxml: 15+ c-lambda accessors like xmlNode-content, xmlNode-name, xmlNs-href blindly dereference ___arg1->field. Some are guarded by null checks in the .ss wrapper (xmlNode-children via `if node`), but others are not (xmlNode-content on TEXT nodes, xmlNs-href). Manual cross-referencing took multiple tool calls to Read both files and trace each call path. A dedicated tool could report: 'xmlNode-content (line 163): dereferences ___arg1->content, called unguarded at libxml.ss:151'.",
     "estimated_token_reduction": "~2000 tokens per audit — eliminates manual cross-referencing of .scm accessors with .ss call sites, currently requires 2 Read calls + manual analysis",
-    "votes": 1
+    "votes": 2
+  },
+  {
+    "id": "method-dispatch-audit",
+    "title": "Detect method dispatch calls on objects that lack the method",
+    "description": "A static analysis tool that checks `{method-name obj}` calls against the actual methods defined on the object's type. Reports cases where method dispatch will fail at runtime because the struct/class doesn't have the method defined (either directly or inherited). This catches the common bug pattern where code assumes an interface method exists (like `{close conn}`) but the struct's type hierarchy doesn't define it, leading to silent failures or contract violations at runtime.",
+    "impact": "medium",
+    "tags": [
+      "method",
+      "dispatch",
+      "close",
+      "interface",
+      "struct",
+      "static-analysis"
+    ],
+    "use_case": "When writing code that uses method dispatch on structs from external modules. Common in persistence layers, database wrappers, and any code using Gerbil's OOP features where multiple struct types implement similar interfaces.",
+    "example_scenario": "In gerbil-persist, `{close Kvs}` called `{close (Kvs-connection self)}` where the connection is a DBI `connection` struct. DBI connections have NO `close` method — they use the plain function `sql-close`. This bug meant SQLite connections were never actually closed, causing 'database is locked' errors. The bug existed undetected because `{close}` dispatch failure was caught silently. A method-dispatch-audit tool would have flagged: '{close} called on connection::t at kvs.ss:26 — no close method found in type hierarchy'.",
+    "estimated_token_reduction": "~1500 tokens per audit — eliminates manual tracing of method dispatch targets through struct hierarchies, currently requires gerbil_class_info + gerbil_module_exports + gerbil_eval to verify",
+    "votes": 0
+  },
+  {
+    "id": "ffi-buffer-size-audit",
+    "title": "FFI buffer size audit — detect C functions writing more bytes than Scheme buffers allocate",
+    "description": "A static analysis tool that cross-references c-declare C function output buffer sizes (from known API signatures or annotated array sizes like `byte out[96]`) against the Scheme-side make-u8vector allocations that provide those buffers. Detects cases where a C function writes N bytes but the Scheme wrapper allocates fewer than N bytes — a buffer overflow. Could parse #include headers for function signatures or accept size annotations. Reports: 'blst_p2_affine_serialize writes 192 bytes, but bytes<-blst-signature allocates 96-byte u8vector (line 250) — buffer overflow'.",
+    "impact": "high",
+    "tags": [
+      "ffi",
+      "buffer",
+      "overflow",
+      "size",
+      "audit",
+      "security",
+      "u8vector",
+      "make-u8vector"
+    ],
+    "use_case": "When reviewing FFI bindings for crypto libraries (blst, libsodium, libsecp256k1) or any C library that writes into caller-provided buffers. Buffer overflows in FFI are invisible at compile time and cause memory corruption at runtime.",
+    "example_scenario": "In gerbil-crypto, blst_p1_affine_serialize writes 96 bytes (uncompressed G1) but the Scheme wrapper allocates a 48-byte u8vector. blst_p2_affine_serialize writes 192 bytes but gets a 96-byte buffer. These buffer overflows existed undetected because there were no BLS tests. Manual review required reading both the C header (blst.h) and the FFI shim to catch the mismatch. A dedicated tool could flag this instantly.",
+    "estimated_token_reduction": "~3000 tokens per FFI module audit — eliminates manual cross-referencing of C API docs, c-declare shims, and Scheme buffer allocations across 3+ files",
+    "votes": 0
   }
 ]

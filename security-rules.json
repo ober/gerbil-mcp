@@ -188,5 +188,78 @@
       "stale",
       "multithreaded"
     ]
+  },
+  {
+    "id": "dbi-connection-method-close",
+    "title": "DBI connection closed via method dispatch instead of sql-close",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "\\{close\\s+\\((?:Kvs-connection|connection-e|.*-connection)\\s",
+    "message": "DBI connection objects (from :std/db/dbi) do NOT have a {close} method. Using method dispatch {close conn} on a DBI connection raises a contract violation that may be silently caught, leaving the connection open. With SQLite EXCLUSIVE locking, this prevents the database from being reopened and causes 'database is locked' errors.",
+    "remediation": "Use (sql-close conn) from :std/db/dbi instead of {close conn}. Also finalize any prepared statements with (sql-finalize stmt) before closing the connection. See cookbook recipe 'dbi-connection-close-sql-close'.",
+    "related_recipe": "dbi-connection-close-sql-close",
+    "tags": [
+      "dbi",
+      "connection",
+      "close",
+      "sqlite",
+      "resource-leak",
+      "method-dispatch",
+      "database-locked"
+    ]
+  },
+  {
+    "id": "blst-serialize-buffer-overflow",
+    "title": "BLST serialize/deserialize used instead of compress/uncompress — buffer overflow",
+    "severity": "critical",
+    "scope": "c-shim",
+    "pattern": "blst_p[12]_affine_serialize|blst_p[12]_deserialize",
+    "message": "blst_p1_affine_serialize writes 96 bytes and blst_p2_affine_serialize writes 192 bytes (uncompressed format). If the output buffer is sized for compressed format (48/96 bytes), this causes a buffer overflow. Similarly, blst_p1_deserialize reads 96 bytes and blst_p2_deserialize reads 192 bytes — if the input buffer is smaller, this is an out-of-bounds read.",
+    "remediation": "Use blst_p1_affine_compress (48 bytes) / blst_p1_uncompress instead for standard BLS12-381 compressed format. Or use blst_p2_affine_compress (96 bytes) / blst_p2_uncompress for G2 points. Only use serialize/deserialize if buffers are sized for uncompressed format (96/192 bytes).",
+    "related_recipe": "blst-compress-uncompress-not-serialize",
+    "tags": [
+      "blst",
+      "bls",
+      "buffer-overflow",
+      "serialize",
+      "compress",
+      "crypto"
+    ]
+  },
+  {
+    "id": "ffi-void-return-hides-errors",
+    "title": "FFI c-lambda declares void return type for C function that returns int — errors silently ignored",
+    "severity": "medium",
+    "scope": "ffi-boundary",
+    "pattern": "define-c-lambda\\s+\\S+\\s+\\([^)]*\\)\\s+void\\s",
+    "message": "A c-lambda declared with void return type discards the C function's return value. If the C function returns an error code (int), failures are silently ignored. This is especially dangerous for crypto/hash/init functions where errors indicate corruption or misconfiguration.",
+    "remediation": "Check the C function's actual return type. If it returns int (error code), declare the c-lambda return type as int and check the result in the Scheme wrapper (e.g. (unless (zero? result) (error ...))).",
+    "related_recipe": "ffi-initialize-return-check",
+    "tags": [
+      "ffi",
+      "void",
+      "return",
+      "error",
+      "silent",
+      "c-lambda"
+    ]
+  },
+  {
+    "id": "blst-success-check-wrong-value",
+    "title": "BLST return value checked against 1 instead of 0 (BLST_SUCCESS = 0)",
+    "severity": "critical",
+    "scope": "scheme",
+    "pattern": "\\(=\\s+1\\s+.*blst|blst.*\\(=\\s+1\\s",
+    "message": "BLST API functions return BLST_SUCCESS (0) on success, not 1. Checking (= 1 result) causes valid operations to appear as failures and may accept some invalid inputs. This affects blst_core_verify_pk_in_g1, blst_p1_deserialize, blst_p2_deserialize, and other BLST functions.",
+    "remediation": "Use (zero? result) to check for BLST_SUCCESS, not (= 1 result). The BLST error enum: BLST_SUCCESS=0, BLST_BAD_ENCODING=1, BLST_POINT_NOT_ON_CURVE=2, etc.",
+    "related_recipe": "blst-compress-uncompress-not-serialize",
+    "tags": [
+      "blst",
+      "bls",
+      "verify",
+      "return-value",
+      "BLST_SUCCESS",
+      "crypto"
+    ]
   }
 ]
