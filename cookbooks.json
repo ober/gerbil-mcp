@@ -8658,5 +8658,123 @@
     "related": [
       "mutex-unwind-protect-deadlock-prevention"
     ]
+  },
+  {
+    "id": "std-ffi-module-v019",
+    "title": "New :std/ffi module for FFI macrology (v0.19)",
+    "tags": [
+      "ffi",
+      "v0.19",
+      "C-include",
+      "C-declare",
+      "def-C",
+      "def-C-syscall",
+      "TRAP_ERRNO",
+      "U8VECTOR_AS",
+      "foreign"
+    ],
+    "imports": [
+      "std/ffi"
+    ],
+    "code": ";; NEW in v0.19: :std/ffi module provides simplified FFI macrology\n;; NOTE: This will eventually replace :std/foreign\n\n(import :std/ffi)\n\n;; Include C header files\n(C-include \"<stdio.h>\")\n(C-include \"<unistd.h>\" \"<fcntl.h>\")  ; multiple includes\n\n;; Define custom C code\n(C-declare \"static int my_helper(int x) { return x * 2; }\")\n\n;; Define C syscalls with automatic errno trapping\n;; Returns negative errno on failure, non-negative result on success\n(def-C-syscall (my-dup (fd : :fixnum))\n  \"dup(___ARG1)\")\n\n(def-C-syscall (my-open (path : :string) (flags : :fixnum) (mode : :fixnum))\n  \"open(___ARG1, ___ARG2, ___ARG3)\")\n\n;; The :std/ffi module provides:\n;; - C-ffi-macrology: defines ___U8VECTOR_AS and ___TRAP_ERRNO macros\n;; - C-include: include C headers\n;; - C-declare: declare C code\n;; - def-C-syscall: define syscalls with errno trapping\n;; - def-C, def-C-struct, def-C-union, def-C-const: (XXX - not yet implemented)\n\n;; Usage example:\n(let (fd (my-dup 1))\n  (if (fx< fd 0)\n    (error \"dup failed\" errno: (fx- 0 fd))\n    (begin\n      (displayln \"dup succeeded\" port: fd)\n      (my-close fd))))\n\n;; C macros provided by :std/ffi:\n;; ___U8VECTOR_AS(type, arg) — cast u8vector body to pointer type\n;; ___TRAP_ERRNO(expr) — evaluate expr, return -errno on error",
+    "notes": "The :std/ffi module is NEW in v0.19 and provides a cleaner FFI interface compared to :std/foreign. It will eventually replace :std/foreign. Key features: (1) C-include/C-declare for header/code inclusion, (2) def-C-syscall for syscalls with automatic errno trapping, (3) ___TRAP_ERRNO macro that returns -errno on negative results, (4) ___U8VECTOR_AS for safe u8vector pointer casting. Many def-C-* macros are still marked XXX (not implemented). The syscall wrapper is particularly useful for POSIX APIs. Requires (compilation-target? C).",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-format-subsystem-v019",
+    "title": "New :std/format subsystem for formatting (v0.19)",
+    "tags": [
+      "format",
+      "v0.19",
+      "FormatEnv",
+      "FormatOpt",
+      "FormatSettings",
+      "writer",
+      "reader",
+      "pretty-print",
+      "display",
+      "write"
+    ],
+    "imports": [
+      "std/format/env",
+      ":std/format/io",
+      ":std/format/string"
+    ],
+    "code": ";; NEW in v0.19: :std/format provides a comprehensive formatting subsystem\n;; Modules:\n;;   :std/format/env     — FormatEnv, FormatOpt, FormatSettings\n;;   :std/format/io      — I/O formatting extensions\n;;   :std/format/ioutil  — I/O utilities\n;;   :std/format/writer  — Writer extensions\n;;   :std/format/reader  — Reader extensions\n;;   :std/format/string  — String formatting utilities\n\n(import :std/format/env\n        :std/format/io\n        :std/format/string)\n\n;; Format styles (constants):\n(def FORMAT-WRITE   0)  ; write style (escaped strings, etc.)\n(def FORMAT-DISPLAY 1)  ; display style (unescaped)\n(def FORMAT-DEBUG   1)  ; same as display\n\n;; Cycle treatment:\n(def FORMAT-NO-CYCLES    0)  ; don't check for cycles\n(def FORMAT-CHECK-CYCLES 1)  ; check and error on cycles\n(def FORMAT-ALLOW-CYCLES 2)  ; allow cycles, track with refs\n\n;; Create format environment with custom settings\n(def my-env\n  (FormatEnv\n   (FormatSettings\n    allow-cycles?: #t\n    check-cycles?: #t\n    compress?: #f\n    display?: #t\n    precision: 3\n    base: 10)))\n\n;; Format settings control:\n;;  - style: write vs display\n;;  - cycles: cycle detection and handling\n;;  - compress: output compression mode\n;;  - flonum-precision: decimal places\n;;  - integer-base: numeric base (binary, octal, decimal, hex)\n;;  - max-elements: max sequence elements to display\n;;  - char-ascii-names: character name style",
+    "notes": "The :std/format subsystem is NEW in v0.19 and provides comprehensive formatting infrastructure. It separates formatting concerns into: environment (FormatEnv with FormatOpt/FormatSettings), I/O extensions (writer-ext, reader-ext), and utilities. Used internally by :std/log for log record formatting and will likely be used for JSON/serialization. Supports configurable styles (write vs display), cycle detection (none/check/allow), compression, numeric precision/base, and max-elements limits. The FormatEnv tracks scan state for cycle detection. This is infrastructure-level code — most users will interact with higher-level APIs built on top of it.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "interface-method-macros-v019",
+    "title": "Interface method invocations are macros by default (v0.19)",
+    "tags": [
+      "interface",
+      "method",
+      "macro",
+      "v0.19",
+      "performance",
+      "contract",
+      "optimization",
+      "call-site"
+    ],
+    "imports": [],
+    "code": ";; CHANGED in v0.19: Interface method invocations are now macros by default\n;; This is a breaking change with significant performance implications\n\n;; In v0.18: Interface methods were runtime procedures\n(interface Logger\n  (log (msg : :string)) => :void)\n\n;; Usage was a runtime method call:\n(logger.log \"message\")  ; runtime dispatch\n\n;; In v0.19: Interface methods are macros by default\n;; Mechanically:\n;;  - Contracts are pushed to call site\n;;  - Interfaces are unpacked at call site\n;;  - Avoids cross-module calls to unpack\n\n;; Benefits:\n;;  1. Compiler can hoist interface unpacking out of loops\n;;  2. Compiler can peval (partially evaluate) contracts\n;;  3. More aggressive optimization opportunities\n\n;; Example: loop performance improvement\n(def (log-many (logger : Logger) messages)\n  (for (msg messages)\n    (logger.log msg)))  ; v0.19: interface unpacked ONCE before loop\n                        ; v0.18: interface unpacked on EVERY iteration\n\n;; This change is transparent to user code in most cases,\n;; but may affect:\n;;  - Macros that manipulate method calls\n;;  - Code that relies on method call timing\n;;  - Dynamic method resolution patterns",
+    "notes": "In v0.19, interface method invocations became macros by default instead of runtime procedures. This is a MAJOR performance optimization: contracts are checked at call site (where they can be pevaled), and interface unpacking happens at call site (can be hoisted out of loops). This change is mostly transparent but has implications for: (1) macro expansion order, (2) cross-module optimization, (3) compiler ability to optimize away contract checks in monomorphic code. Future work may extend this to regular procedures with contracts. This is part of a broader effort to make Gerbil's contract system zero-cost in the common case.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "gerbil-base-prelude-v019",
+    "title": "New :gerbil/base prelude module (v0.19)",
+    "tags": [
+      "prelude",
+      "v0.19",
+      "gerbil/base",
+      "base",
+      "core",
+      "runtime",
+      "bootstrap"
+    ],
+    "imports": [],
+    "code": ";; NEW in v0.19: :gerbil/base prelude module\n;; Provides a unified base prelude for Gerbil programs\n\n;; File: src/gerbil/base.ss\nprelude: :<root>\npackage: gerbil\n\n(import \"core\")\n(import \"runtime\")\n(export (except-from-out (import: \"core\")\n                         GerbilRuntime)\n        (import: \"runtime\")\n        (phi: +1 (import: \"core\"))\n        (phi: +2 (import: \"core\")))\n\n;; This module:\n;;  1. Combines gerbil/core and gerbil/runtime\n;;  2. Exports everything except GerbilRuntime from core\n;;  3. Exports all runtime bindings\n;;  4. Provides phase +1 and +2 access to core bindings\n\n;; Usage:\n;; Most Gerbil programs implicitly use this as the base prelude.\n;; You typically don't import it explicitly — it's the foundation.\n\n;; The separation allows:\n;;  - Core language forms (macros, syntax)\n;;  - Runtime support (hash tables, classes, errors)\n;;  - Multi-phase access for meta-programming",
+    "notes": "The :gerbil/base module is NEW in v0.19 and serves as the unified base prelude. It combines gerbil/core (language forms, macros) and gerbil/runtime (hash tables, classes, MOP, errors, threads) while excluding GerbilRuntime (internal). It also exports core at phase +1 and +2 for macro meta-programming. This module is typically implicit — most users won't import it directly. It's part of the bootstrap infrastructure and provides a cleaner separation between language core and runtime support. The prelude: :<root> directive marks it as a root prelude module.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "net-address-types-v019",
+    "title": "New :std/net/address type hierarchy (v0.19)",
+    "tags": [
+      "network",
+      "address",
+      "v0.19",
+      "IP4Address",
+      "IP6Address",
+      "InetAddress",
+      "UnixAddress",
+      "DNSAddress",
+      "URL",
+      "socket"
+    ],
+    "imports": [
+      ":std/net/address/types"
+    ],
+    "code": ";; NEW in v0.19: Structured network address type hierarchy\n(import :std/net/address/types)\n\n;; Base type:\n;;   Address (domain: symbol)\n\n;; Address hierarchy:\n;;   NullAddress       — no address\n;;   EndpointAddress   — connection endpoints\n;;     InetAddress     — IP address + port (net: IPAddress, port: fixnum)\n;;     UnixAddress     — Unix domain socket (string: string)\n;;   NetAddress        — network addresses with bytes and string representations\n;;     IPAddress       — base for IP addresses\n;;       IP4Address    — IPv4 address\n;;       IP6Address    — IPv6 address\n;;   DNSAddress        — DNS name + resolved addresses (dns: string, net: list)\n;;   WebAddress        — web addresses (net: Address, proto: string)\n;;     URL             — full URL (url, host, path, params)\n\n;; Example: working with addresses\n(def addr4 (IP4Address domain: 'inet bytes: #u8(127 0 0 1) string: \"127.0.0.1\"))\n(def addr6 (IP6Address domain: 'inet6 bytes: ... string: \"::1\"))\n(def inet-addr (InetAddress domain: 'inet net: addr4 port: 8080))\n(def unix-addr (UnixAddress domain: 'unix string: \"/tmp/my.sock\"))\n\n;; All types are:\n;;  - transparent: #t (inspectable)\n;;  - acyclic: #t (no circular references)\n;;  - constructor: :init! (custom initialization)\n;;  - final: #t (cannot be subclassed)",
+    "notes": "The :std/net/address module is NEW in v0.19 and provides a comprehensive type hierarchy for network addresses. Key types: IP4Address/IP6Address for IP addresses (with bytes and string representations), InetAddress for IP+port endpoints, UnixAddress for domain sockets, DNSAddress for DNS with resolved IPs, and URL for web addresses. All types are transparent, acyclic, and final with custom constructors. This provides type safety for socket/network operations and integrates with the :std/io/socket refactoring. Related modules: :std/net/address/format (formatting), :std/net/address/inet (IP utilities), :std/net/address/resolver (DNS resolution).",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "v019-major-changes-overview",
+    "title": "Gerbil v0.19 Major Changes Overview",
+    "tags": [
+      "v0.19",
+      "migration",
+      "breaking-changes",
+      "new-features",
+      "overview",
+      "changelog"
+    ],
+    "imports": [],
+    "code": ";; GERBIL v0.19 MAJOR CHANGES OVERVIEW\n;; This is a development/staging branch with significant architectural changes\n\n;; ============================================================================\n;; NEW SUBSYSTEMS (completely new functionality)\n;; ============================================================================\n\n;; 1. Structured Logging System (:std/log/*)\n;;    - Comprehensive logging framework with levels (CRITICAL/ERROR/WARN/INFO/DEBUG/VERBOSE)\n;;    - Log records with timestamps, sources, messages, and structured metadata\n;;    - Configurable sinks (console, file, rotating logs)\n;;    - Environment-based configuration (GERBIL_LOG_LEVEL)\n;;    - Similar to Python's logging or Go's zap/logrus\n(import :std/log/default)\n(log.info \"Server started\" port: 8080)\n(log.error \"Connection failed\" error: err)\n\n;; 2. Format Subsystem (:std/format/*)\n;;    - Comprehensive formatting infrastructure\n;;    - FormatEnv with configurable settings (cycles, precision, compression)\n;;    - Writer/reader extensions\n;;    - Used by logging and future serialization systems\n\n;; 3. Network Address Types (:std/net/address/*)\n;;    - Type hierarchy: IP4Address, IP6Address, InetAddress, UnixAddress, URL\n;;    - Type-safe network programming\n;;    - Integration with socket I/O\n\n;; 4. OS Abstraction Layer (:std/os/*)\n;;    - device.ss: File descriptor and device management\n;;    - socket.ss: Low-level socket operations\n;;    - file.ss, fcntl.ss: File operations\n;;    - error.ss: OS error handling\n\n;; 5. Object Utilities (:std/object)\n;;    - defobject-cache: Object pooling pattern\n;;    - Performance optimization for reusable objects\n\n;; 6. FFI Macrology (:std/ffi)\n;;    - Simplified FFI interface (will replace :std/foreign)\n;;    - C-include, C-declare for header/code inclusion\n;;    - def-C-syscall with automatic errno trapping\n;;    - ___TRAP_ERRNO and ___U8VECTOR_AS macros\n\n;; ============================================================================\n;; MODULE REORGANIZATION (imports need updating!)\n;; ============================================================================\n\n;; List modules moved: :std/misc/* → :std/list/*\n(import :std/list/list)         ;; was :std/misc/list\n(import :std/list/alist)        ;; was :std/misc/alist\n(import :std/list/plist)        ;; was :std/misc/plist\n(import :std/list/list-builder) ;; was :std/misc/list-builder\n(import :std/list/walist)       ;; NEW location\n\n;; JSON being refactored: :std/text/json → :std/encoding/json/*\n;; (Still incomplete, has XXX placeholders)\n\n;; Sugar moved: :std/sugar → :gerbil/core/sugar\n;; Hash utilities: :std/misc/hash → (reorganizing, in TODO)\n;; Iter/Sort: Being reorganized (in v0.19-TODO/)\n\n;; ============================================================================\n;; BREAKING CHANGES\n;; ============================================================================\n\n;; 1. Interface method invocations are now MACROS by default\n;;    - Contracts pushed to call site (can be pevaled)\n;;    - Interface unpacking at call site (can be hoisted out of loops)\n;;    - Major performance improvement, mostly transparent\n;;    - May affect macro expansion order and dynamic dispatch patterns\n\n;; 2. Core modules restructured\n;;    - New :gerbil/base prelude (combines core + runtime)\n;;    - Runtime type system extended (new class-type slots)\n\n;; ============================================================================\n;; ENHANCED SUBSYSTEMS\n;; ============================================================================\n\n;; Buffered I/O (:std/io/bio/*)\n;;    - reader/writer split architecture\n;;    - New modules: buffer.ss, cache.ss, memory.ss, message.ss\n;;    - srcsnk.ss: source/sink abstractions\n;;    - Removed: chunked.ss, inline.ss\n\n;; Socket I/O (:std/io/socket/*)\n;;    - New client.ss module\n;;    - Integration with :std/net/address types\n;;    - Type-safe socket operations\n\n;; ============================================================================\n;; MIGRATION NOTES\n;; ============================================================================\n\n;; v0.19 is a development branch — many features incomplete (XXX markers)\n;; Test thoroughly before migrating production code\n;; Update imports for reorganized modules (list, alist, plist)\n;; Logging system is ready for use\n;; FFI macrology is partial (def-C-* mostly unimplemented)\n;; JSON refactoring incomplete",
+    "notes": "This recipe summarizes the major changes in Gerbil v0.19 development branch (v0.19-dev-test-basis). Key additions: (1) Complete logging system comparable to mature logging libraries, (2) Format subsystem for structured output, (3) Network address type hierarchy, (4) OS abstraction layer for low-level operations, (5) Object pooling utilities, (6) Simplified FFI interface. Major reorganization: list modules moved to :std/list/, JSON being refactored, sugar/hash/iter modules being reorganized. Breaking change: interface methods are now macros (performance optimization). This is a DEVELOPMENT branch — many features are incomplete (XXX placeholders). Not recommended for production until stable release. Use this recipe to understand the v0.19 landscape and plan migrations.",
+    "gerbil_version": "v0.19"
   }
 ]
