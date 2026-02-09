@@ -3065,26 +3065,20 @@
   },
   {
     "id": "amb-nondeterministic-search",
-    "title": "Nondeterministic computation with amb (backtracking search)",
+    "title": "Nondeterministic search with amb operator",
     "tags": [
       "amb",
       "nondeterministic",
-      "backtracking",
       "search",
+      "backtracking",
       "constraint",
-      "choice",
-      "puzzle",
-      "solver"
+      "logic"
     ],
     "imports": [
       ":std/amb"
     ],
-    "code": "(import :std/amb)\n\n;; amb picks one of the choices; backtracks if amb-fail is called\n;; amb-find returns the first solution, amb-collect returns all\n\n;; Basic: find a value satisfying a constraint\n(amb-find\n  (let (x (amb 1 2 3 4 5))\n    (when (even? x) (amb-fail))  ;; reject even numbers\n    x))\n;; => 1 (first odd number)\n\n;; Collect all solutions\n(amb-collect\n  (let (x (amb 1 2 3 4 5))\n    (when (even? x) (amb-fail))\n    x))\n;; => (1 3 5)\n\n;; Constraint satisfaction: find Pythagorean triples\n(amb-collect\n  (let ((a (amb 1 2 3 4 5 6 7 8 9 10))\n        (b (amb 1 2 3 4 5 6 7 8 9 10))\n        (c (amb 1 2 3 4 5 6 7 8 9 10)))\n    (unless (and (<= a b) (= (+ (* a a) (* b b)) (* c c)))\n      (amb-fail))\n    (list a b c)))\n;; => ((3 4 5) (6 8 10))\n\n;; amb-assert: shorthand for (unless test (amb-fail))\n(amb-find\n  (let ((x (amb 1 2 3 4 5))\n        (y (amb 1 2 3 4 5)))\n    (amb-assert (= (+ x y) 6))\n    (amb-assert (> x y))\n    (list x y)))\n;; => (4 2) or (5 1)\n\n;; Custom strategy: shuffle choices for randomized search\n(parameterize ((amb-strategy shuffle))\n  (amb-find\n    (let (x (amb 1 2 3 4 5))\n      (amb-assert (odd? x))\n      x)))\n;; => random odd number from 1,3,5",
-    "notes": ":std/amb implements McCarthy's ambiguous operator for nondeterministic programming. amb chooses one value from its arguments. If subsequent computation calls amb-fail, amb backtracks and tries the next choice. amb-find returns the first successful result. amb-collect gathers all solutions. amb-assert is sugar for (unless test (amb-fail)). amb-strategy controls iteration order: identity (default, left-to-right) or shuffle (randomized). Internally uses continuations (let/cc) for backtracking, running in a dedicated thread.",
-    "related": [
-      "coroutine-generator-pattern"
-    ],
-    "gerbil_version": "v0.18.1-173"
+    "code": ";; begin-amb sets up the nondeterministic context\n;; amb chooses between alternatives, amb-assert constrains choices\n(begin-amb\n  (let ((x (amb 1 2 3 4 5))\n        (y (amb 1 2 3 4 5)))\n    (amb-assert (= (+ x y) 7))\n    (cons x y)))\n;; => (2 . 5) — first solution found\n\n;; amb-find returns the first solution (must be inside begin-amb)\n(begin-amb\n  (amb-find\n    (let ((x (amb 1 2 3 4 5 6 7 8 9 10)))\n      (amb-assert (and (even? x) (> x 5)))\n      x)))\n;; => 6\n\n;; amb-collect returns ALL solutions\n(begin-amb\n  (amb-collect\n    (let ((x (amb 1 2 3 4 5 6 7 8 9 10)))\n      (amb-assert (and (even? x) (> x 5)))\n      x)))\n;; => (6 8 10)\n\n;; element-of chooses from a list\n(begin-amb\n  (let ((color (element-of '(red green blue)))\n        (size (element-of '(small large))))\n    (amb-assert (eq? color 'blue))\n    (cons color size)))\n;; => (blue . small)\n\n;; begin-amb-random shuffles alternatives randomly\n(begin-amb-random\n  (amb 1 2 3 4 5))",
+    "notes": "amb-find, amb-collect, and element-of MUST be used inside begin-amb or begin-amb-random (they need the amb-state context set up by these macros). one-of is an alias for amb-find, all-of is an alias for amb-collect, required is an alias for amb-assert."
   },
   {
     "id": "generic-multi-dispatch",
@@ -5850,28 +5844,21 @@
   },
   {
     "id": "ll1-parser-combinators",
-    "title": "LL(1) parser combinators for structured text parsing",
+    "title": "LL(1) parser combinators for parsing text",
     "tags": [
       "parser",
       "ll1",
       "combinator",
       "parse",
-      "text",
-      "csv",
+      "lexer",
       "grammar",
-      "bind",
-      "monadic"
+      "text"
     ],
     "imports": [
       ":std/parser/ll1"
     ],
-    "code": "(import :std/parser/ll1)\n\n;; Parse an unsigned integer from a string\n(ll1/string ll1-uint \"12345\")  ;; => 12345\n\n;; Parse a signed integer\n(ll1/string ll1-sint \"-42\")    ;; => -42\n\n;; Parse a specific character or string\n;; ll1-char matches one char, ll1-string matches a literal\n(ll1/string (ll1-begin (ll1-string \"hello\") (ll1-char #\\!) (ll1-pure 'greeting))\n            \"hello!\")\n;; => greeting\n\n;; Monadic bind: chain parsers, use result in next parser\n(def addition-parser\n  (ll1-bind ll1-uint\n    (lambda (a)\n      (ll1-begin (ll1-char #\\+)\n        (ll1-bind ll1-uint\n          (lambda (b) (ll1-pure (+ a b))))))))\n(ll1/string addition-parser \"3+4\")  ;; => 7\n\n;; ll1-or: try alternatives (backtracks on parse error)\n(def bool-parser\n  (ll1-or (ll1-begin (ll1-string \"true\") (ll1-pure #t))\n          (ll1-begin (ll1-string \"false\") (ll1-pure #f))))\n(ll1/string bool-parser \"true\")   ;; => #t\n(ll1/string bool-parser \"false\")  ;; => #f\n\n;; ll1-separated: parse elements with separator until terminator\n;; Signature: (ll1-separated element separator terminator)\n(def csv-uints (ll1-separated ll1-uint (ll1-char #\\,) ll1-eof))\n(ll1/string csv-uints \"1,2,3,4\")  ;; => (1 2 3 4)\n\n;; ll1-repeated: parse element repeatedly until terminator\n(def digits (ll1-repeated (ll1-char? char-numeric?) ll1-eof))\n(ll1/string digits \"abc\")  ;; parsed until eof\n\n;; ll1*: applicative — apply function to parsed results\n(def pair-parser (ll1* cons ll1-uint (ll1-begin (ll1-char #\\:) ll1-uint)))\n(ll1/string pair-parser \"42:99\")  ;; => (42 . 99)\n\n;; ll1-case: deterministic dispatch on next character (no backtracking)\n;; More efficient than ll1-or when first char determines the branch\n;; (ll1-case (#\\t (ll1-string \"true\"))\n;;           (#\\f (ll1-string \"false\")))\n\n;; Running parsers on different inputs\n(ll1/string ll1-uint \"42\")                ;; parse from string\n;; (ll1/port parser port)                 ;; parse from input port\n;; (ll1/file parser \"path.txt\")           ;; parse from file\n;; (ll1/file-lines line-parser \"input\")   ;; parse file line by line",
-    "notes": ":std/parser/ll1 provides LL(1) parser combinators with one-character lookahead. Key combinators: ll1-pure (return value), ll1-bind (monadic chain), ll1-begin/ll1-begin0 (sequence, return last/first), ll1-or (alternatives with backtracking), ll1* (applicative), ll1-separated (delimited lists), ll1-repeated (repetition). ll1-separated takes 3 required args: element parser, separator parser, terminator parser. The terminator tells the parser when to stop — commonly ll1-eof, ll1-eolf, or ll1-peek for lookahead. WARNING: ll1-or backtracks on failure but does NOT reset position if multiple chars were consumed — use ll1-case for deterministic first-char dispatch when possible.",
-    "related": [
-      "regular-expressions",
-      "pregexp-replace"
-    ],
-    "gerbil_version": "v0.18.1-173"
+    "code": ";; Built-in parsers\n(ll1/string ll1-uint \"42\")          ;; => 42 (unsigned integer)\n(ll1/string ll1-sint \"-17\")         ;; => -17 (signed integer)\n(ll1/string (ll1-string \"hello\") \"hello\")  ;; => \"hello\" (exact match)\n\n;; ll1*: sequence with combiner function\n(ll1/string (ll1* + ll1-uint\n                    (ll1-begin (ll1-char (lambda (c) (eqv? c #\\+)))\n                               ll1-uint))\n            \"3+4\")\n;; => 7\n\n;; ll1-or: alternatives (tries each, returns first success)\n(ll1/string (ll1-or ll1-uint (ll1-string \"abc\")) \"abc\")\n;; => \"abc\"\n\n;; ll1-char: match single char by predicate\n(ll1/string (ll1-char char-alphabetic?) \"a\")  ;; => #\\a\n\n;; ll1-char*: match zero or more chars\n;; ll1-char+: match one or more chars (returns string)\n\n;; ll1-begin: sequence, returns LAST result\n;; ll1-begin0: sequence, returns FIRST result\n(ll1/string (ll1-begin (ll1-string \"x=\") ll1-uint) \"x=42\")  ;; => 42\n\n;; ll1-repeated: zero or more of a parser\n;; ll1-separated: items separated by delimiter\n\n;; Entry points:\n;; (ll1/string parser str)     — parse from string\n;; (ll1/port parser port)      — parse from port\n;; (ll1/file parser filename)  — parse from file",
+    "notes": "The :std/parser/ll1 module provides LL(1) parser combinators. Parsers are functions that consume input from a PeekableStringReader. ll1/string is the easiest entry point for testing. ll1-or tries alternatives in order — if one fails beyond the first character, it does NOT backtrack. Use ll1-case for character-based dispatch instead. For more advanced parsing, use the full :std/parser module with deflexer/defparser macros."
   },
   {
     "id": "for-fold-accumulation",
@@ -5971,27 +5958,21 @@
   },
   {
     "id": "srfi-42-eager-comprehensions",
-    "title": "Eager comprehensions with SRFI-42 (list-ec, vector-ec, sum-ec, ...)",
+    "title": "SRFI-42 eager comprehensions for list/sum/string generation",
     "tags": [
       "srfi",
       "srfi-42",
       "comprehension",
       "list-ec",
-      "vector-ec",
       "sum-ec",
-      "generator",
-      "loop"
+      "loop",
+      "generate"
     ],
     "imports": [
       ":std/srfi/42"
     ],
-    "code": "(import :std/srfi/42)\n\n;; list-ec: list comprehension\n(list-ec (:range i 5) (* i i))\n;; => (0 1 4 9 16)\n\n;; vector-ec: build a vector\n(vector-ec (:list x '(a b c)) x)\n;; => #(a b c)\n\n;; sum-ec: sum values\n(sum-ec (:range i 1 6) i)  ;; => 15\n\n;; string-append-ec: concatenate strings\n(string-append-ec (:list x '(\"hello\" \" \" \"world\")) x)\n;; => \"hello world\"\n\n;; Nested generators (Cartesian product)\n(list-ec (:range i 1 4) (:range j 1 4) (list i j))\n;; => ((1 1) (1 2) (1 3) (2 1) (2 2) (2 3) (3 1) (3 2) (3 3))\n\n;; Filtering with :range and if\n(list-ec (:range i 1 20) (if (zero? (modulo i 3))) i)\n;; => (3 6 9 12 15 18)\n\n;; :list generator\n(list-ec (:list x '(1 2 3) '(4 5 6)) (* x 10))\n;; => (10 20 30 40 50 60)\n\n;; :string generator (iterate over characters)\n(list-ec (:string c \"hello\") (char-upcase c))\n;; => (#\\H #\\E #\\L #\\L #\\O)\n\n;; :vector generator\n(sum-ec (:vector x '#(10 20 30)) x)  ;; => 60\n\n;; :parallel — zip generators (stop at shortest)\n(list-ec (:parallel (:range i 100) (:list x '(a b c))) (cons i x))\n;; => ((0 . a) (1 . b) (2 . c))\n\n;; :let — bind intermediate values\n(list-ec (:range i 1 5) (:let sq (* i i)) (list i sq))\n;; => ((1 1) (2 4) (3 9) (4 16))\n\n;; :while / :until — conditional termination\n(list-ec (:while (:range i 100) (< (* i i) 50)) i)\n;; => (0 1 2 3 4 5 6 7)\n\n;; Predicates\n(any?-ec (:range i 10) (= i 7))      ;; => #t\n(every?-ec (:range i 1 5) (> i 0))   ;; => #t\n(first-ec #f (:range i 10) (if (> (* i i) 50)) i)  ;; => 8\n\n;; fold-ec: general fold\n(fold-ec 0 (:range i 1 6) i +)  ;; => 15\n(fold-ec '() (:range i 5) i cons)  ;; => (4 3 2 1 0)",
-    "notes": "SRFI-42 provides Python-style comprehensions for Scheme. Generator syntax: (:range i start end step), (:list x lst ...), (:vector x vec), (:string c str), (:integers), (:parallel gen1 gen2 ...). Filter: (if test) after generators. Result forms: list-ec, vector-ec, string-ec, string-append-ec, sum-ec, product-ec, min-ec, max-ec, any?-ec, every?-ec, first-ec, last-ec, fold-ec, fold3-ec, do-ec (side effects only), append-ec. :parallel zips generators (stops at shortest). :while/:until control iteration termination. These are eager (compute everything immediately) — for lazy sequences, use :std/lazy or :std/coroutine instead.",
-    "related": [
-      "collect-results-with-for-collect",
-      "for-fold-accumulation"
-    ],
-    "gerbil_version": "v0.18.1-173"
+    "code": ";; list-ec: list comprehension\n(list-ec (: i 5) (* i i))\n;; => (0 1 4 9 16)\n\n;; sum-ec: sum comprehension\n(sum-ec (: i 1 11) i)  ;; => 55\n\n;; Nested generators\n(list-ec (: i 1 4) (: j 1 i) (list i j))\n;; => ((2 1) (3 1) (3 2))\n\n;; with filter\n(list-ec (: i 1 21) (if (zero? (modulo i 3))) i)\n;; => (3 6 9 12 15 18)\n\n;; string-ec: build strings\n(string-ec (: c \"hello\") (char-upcase c))\n;; => \"HELLO\"\n\n;; vector-ec: build vectors\n(vector-ec (: i 5) (* i 10))\n;; => #(0 10 20 30 40)\n\n;; do-ec: just iterate (side effects)\n(do-ec (: i 3) (displayln \"item \" i))\n\n;; Generators:\n;; (: i n)        — 0 to n-1\n;; (: i a b)      — a to b-1\n;; (: i a b step) — a to b-1 by step\n;; (: x lst)      — iterate list\n;; (: c str)      — iterate string chars",
+    "notes": "SRFI-42 provides Python/Haskell-like comprehensions. The (: var ...) generator is the most common. Use (if pred) for filtering within comprehensions. Available comprehension forms: list-ec, vector-ec, string-ec, sum-ec, product-ec, min-ec, max-ec, any?-ec, every?-ec, first-ec, last-ec, fold-ec, do-ec."
   },
   {
     "id": "srfi-1-list-utilities",
@@ -6092,26 +6073,21 @@
   },
   {
     "id": "config-keyword-plist",
-    "title": "Configuration management with keyword property lists",
+    "title": "Configuration management with keyword plists",
     "tags": [
       "config",
       "configuration",
-      "keyword",
-      "plist",
       "settings",
+      "plist",
+      "keyword",
       "load",
-      "save",
-      "file"
+      "save"
     ],
     "imports": [
       ":std/config"
     ],
-    "code": "(import :std/config)\n\n;; Configs are keyword property lists: [key1: val1 key2: val2 ...]\n(def cfg [app-name: \"MyApp\" debug: #t port: 8080 workers: 4])\n\n;; Get a value (with optional default)\n(config-get cfg app-name:)       ;; => \"MyApp\"\n(config-get cfg port:)           ;; => 8080\n(config-get cfg timeout: 30)     ;; => 30 (default, key not in cfg)\n\n;; Get a value (error if missing)\n(config-get! cfg app-name:)      ;; => \"MyApp\"\n;; (config-get! cfg timeout:)    ;; ERROR: missing key\n\n;; Set a value (returns new config)\n(def cfg2 (config-set! cfg debug: #f))\n(config-get cfg2 debug:)         ;; => #f\n\n;; Typed config with validation\n(def typed-cfg [config: my-app-config host: \"localhost\" port: 5432])\n(config-check! typed-cfg my-app-config)  ;; verifies config: tag matches\n\n;; Save config to file\n(save-config! cfg \"/tmp/myapp.config\")\n;; File content: (app-name: \"MyApp\" debug: #t port: 8080 workers: 4)\n\n;; Load config from file\n(def loaded (load-config \"/tmp/myapp.config\"))\n(config-get loaded app-name:)    ;; => \"MyApp\"\n\n;; Load typed config (validates config: tag)\n;; (def loaded (load-config \"/tmp/typed.config\" my-app-config))\n\n;; Write config to port (for custom output)\n(write-config cfg (current-output-port))\n\n;; Pattern: merge configs (later values override)\n(def defaults [host: \"localhost\" port: 8080 debug: #f])\n(def overrides [port: 9090 debug: #t])\n(def merged (append overrides defaults))\n;; config-get searches left-to-right, so overrides take precedence\n(config-get merged port:)   ;; => 9090\n(config-get merged host:)   ;; => \"localhost\" (from defaults)",
-    "notes": ":std/config represents configuration as flat keyword property lists (plists). config-get scans the list for the keyword and returns the following value. Since it's a linear scan, later entries are shadowed by earlier ones — use (append overrides defaults) for merge-with-override semantics. config-set! creates a new plist with the updated key (non-destructive). config-push! is the destructive variant. The config: keyword in a typed config is a tag for validation — config-check! verifies it matches the expected symbol. save-config!/load-config use Scheme's read/write for serialization.",
-    "related": [
-      "hash-table-basics"
-    ],
-    "gerbil_version": "v0.18.1-173"
+    "code": ";; Config is a keyword plist: [key1: val1 key2: val2 ...]\n(let ((cfg [db: \"localhost\" port: 5432 debug: #t]))\n  ;; Read values\n  (displayln (config-get cfg db:))          ;; \"localhost\"\n  (displayln (config-get cfg port:))        ;; 5432\n  (displayln (config-get cfg user: \"anon\")) ;; \"anon\" (default)\n\n  ;; config-get! raises error if key is missing\n  ;; (config-get! cfg user:) ;; => error: missing configuration key\n\n  ;; Modify (returns new list if key was missing)\n  (let ((cfg2 (config-set! cfg user: \"admin\")))\n    (displayln (config-get cfg2 user:)))    ;; \"admin\"\n\n  ;; Mutation macro for set! pattern\n  ;; (config-push! cfg key: val)  ;; equivalent to (set! cfg (config-set! cfg key: val))\n  )\n\n;; Save/load config files\n;; (save-config! cfg \"/tmp/app.conf\")\n;; (def cfg (load-config \"/tmp/app.conf\" config:))\n\n;; Helper: parse strings from config files\n;; (string->object \"42\")    => 42\n;; (string->integer \"42\")   => 42",
+    "notes": "Config is a flat keyword plist (not a hash table). Keys are Gerbil keywords (with trailing colon). config-set! mutates in-place if key exists, returns new list if not. config-push! is a set! macro that handles both cases. load-config takes a filepath and a type keyword for validation."
   },
   {
     "id": "decimal-exact-arithmetic",
@@ -7285,5 +7261,1192 @@
       "error-handling",
       "error-message-returns-false"
     ]
+  },
+  {
+    "id": "lazy-evaluation-streams",
+    "title": "Lazy evaluation and infinite streams",
+    "tags": [
+      "lazy",
+      "delay",
+      "force",
+      "stream",
+      "infinite",
+      "memoize"
+    ],
+    "imports": [
+      ":std/lazy"
+    ],
+    "code": ";; delay creates a memoized lazy value (evaluated at most once)\n(let ()\n  (def counter 0)\n  (def p (delay (begin (set! counter (+ counter 1)) (* counter 42))))\n  (displayln \"before: \" counter)    ;; 0\n  (displayln \"first: \" (force p))   ;; 42 (evaluates thunk, counter becomes 1)\n  (displayln \"second: \" (force p))  ;; 42 (returns cached result)\n  (displayln \"after: \" counter))    ;; 1 (only evaluated once)\n\n;; lazy creates a lazy promise (for building lazy data structures)\n;; Infinite stream of integers\n(let ()\n  (def (integers-from n)\n    (lazy (cons n (integers-from (+ n 1)))))\n  (def (stream-take n s)\n    (if (zero? n) '()\n      (let ((p (force s)))\n        (cons (car p) (stream-take (- n 1) (cdr p))))))\n  (displayln (stream-take 5 (integers-from 1))))\n;; => (1 2 3 4 5)\n\n;; lazy? tests if something is a lazy promise\n;; eager wraps an already-computed value as a lazy value",
+    "notes": "delay memoizes: the thunk is evaluated at most once and the result is cached. lazy is for building recursive lazy structures (like streams). force evaluates a lazy/delayed value. Use eager to wrap an already-computed value into the lazy protocol."
+  },
+  {
+    "id": "pqueue-priority-queue",
+    "title": "Priority queue (min-heap/max-heap) operations",
+    "tags": [
+      "pqueue",
+      "priority",
+      "queue",
+      "heap",
+      "min-heap",
+      "max-heap",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/pqueue"
+    ],
+    "code": ";; make-pqueue takes a PRIORITY EXTRACTION function, with optional comparator\n;; Default comparator is < (min-heap)\n(let ((pq (make-pqueue identity)))  ;; identity for plain numbers\n  (pqueue-push! pq 5)\n  (pqueue-push! pq 1)\n  (pqueue-push! pq 3)\n  (displayln \"size: \" (pqueue-size pq))   ;; 3\n  (displayln \"peek: \" (pqueue-peek pq))   ;; 1 (smallest)\n  (displayln \"pop: \" (pqueue-pop! pq))    ;; 1\n  (displayln \"pop: \" (pqueue-pop! pq))    ;; 3\n  (displayln \"empty? \" (pqueue-empty? pq))) ;; #f\n\n;; Max-heap: use > as comparator\n(let ((pq (make-pqueue identity >)))\n  (for-each (cut pqueue-push! pq <>) [5 1 3 2 4])\n  (displayln (pqueue-pop! pq)))  ;; 5 (largest)\n\n;; Custom objects: extract priority from struct\n(defstruct task (name priority))\n(let ((pq (make-pqueue task-priority)))\n  (pqueue-push! pq (make-task \"urgent\" 1))\n  (pqueue-push! pq (make-task \"normal\" 5))\n  (pqueue-push! pq (make-task \"low\" 10))\n  (displayln (task-name (pqueue-pop! pq))))  ;; \"urgent\"",
+    "notes": "IMPORTANT: make-pqueue takes a PRIORITY EXTRACTION function (not a comparator). The function extracts a numeric priority from each element. Use identity for plain numbers. The optional second arg is the comparator (default: < for min-heap, use > for max-heap). pqueue-peek and pqueue-pop! accept an optional default value for empty queues."
+  },
+  {
+    "id": "rbtree-red-black-tree",
+    "title": "Red-black tree ordered map operations",
+    "tags": [
+      "rbtree",
+      "red-black",
+      "tree",
+      "ordered",
+      "map",
+      "sorted",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/rbtree",
+      ":std/iter"
+    ],
+    "code": ";; make-rbtree takes a comparison function\n;; Built-in comparators: string-cmp, symbol-cmp, symbol-hash-cmp\n(let ((tree (make-rbtree string-cmp)))\n  ;; Insert key-value pairs\n  (rbtree-put! tree \"alice\" 30)\n  (rbtree-put! tree \"bob\" 25)\n  (rbtree-put! tree \"charlie\" 35)\n\n  ;; Lookup\n  (displayln (rbtree-ref tree \"bob\"))     ;; 25\n  (displayln (rbtree-get tree \"missing\")) ;; #f (returns #f for missing keys)\n\n  ;; Convert to sorted alist\n  (displayln (rbtree->list tree))\n  ;; => ((alice . 30) (bob . 25) (charlie . 35))\n\n  ;; Iterate (NOTE: function comes FIRST, then tree)\n  (rbtree-for-each (lambda (k v) (displayln k \" => \" v)) tree)\n\n  ;; Fold to accumulate (function first, then init, then tree)\n  (displayln \"sum: \" (rbtree-fold (lambda (k v acc) (+ v acc)) 0 tree))\n\n  ;; Iterate with :std/iter\n  (for ((values k v) (in-rbtree tree))\n    (displayln k \" -> \" v))\n\n  ;; Remove\n  (rbtree-remove! tree \"bob\")\n  (displayln (rbtree->list tree)))\n\n;; Functional (non-mutating) variants: rbtree-put, rbtree-remove, rbtree-update\n;; list->rbtree creates from alist: (list->rbtree string-cmp '((\"a\" . 1) (\"b\" . 2)))",
+    "notes": "IMPORTANT: rbtree-for-each and rbtree-fold take the function FIRST, then the tree (not tree first). rbtree-ref raises an error for missing keys; use rbtree-get for safe lookup (returns #f). Built-in comparators: string-cmp, symbol-cmp, symbol-hash-cmp. For custom types, write a 3-way comparator returning negative/zero/positive."
+  },
+  {
+    "id": "template-string-substitution",
+    "title": "String template substitution with ${var} syntax",
+    "tags": [
+      "template",
+      "string",
+      "substitution",
+      "interpolation",
+      "format",
+      "placeholder"
+    ],
+    "imports": [
+      ":std/misc/template"
+    ],
+    "code": ";; apply-template uses ${var} placeholders with KEYWORD arguments\n(displayln (apply-template \"Hello ${name}, you are ${age} years old!\"\n                           name: \"Alice\" age: \"30\"))\n;; => \"Hello Alice, you are 30 years old!\"\n\n;; write-template writes directly to a port\n(write-template \"DB: ${host}:${port}\" (current-output-port)\n                host: \"localhost\" port: \"5432\")\n;; prints: DB: localhost:5432\n\n;; Escape $ with backslash: \\${not-a-var} stays literal",
+    "notes": "IMPORTANT: apply-template takes KEYWORD arguments (name: value pairs), NOT an alist. Each keyword becomes a template variable. Variable names in the template use ${...} syntax. Escape with backslash to prevent substitution."
+  },
+  {
+    "id": "dag-walk-directed-acyclic-graph",
+    "title": "Walk a directed acyclic graph (DAG)",
+    "tags": [
+      "dag",
+      "graph",
+      "walk",
+      "traverse",
+      "topological",
+      "dependency"
+    ],
+    "imports": [
+      ":std/misc/dag"
+    ],
+    "code": ";; walk-dag traverses a DAG from starting nodes\n;; First arg is a WALK function that receives a visit function\n;; arrows: returns outgoing edges from a node\n;; arrow-target: extracts target node from an arrow (default: identity)\n;; register-arrow: callback for each edge traversal\n;; synthetic-attribute: compute attribute bottom-up\n\n;; Simple: traverse dependencies and print edges\n(walk-dag\n  (lambda (visit) (visit 'app))          ;; start from 'app\n  arrows: (lambda (node)                  ;; return dependencies\n    (case node\n      ((app) '(web-server db-client))\n      ((web-server) '(http-lib json-lib))\n      ((db-client) '(json-lib))\n      ((http-lib json-lib) '())\n      (else '())))\n  register-arrow: (lambda (from to) (displayln from \" depends on \" to)))\n;; Output:\n;;   app depends on web-server\n;;   web-server depends on http-lib\n;;   web-server depends on json-lib\n;;   app depends on db-client\n;;   db-client depends on json-lib  (json-lib NOT revisited - memoized)\n\n;; Walk multiple roots\n(walk-dag\n  (lambda (visit) (for-each visit '(a b c)))\n  arrows: (lambda (n) '()))",
+    "notes": "walk-dag's first argument is NOT a root node — it's a function that receives a 'visit' function and calls it on starting nodes. Each node is visited at most once (memoized). Detects cycles and raises an error. The synthetic-attribute keyword lets you compute bottom-up attributes (default returns #t)."
+  },
+  {
+    "id": "srfi-1-list-operations",
+    "title": "SRFI-1 list processing operations",
+    "tags": [
+      "srfi",
+      "srfi-1",
+      "list",
+      "filter",
+      "fold",
+      "partition",
+      "zip",
+      "iota",
+      "take",
+      "drop"
+    ],
+    "imports": [
+      ":std/srfi/1"
+    ],
+    "code": ";; iota: generate numeric sequences\n(iota 5)           ;; => (0 1 2 3 4)\n(iota 5 1 2)       ;; => (1 3 5 7 9) — start=1, step=2\n\n;; take/drop: split lists\n(take '(a b c d e) 3)  ;; => (a b c)\n(drop '(a b c d e) 3)  ;; => (d e)\n\n;; partition: split by predicate (returns 2 values)\n(receive (evens odds) (partition even? '(1 2 3 4 5 6))\n  (list evens odds))\n;; => ((2 4 6) (1 3 5))\n\n;; zip: combine lists element-wise\n(zip '(a b c) '(1 2 3))  ;; => ((a 1) (b 2) (c 3))\n\n;; filter-map: filter + transform in one pass\n(filter-map (lambda (x) (and (even? x) (* x 10))) '(1 2 3 4 5))\n;; => (20 40)\n\n;; fold: left fold\n(fold + 0 '(1 2 3 4 5))  ;; => 15\n(fold cons '() '(1 2 3))  ;; => (3 2 1)\n\n;; unfold: generate list from seed\n(unfold (lambda (x) (> x 5))     ;; predicate: when to stop\n        (lambda (x) (* x x))     ;; transform: seed -> element\n        (lambda (x) (+ x 1))     ;; step: seed -> next-seed\n        1)                        ;; initial seed\n;; => (1 4 9 16 25)\n\n;; Other useful: append-map, concatenate, delete-duplicates, any, every\n(any odd? '(2 4 5 6))       ;; => #t\n(every even? '(2 4 6))      ;; => #t\n(delete-duplicates '(1 2 1 3 2))  ;; => (1 2 3)",
+    "notes": "SRFI-1 is the comprehensive list library. Use :std/srfi/8 (receive) to capture multiple return values from partition. fold is left-fold; fold-right is also available. unfold generates lists from a seed value — the predicate, transform, and step functions all take one argument."
+  },
+  {
+    "id": "srfi-13-string-operations",
+    "title": "SRFI-13 string processing operations",
+    "tags": [
+      "srfi",
+      "srfi-13",
+      "string",
+      "search",
+      "trim",
+      "join",
+      "split",
+      "upcase",
+      "downcase"
+    ],
+    "imports": [
+      ":std/srfi/13"
+    ],
+    "code": ";; String search\n(string-contains \"hello world\" \"world\")  ;; => 6 (index of match)\n(string-prefix? \"hel\" \"hello\")           ;; => #t\n(string-suffix? \"llo\" \"hello\")           ;; => #t\n\n;; Case conversion\n(string-upcase \"hello\")      ;; => \"HELLO\"\n(string-downcase \"HELLO\")    ;; => \"hello\"\n(string-titlecase \"hello world\")  ;; => \"Hello World\"\n\n;; Trimming\n(string-trim \"  hello\")          ;; => \"hello\" (left trim)\n(string-trim-right \"hello  \")    ;; => \"hello\" (right trim)\n(string-trim-both \"  hello  \")   ;; => \"hello\" (both sides)\n\n;; Joining\n(string-join '(\"a\" \"b\" \"c\") \", \")     ;; => \"a, b, c\"\n(string-join '(\"a\" \"b\" \"c\") \"/\")      ;; => \"a/b/c\"\n\n;; Predicates\n(string-null? \"\")       ;; => #t\n(string-every char-alphabetic? \"hello\")  ;; => #t\n(string-any char-numeric? \"abc123\")      ;; => #t\n\n;; Functional\n(string-map char-upcase \"hello\")         ;; => \"HELLO\"\n(string-fold (lambda (c acc) (+ acc 1)) 0 \"hello\")  ;; => 5",
+    "notes": "SRFI-13 provides comprehensive string operations. string-contains returns the index of the first occurrence (not a boolean). Most functions accept optional start/end index parameters for operating on substrings."
+  },
+  {
+    "id": "srfi-14-character-sets",
+    "title": "SRFI-14 character sets for classification and filtering",
+    "tags": [
+      "srfi",
+      "srfi-14",
+      "char-set",
+      "character",
+      "classification",
+      "filter",
+      "predicate"
+    ],
+    "imports": [
+      ":std/srfi/14"
+    ],
+    "code": ";; Predefined character sets\n(char-set-contains? char-set:letter #\\a)     ;; => #t\n(char-set-contains? char-set:digit #\\5)      ;; => #t\n(char-set-contains? char-set:whitespace #\\ ) ;; => #t\n(char-set-contains? char-set:punctuation #\\!) ;; => #t\n\n;; Create custom character sets\n(def vowels (string->char-set \"aeiou\"))\n(char-set-contains? vowels #\\e)  ;; => #t\n(char-set-contains? vowels #\\x)  ;; => #f\n\n;; Set operations\n(def alphanumeric (char-set-union char-set:letter char-set:digit))\n(def consonants (char-set-difference char-set:letter vowels))\n\n;; Available predefined sets:\n;; char-set:lower-case char-set:upper-case char-set:letter\n;; char-set:digit char-set:hex-digit char-set:whitespace\n;; char-set:punctuation char-set:symbol char-set:ascii\n;; char-set:blank char-set:graphic char-set:printing",
+    "notes": "SRFI-14 character sets are commonly used with SRFI-13 string functions and SRFI-115 regular expressions. char-set-contains? is the main testing function. Use string->char-set for quick custom sets. Set algebra: char-set-union, char-set-intersection, char-set-difference, char-set-complement."
+  },
+  {
+    "id": "srfi-8-receive-multiple-values",
+    "title": "SRFI-8 receive for destructuring multiple return values",
+    "tags": [
+      "srfi",
+      "srfi-8",
+      "receive",
+      "values",
+      "multiple",
+      "return",
+      "destructure"
+    ],
+    "imports": [
+      ":std/srfi/8"
+    ],
+    "code": ";; receive destructures multiple return values\n(receive (a b c)\n  (values 1 2 3)\n  (displayln a \" \" b \" \" c))\n;; prints: 1 2 3\n\n;; Capture all values as a list\n(receive args\n  (values 'first 'second 'third)\n  (displayln \"all: \" args))\n;; prints: all: (first second third)\n\n;; Common use: with partition, hash-table operations, etc.\n(import :std/srfi/1)\n(receive (evens odds) (partition even? '(1 2 3 4 5))\n  (displayln \"evens=\" evens \" odds=\" odds))\n;; prints: evens=(2 4) odds=(1 3 5)\n\n;; Equivalent to call-with-values but more readable:\n;; (call-with-values (lambda () (values 1 2)) (lambda (a b) (+ a b)))",
+    "notes": "receive is syntactic sugar for call-with-values. The formals can be a proper list (exact match), a single identifier (collects all values), or an improper list like (a b . rest). Note: dotted formals like (head . tail) may not compile in all contexts — use a plain identifier and destructure manually if needed."
+  },
+  {
+    "id": "srfi-41-streams",
+    "title": "SRFI-41 streams (lazy lists) for infinite sequences",
+    "tags": [
+      "srfi",
+      "srfi-41",
+      "stream",
+      "lazy",
+      "infinite",
+      "sequence",
+      "fibonacci"
+    ],
+    "imports": [
+      ":std/srfi/41"
+    ],
+    "code": ";; Build streams with stream-cons\n(let ()\n  (def s (stream-cons 1 (stream-cons 2 (stream-cons 3 stream-null))))\n  (displayln (stream->list s)))  ;; => (1 2 3)\n\n;; Infinite streams with stream-from\n(let ()\n  (def nats (stream-from 0))\n  (displayln (stream->list (stream-take 5 nats))))  ;; => (0 1 2 3 4)\n\n;; stream-filter on infinite streams\n(let ()\n  (def evens (stream-filter even? (stream-from 0)))\n  (displayln (stream->list (stream-take 8 evens))))\n;; => (0 2 4 6 8 10 12 14)\n\n;; Classic: Fibonacci stream\n(let ()\n  (def fibs\n    (stream-cons 0 (stream-cons 1\n      (stream-map + fibs (stream-cdr fibs)))))\n  (displayln (stream->list (stream-take 10 fibs))))\n;; => (0 1 1 2 3 5 8 13 21 34)\n\n;; stream-map applies a function element-wise\n;; stream-fold for accumulation\n;; stream-for-each for side effects\n;; stream-range for bounded ranges: (stream-range 1 10)",
+    "notes": "SRFI-41 streams are lazy lists — elements are computed on demand. stream-cons is a macro (both head and tail are delayed). stream-null is the empty stream. Use stream->list and stream-take to materialize finite portions. stream-from generates infinite arithmetic sequences. stream-map can take multiple streams (like map)."
+  },
+  {
+    "id": "srfi-95-sorting",
+    "title": "SRFI-95 sorting for lists and vectors",
+    "tags": [
+      "srfi",
+      "srfi-95",
+      "sort",
+      "sorting",
+      "order",
+      "compare",
+      "stable"
+    ],
+    "imports": [
+      ":std/srfi/95"
+    ],
+    "code": ";; Sort a list of numbers\n(sort '(3 1 4 1 5 9 2 6) <)\n;; => (1 1 2 3 4 5 6 9)\n\n;; Sort strings\n(sort '(\"banana\" \"apple\" \"cherry\") string<?)\n;; => (\"apple\" \"banana\" \"cherry\")\n\n;; Sort with key function (sort by car of pairs)\n(sort '((3 . \"c\") (1 . \"a\") (2 . \"b\")) < car)\n;; => ((1 . \"a\") (2 . \"b\") (3 . \"c\"))\n\n;; Sort structs by field\n;; (sort tasks < task-priority)\n\n;; Descending order: use > instead of <\n(sort '(3 1 4 1 5 9 2 6) >)\n;; => (9 6 5 4 3 2 1 1)\n\n;; The sort is stable (preserves order of equal elements)\n;; Also: sort! for in-place mutation of vectors",
+    "notes": "sort takes (list-or-vector less? [key-fn]). The optional key function extracts the comparison key from each element. The sort is stable (merge sort). sort! mutates vectors in place. For simple cases, Gambit's built-in sort also works but SRFI-95 adds the key function parameter."
+  },
+  {
+    "id": "srfi-115-regular-expressions",
+    "title": "SRFI-115 regular expressions with SRE syntax",
+    "tags": [
+      "srfi",
+      "srfi-115",
+      "regex",
+      "regexp",
+      "regular",
+      "expression",
+      "match",
+      "search",
+      "replace",
+      "split"
+    ],
+    "imports": [
+      ":std/srfi/115"
+    ],
+    "code": ";; Search for a pattern (returns match object or #f)\n(let ((m (regexp-search '(: (+ digit)) \"abc123def\")))\n  (displayln (regexp-match-submatch m 0)))  ;; => \"123\"\n\n;; Test if entire string matches\n(regexp-matches? '(: (+ alpha)) \"hello\")  ;; => #t\n(regexp-matches? '(: (+ alpha)) \"hello1\") ;; => #f\n\n;; Split string by pattern\n(regexp-split '(+ space) \"hello  world  foo\")\n;; => (\"hello\" \"world\" \"foo\")\n\n;; Extract all matches\n(regexp-extract '(+ digit) \"a1b23c456\")\n;; => (\"1\" \"23\" \"456\")\n\n;; Replace first / all occurrences\n(regexp-replace '(+ digit) \"a1b23c\" \"#\")\n;; => \"a#b23c\" (first only)\n(regexp-replace-all '(+ digit) \"a1b23c456\" \"#\")\n;; => \"a#b#c#\"\n\n;; SRE (S-expression Regular Expression) syntax:\n;; (: a b c)       — sequence (concatenation)\n;; (or a b)        — alternation\n;; (* pat)         — zero or more\n;; (+ pat)         — one or more\n;; (? pat)         — zero or one\n;; (= n pat)       — exactly n times\n;; (>= n pat)      — n or more times\n;; alpha, digit, space, upper, lower — character classes\n;; (~ pat)         — complement (not matching)\n;; (w/nocase pat)  — case-insensitive",
+    "notes": "SRFI-115 uses SRE (S-expression Regular Expressions) instead of PCRE strings. This is more composable and avoids escaping issues. regexp-search finds first match anywhere in string. regexp-matches checks if the ENTIRE string matches. regexp-fold is available for complex iteration over matches. Use (submatch pat) in SRE to create capture groups, accessed via regexp-match-submatch with 1-based index."
+  },
+  {
+    "id": "postgresql-database-queries",
+    "title": "PostgreSQL database queries with connection pooling",
+    "tags": [
+      "postgresql",
+      "postgres",
+      "database",
+      "sql",
+      "query",
+      "db",
+      "connection",
+      "pool",
+      "transaction"
+    ],
+    "imports": [
+      ":std/db/dbi",
+      ":std/db/postgresql",
+      ":std/db/conpool"
+    ],
+    "code": ";; Connect to PostgreSQL\n(def conn (sql-connect postgresql-connect\n            host: \"localhost\" port: 5432\n            user: \"myuser\" passwd: \"mypass\" db: \"mydb\"))\n\n;; Simple query execution\n(sql-eval conn \"CREATE TABLE IF NOT EXISTS users (id SERIAL, name TEXT, age INT)\")\n\n;; Insert with parameters (use $1, $2, ... for PostgreSQL placeholders)\n(sql-eval conn \"INSERT INTO users (name, age) VALUES ($1, $2)\" \"Alice\" 30)\n\n;; Query rows (returns list of vectors)\n(def rows (sql-eval-query conn \"SELECT name, age FROM users WHERE age > $1\" 25))\n(for-each (lambda (row) (displayln (vector-ref row 0) \": \" (vector-ref row 1))) rows)\n\n;; Prepared statements for repeated execution\n(def stmt (sql-prepare conn \"INSERT INTO users (name, age) VALUES ($1, $2)\"))\n(sql-bind stmt \"Bob\" 25)\n(sql-exec stmt)\n(sql-reset/clear stmt)\n(sql-bind stmt \"Charlie\" 35)\n(sql-exec stmt)\n(sql-finalize stmt)\n\n;; Transactions\n(sql-txn-begin conn)\n(sql-eval conn \"UPDATE users SET age = age + 1 WHERE name = $1\" \"Alice\")\n(sql-txn-commit conn)  ;; or (sql-txn-abort conn) to rollback\n\n;; Iterate query results with :std/iter\n(import :std/iter)\n(def stmt2 (sql-prepare conn \"SELECT * FROM users\"))\n(for (row (in-sql-query stmt2))\n  (displayln row))\n(sql-finalize stmt2)\n\n;; Connection pooling\n(def pool (make-conpool (lambda () (sql-connect postgresql-connect\n                                    host: \"localhost\" user: \"myuser\"\n                                    passwd: \"mypass\" db: \"mydb\"))\n                        5))  ;; max 5 connections\n(def c (conpool-get pool))    ;; get a connection\n;; ... use c ...\n(conpool-put pool c)          ;; return to pool\n(conpool-close pool)          ;; close all connections\n\n;; Close connection\n(sql-close conn)",
+    "notes": "PostgreSQL uses $1, $2, ... for parameter placeholders (not ? like SQLite). sql-eval combines prepare+bind+exec+finalize for one-shot queries. sql-eval-query returns all rows as a list of vectors. Use in-sql-query for lazy iteration over large result sets. Connection pooling with make-conpool takes a connect thunk and optional max connections. conpool-get blocks if max reached (with optional timeout). conpool-release destroys a bad connection instead of returning it to the pool."
+  },
+  {
+    "id": "ssl-tls-connections",
+    "title": "SSL/TLS client and server connections",
+    "tags": [
+      "ssl",
+      "tls",
+      "https",
+      "secure",
+      "connection",
+      "certificate",
+      "encrypt",
+      "net"
+    ],
+    "imports": [
+      ":std/net/ssl",
+      ":std/io"
+    ],
+    "code": ";; SSL/TLS client connection\n;; ssl-connect creates an encrypted connection to an SSL server\n(def sock (ssl-connect \"example.com:443\"))\n\n;; Use the socket with reader/writer\n(using (sock : StreamSocket)\n  (def writer (sock.writer))\n  (def reader (sock.reader))\n  (using ((writer :- BufferedWriter)\n          (reader :- BufferedReader))\n    ;; Send HTTP request\n    (writer.write-string \"GET / HTTP/1.1\\r\\nHost: example.com\\r\\nConnection: close\\r\\n\\r\\n\")\n    (writer.flush)\n    ;; Read response\n    (let loop ()\n      (def line (reader.read-line))\n      (unless (eof-object? line)\n        (displayln line)\n        (loop)))\n    (sock.close)))\n\n;; With custom SSL context\n(def ctx (make-client-ssl-context))\n(def sock2 (ssl-connect \"secure.example.com:443\" context: ctx))\n\n;; Insecure context (skips certificate verification — for testing only)\n(def sock3 (ssl-connect \"localhost:8443\" context: (insecure-client-ssl-context)))\n\n;; SSL server\n;; (def srv-ctx (make-server-ssl-context))\n;; (def listener (ssl-listen \"0.0.0.0:8443\" context: srv-ctx))\n\n;; Upgrade existing TCP connection to SSL\n;; (def ssl-sock (ssl-client-upgrade tcp-sock host: \"example.com\"))\n\n;; Check for SSL errors\n;; (ssl-error? exn) — test if exception is SSL-related",
+    "notes": "ssl-connect takes an address string like \"host:port\" and optional timeout and SSL context keyword args. Default context verifies certificates. Use insecure-client-ssl-context for testing only (skips verification). ssl-client-upgrade converts an existing TCP socket to SSL. For servers, make-server-ssl-context requires certificate and key files. The returned socket implements the StreamSocket interface (same as regular TCP)."
+  },
+  {
+    "id": "smtp-send-email",
+    "title": "Send email via SMTP with TLS support",
+    "tags": [
+      "smtp",
+      "email",
+      "send",
+      "mail",
+      "tls",
+      "net",
+      "message"
+    ],
+    "imports": [
+      ":std/net/smtp"
+    ],
+    "code": ";; Connect to SMTP server (with optional STARTTLS)\n(def smtp (smtp-connect \"smtp.example.com:587\"\n            timeout: 30\n            tls: #t                    ;; require TLS (use 'maybe for optional)\n            domain: \"mydomain.com\"))   ;; EHLO domain\n\n;; Send a simple email\n(send-mail smtp\n  \"<sender@example.com>\"              ;; return-path (MAIL FROM)\n  \"<recipient@example.com>\"           ;; forward-path (RCPT TO)\n  From: \"sender@example.com\"          ;; headers as keywords\n  To: \"recipient@example.com\"\n  Subject: \"Hello from Gerbil\"\n  \"This is the email body text.\\r\\n\"  ;; body (string or u8vector)\n  \"Second line.\\r\\n\")\n\n;; Send to multiple recipients\n(send-mail smtp\n  \"<sender@example.com>\"\n  [\"<alice@example.com>\" \"<bob@example.com>\"]  ;; list of recipients\n  From: \"sender@example.com\"\n  To: \"alice@example.com, bob@example.com\"\n  Subject: \"Group message\"\n  \"Hello everyone!\\r\\n\")\n\n;; Low-level SMTP commands\n(using (smtp :- SMTP)\n  (smtp.MAIL \"<sender@example.com>\")\n  (smtp.RCPT \"<recipient@example.com>\")\n  (smtp.DATA)\n  ;; ... write data ...\n  (smtp.QUIT))",
+    "notes": "smtp-connect handles EHLO and optional STARTTLS negotiation. tls: #t requires TLS (error if unavailable), tls: 'maybe tries but continues without, tls: #f skips. send-mail is the high-level API: return-path and forward-path use angle brackets. Headers are keyword arguments (From:, To:, Subject:, etc.). Body follows as strings or u8vectors. For authentication, some servers may require SASL (see :std/net/sasl)."
+  },
+  {
+    "id": "srfi-19-time-and-date",
+    "title": "SRFI-19 time and date operations",
+    "tags": [
+      "srfi",
+      "srfi-19",
+      "time",
+      "date",
+      "datetime",
+      "format",
+      "clock",
+      "timestamp"
+    ],
+    "imports": [
+      ":std/srfi/19"
+    ],
+    "code": ";; Current time and date\n(def now (current-time))       ;; time-utc object\n(def d (current-date))         ;; date object with timezone\n\n;; Access date components\n(date-year d)     ;; => 2026\n(date-month d)    ;; => 2\n(date-day d)      ;; => 9\n(date-hour d)     ;; => 20\n(date-minute d)   ;; => 8\n(date-second d)   ;; => 56\n\n;; Format date as string (POSIX strftime-like directives)\n(date->string d \"~Y-~m-~d ~H:~M:~S\")  ;; => \"2026-02-09 20:08:56\"\n(date->string d \"~a, ~d ~b ~Y\")        ;; => \"Mon, 09 Feb 2026\"\n\n;; Parse string to date\n;; (string->date \"2026-02-09\" \"~Y-~m-~d\")\n\n;; Create specific dates\n(make-date 0 30 15 10 25 12 2025 0)  ;; ns sec min hr day mon yr tz-offset\n\n;; Time arithmetic\n(def t1 (current-time))\n(def t2 (current-time))\n(time-difference t2 t1)   ;; => time-duration object\n\n;; Format directives:\n;; ~Y=4-digit year, ~m=month(01-12), ~d=day(01-31)\n;; ~H=hour(00-23), ~M=minute(00-59), ~S=second(00-59)\n;; ~a=abbreviated weekday, ~b=abbreviated month, ~Z=timezone",
+    "notes": "CAUTION: SRFI-19 exports time->seconds which shadows Gambit's built-in time->seconds. If you need Gambit's version (for benchmarking with (time ...)), use (only-in :std/srfi/19 current-date date->string ...) to import selectively, or import Gambit's version explicitly."
+  },
+  {
+    "id": "srfi-9-define-record-type",
+    "title": "SRFI-9 define-record-type (R5RS records)",
+    "tags": [
+      "srfi",
+      "srfi-9",
+      "record",
+      "struct",
+      "type",
+      "define-record-type"
+    ],
+    "imports": [
+      ":std/srfi/9"
+    ],
+    "code": ";; define-record-type: R5RS-compatible record definitions\n(define-record-type <point>\n  (make-point x y)    ;; constructor\n  point?              ;; predicate\n  (x point-x)        ;; field with accessor\n  (y point-y))        ;; field with accessor\n\n(let ((p (make-point 3 4)))\n  (displayln (point? p))          ;; => #t\n  (displayln (point-x p))        ;; => 3\n  (displayln (point-y p))        ;; => 4\n  (displayln (point? \"hello\")))  ;; => #f\n\n;; With mutable fields (accessor + mutator)\n(define-record-type <mutable-point>\n  (make-mpoint x y)\n  mpoint?\n  (x mpoint-x mpoint-x-set!)   ;; accessor + mutator\n  (y mpoint-y mpoint-y-set!))\n\n(let ((p (make-mpoint 1 2)))\n  (mpoint-x-set! p 10)\n  (displayln (mpoint-x p)))   ;; => 10",
+    "notes": "SRFI-9 is the standard portable record definition. In Gerbil, you can also use defstruct which is more idiomatic and supports inheritance. SRFI-9 is useful for portable Scheme code. Fields without a mutator in the definition are immutable."
+  },
+  {
+    "id": "stxparam-syntax-parameters",
+    "title": "Syntax parameters for compile-time parameterization",
+    "tags": [
+      "stxparam",
+      "syntax",
+      "parameter",
+      "macro",
+      "compile-time",
+      "parameterize"
+    ],
+    "imports": [
+      ":std/stxparam"
+    ],
+    "code": ";; Define a syntax parameter with a default expander\n(defsyntax-parameter current-target (lambda (stx) #'\"default-target\"))\n\n;; Use it — expands to the default\n(displayln current-target)  ;; => \"default-target\"\n\n;; Override locally with syntax-parameterize\n(displayln\n  (syntax-parameterize ((current-target (lambda (stx) #'\"custom-target\")))\n    current-target))\n;; => \"custom-target\"\n\n;; After the scope, reverts to default\n(displayln current-target)  ;; => \"default-target\"\n\n;; defsyntax-parameter* defines both a parameter and a macro that uses it\n;; (defsyntax-parameter* current-db db-param \"No database configured\")\n;; Then (current-db) reads the parameter, and syntax-parameterize sets it",
+    "notes": "Syntax parameters are compile-time parameters that macros can locally override. They work like fluid-let but at macro expansion time. The default value must be a syntax transformer (lambda that receives stx). syntax-parameterize temporarily rebinds the parameter for its body. Useful for macro DSLs where inner macros need context from outer macros."
+  },
+  {
+    "id": "socks-proxy-connection",
+    "title": "SOCKS proxy for TCP connections",
+    "tags": [
+      "socks",
+      "proxy",
+      "socks4",
+      "socks5",
+      "tunnel",
+      "net",
+      "tcp"
+    ],
+    "imports": [
+      ":std/net/socks"
+    ],
+    "code": ";; Create a SOCKS proxy connector\n;; Returns a function that connects through the proxy\n(def connect-via-proxy\n  (socks-connect \"proxy.example.com:1080\" 'SOCKS5))\n\n;; Use it to connect to a remote server through the proxy\n(def sock (connect-via-proxy \"target.example.com:80\"))\n\n;; Alternatively, create a proxy object directly\n(def proxy (socks-proxy \"proxy.example.com:1080\" 'SOCKS5))\n(def sock2 (SOCKS-connect proxy \"target.example.com:443\"))\n\n;; Supported protocols: 'SOCKS4, 'SOCKS4a, 'SOCKS5\n\n;; SOCKS server (for testing or building a proxy)\n;; (start-socks-server! \"0.0.0.0:1080\")\n;; (stop-socks-server!)\n\n;; Set a default SOCKS server for the current thread\n;; (current-socks-server proxy)",
+    "notes": "socks-connect returns a connect FUNCTION (not a socket). Call it with an address to get a connected socket. Supported protocols: SOCKS4 (no DNS), SOCKS4a (proxy resolves DNS), SOCKS5 (full featured). The returned socket works like a regular TCP socket. start-socks-server! creates a local SOCKS proxy server for testing."
+  },
+  {
+    "id": "misc-deque-double-ended-queue",
+    "title": "Double-ended queue (deque) operations",
+    "tags": [
+      "deque",
+      "queue",
+      "double-ended",
+      "push",
+      "pop",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/deque"
+    ],
+    "code": "(let ()\n  (def dq (make-deque))\n  ;; Push to both ends\n  (push-front! dq 1)\n  (push-back! dq 2)\n  (push-front! dq 0)\n  (push-back! dq 3)\n  ;; Contents: [0, 1, 2, 3]\n\n  (displayln \"front: \" (pop-front! dq))   ;; => 0\n  (displayln \"back: \" (pop-back! dq))     ;; => 3\n  (displayln \"peek: \" (peek-front dq))    ;; => 1\n  (displayln \"empty? \" (deque-empty? dq)) ;; => #f\n  (displayln \"length: \" (deque-length dq))) ;; => 2",
+    "notes": "Deque supports O(1) push/pop on both ends. Use push-front!/pop-front! and push-back!/pop-back!. peek-front returns the front element without removing it. For a single-ended FIFO queue, use :std/misc/queue instead."
+  },
+  {
+    "id": "misc-queue-fifo",
+    "title": "FIFO queue operations",
+    "tags": [
+      "queue",
+      "fifo",
+      "enqueue",
+      "dequeue",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/queue"
+    ],
+    "code": "(let ()\n  (def q (make-queue))\n  (enqueue! q 1)\n  (enqueue! q 2)\n  (enqueue! q 3)\n  (enqueue-front! q 0)  ;; push to front (priority insert)\n\n  (displayln \"peek: \" (queue-peek q))       ;; => 0\n  (displayln \"deq: \" (dequeue! q))          ;; => 0\n  (displayln \"deq: \" (dequeue! q))          ;; => 1\n  (displayln \"length: \" (queue-length q))   ;; => 2\n  (displayln \"list: \" (queue->list q))      ;; => (2 3)\n  (displayln \"empty? \" (queue-empty? q))    ;; => #f\n  (displayln \"non-empty? \" (non-empty-queue? q))) ;; => #t",
+    "notes": "Simple FIFO queue. enqueue! adds to back, dequeue! removes from front. enqueue-front! adds to front (useful for priority insertion). queue->list converts to a list without modifying the queue. For double-ended queue, use :std/misc/deque."
+  },
+  {
+    "id": "misc-lru-cache",
+    "title": "LRU (Least Recently Used) cache",
+    "tags": [
+      "lru",
+      "cache",
+      "evict",
+      "memoize",
+      "capacity",
+      "data-structure"
+    ],
+    "imports": [
+      ":std/misc/lru",
+      ":std/iter"
+    ],
+    "code": "(let ()\n  (def cache (make-lru-cache 3))  ;; capacity = 3 entries\n  (lru-cache-put! cache \"a\" 1)\n  (lru-cache-put! cache \"b\" 2)\n  (lru-cache-put! cache \"c\" 3)\n\n  ;; Lookup (marks as recently used)\n  (displayln \"a: \" (lru-cache-get cache \"a\"))    ;; => 1\n  ;; lru-cache-ref raises error if missing; lru-cache-get returns #f\n\n  ;; Adding beyond capacity evicts least recently used\n  ;; \"b\" is LRU (we just accessed \"a\" and \"c\" was added last)\n  (lru-cache-put! cache \"d\" 4)\n  (displayln \"b (evicted): \" (lru-cache-get cache \"b\"))  ;; => #f\n  (displayln \"d: \" (lru-cache-get cache \"d\"))    ;; => 4\n\n  (displayln \"size: \" (lru-cache-size cache))       ;; => 3\n  (displayln \"capacity: \" (lru-cache-capacity cache)) ;; => 3\n\n  ;; Iterate entries\n  (for ((values k v) (in-lru-cache cache))\n    (displayln k \" => \" v))\n\n  ;; Explicit removal\n  (lru-cache-remove! cache \"a\")\n\n  ;; Flush all entries\n  ;; (lru-cache-flush! cache)\n  )",
+    "notes": "LRU cache automatically evicts the least recently used entry when capacity is exceeded. lru-cache-get returns #f for missing keys; lru-cache-ref raises an error. Every get/put marks the entry as most recently used. Supports iteration with in-lru-cache, in-lru-cache-keys, in-lru-cache-values. lru-cache-fold and lru-cache-for-each also available."
+  },
+  {
+    "id": "misc-shuffle-random",
+    "title": "Random shuffle a list",
+    "tags": [
+      "shuffle",
+      "random",
+      "list",
+      "permutation",
+      "randomize"
+    ],
+    "imports": [
+      ":std/misc/shuffle"
+    ],
+    "code": ";; shuffle returns a randomly permuted copy of the list\n(shuffle '(1 2 3 4 5 6 7 8 9 10))\n;; => e.g. (2 10 9 6 4 1 7 8 3 5) — different each time\n\n;; Original list is not modified\n(def orig '(a b c d e))\n(def shuffled (shuffle orig))\n;; orig is still (a b c d e)",
+    "notes": "shuffle creates a new randomly permuted list (Fisher-Yates algorithm). The original list is not modified. Used internally by begin-amb-random for nondeterministic search with random exploration order."
+  },
+  {
+    "id": "misc-wg-workgroup",
+    "title": "Parallel workgroup (thread pool with task dispatch)",
+    "tags": [
+      "wg",
+      "workgroup",
+      "parallel",
+      "thread",
+      "pool",
+      "worker",
+      "concurrent"
+    ],
+    "imports": [
+      ":std/misc/wg"
+    ],
+    "code": ";; make-wg creates a pool of N worker threads\n(def wg (make-wg 4))  ;; 4 worker threads\n\n;; wg-add! dispatches a thunk to a worker thread\n(for-each (lambda (i)\n  (wg-add! wg (lambda ()\n    (displayln \"processing item \" i \" on \" (current-thread)))))\n  (iota 10))\n\n;; wg-wait! waits for all dispatched tasks to complete\n;; Also closes the workgroup (no more tasks can be added)\n(wg-wait! wg)\n(displayln \"all tasks complete\")\n\n;; If wg is #f, wg-add! runs the thunk synchronously\n;; This allows conditional parallelism:\n;; (def wg (if parallel? (make-wg cores) #f))\n;; (wg-add! wg work)  ;; parallel or sequential based on wg",
+    "notes": "WG (WorkGroup) is a simple thread pool. make-wg takes the number of worker threads. wg-add! dispatches thunks to the pool via a channel. wg-wait! blocks until all tasks complete, then shuts down the pool. If a worker throws an exception, wg-wait! re-raises it. Passing #f instead of a WG makes wg-add! run synchronously — useful for optional parallelism."
+  },
+  {
+    "id": "misc-completion-token",
+    "title": "Completion token for one-shot async results",
+    "tags": [
+      "completion",
+      "async",
+      "future",
+      "promise",
+      "synchronization",
+      "concurrent"
+    ],
+    "imports": [
+      ":std/misc/completion"
+    ],
+    "code": ";; Completion is a one-shot future/promise\n(def c (make-completion 'my-task))  ;; name for debugging\n\n;; Producer: post a result (can only be called once)\n(spawn (lambda ()\n  (thread-sleep! 0.1)  ;; simulate work\n  (completion-post! c 42)))\n\n;; Consumer: wait for the result (blocks until posted)\n(displayln \"result: \" (completion-wait! c))  ;; => 42\n\n;; Error propagation\n(def c2 (make-completion 'failing-task))\n(spawn (lambda ()\n  (completion-error! c2 (make-error \"task failed\"))))\n;; (completion-wait! c2)  ;; => raises the error\n\n;; with-completion-error: auto-propagate exceptions\n(def c3 (make-completion 'safe-task))\n(spawn (lambda ()\n  (with-completion-error c3\n    ;; If this throws, the error is posted to c3\n    (completion-post! c3 (+ 1 2 3)))))\n(displayln (completion-wait! c3))  ;; => 6",
+    "notes": "Completion is a one-shot synchronization primitive — post once, wait many times. completion-post! can only be called once (raises error on second call). completion-error! posts an exception that will be re-raised by completion-wait!. with-completion-error catches exceptions and posts them as errors. completion-ready? tests without blocking."
+  },
+  {
+    "id": "misc-barrier-synchronization",
+    "title": "Barrier synchronization for coordinating threads",
+    "tags": [
+      "barrier",
+      "synchronization",
+      "thread",
+      "coordinate",
+      "concurrent",
+      "wait"
+    ],
+    "imports": [
+      ":std/misc/barrier"
+    ],
+    "code": ";; Barrier waits until N posts have been made\n(def b (make-barrier 3))  ;; need 3 posts before barrier-wait! returns\n\n;; Spawn 3 threads that each post when done\n(for-each (lambda (i)\n  (spawn (lambda ()\n    (thread-sleep! (* i 0.01))  ;; simulate varying work\n    (displayln \"thread \" i \" done\")\n    (barrier-post! b))))\n  '(1 2 3))\n\n;; Wait for all 3 to finish\n(barrier-wait! b)\n(displayln \"all threads synchronized\")\n\n;; Error propagation through barriers\n(def b2 (make-barrier 2))\n(spawn (lambda ()\n  (with-barrier-error b2\n    ;; If this throws, the barrier receives the error\n    ;; and barrier-wait! will re-raise it\n    (barrier-post! b2))))\n(spawn (lambda () (barrier-post! b2)))\n(barrier-wait! b2)",
+    "notes": "Barrier is a count-based synchronization primitive. barrier-wait! blocks until barrier-post! has been called the specified number of times. barrier-error! propagates an exception to all waiters. with-barrier-error catches exceptions and posts them via barrier-error!. Unlike completion (one-shot value), barrier only signals completion (no return value)."
+  },
+  {
+    "id": "misc-decimal-parsing",
+    "title": "Decimal number parsing and formatting",
+    "tags": [
+      "decimal",
+      "number",
+      "parse",
+      "format",
+      "precision",
+      "string"
+    ],
+    "imports": [
+      ":std/misc/decimal"
+    ],
+    "code": ";; Parse decimal strings to exact rationals\n(string->decimal \"123.456\")     ;; => exact rational\n(decimal->string (string->decimal \"123.456\"))  ;; => \"123.456\"\n\n;; Check if a value is a decimal\n(decimal? (string->decimal \"3.14\"))  ;; => #t\n\n;; Parse from reader (for use in LL1 parsers)\n;; ll1-decimal is an LL1 parser combinator for decimal numbers\n\n;; Working with digits and exponents\n(decimal->digits-exponent (string->decimal \"1.23\"))\n;; Returns digits (integer) and exponent\n\n;; Precision tracking\n(count-significant-digits (string->decimal \"100.00\"))\n\n;; Note: this module is for PARSING/FORMATTING decimals,\n;; not decimal arithmetic. Use Scheme's exact rationals for math:\n(+ (string->decimal \"0.1\") (string->decimal \"0.2\"))\n;; => exact rational (not floating point)",
+    "notes": ":std/misc/decimal parses decimal strings to Scheme exact rationals, preserving precision. This avoids floating-point inaccuracies. It does NOT provide decimal arithmetic operators — use standard Scheme arithmetic on the parsed exact rationals. LossOfPrecision exception may be raised for numbers that cannot be exactly represented."
+  },
+  {
+    "id": "misc-uuid-generation",
+    "title": "Generate and Parse UUIDs",
+    "tags": [
+      "uuid",
+      "random",
+      "unique",
+      "identifier",
+      "misc",
+      "generate"
+    ],
+    "imports": [
+      ":std/misc/uuid"
+    ],
+    "code": "(import :std/misc/uuid)\n\n;; Generate a random UUID (v4)\n(def id (random-uuid))\n(displayln (uuid->string id))  ; e.g. \"550e8400-e29b-41d4-a716-446655440000\"\n\n;; Parse a UUID from string\n(def parsed (string->uuid \"550e8400-e29b-41d4-a716-446655440000\"))\n\n;; Compare UUIDs\n(uuid=? id id)  ; => #t\n\n;; UUID is a u8vector (16 bytes)\n(u8vector? (random-uuid))  ; => #t",
+    "notes": "random-uuid returns a u8vector of 16 bytes. uuid->string formats with dashes. string->uuid parses back. uuid=? for equality comparison."
+  },
+  {
+    "id": "misc-rwlock-read-write",
+    "title": "Read-Write Lock for Concurrent Access",
+    "tags": [
+      "rwlock",
+      "read-write",
+      "lock",
+      "concurrent",
+      "thread",
+      "misc",
+      "synchronization"
+    ],
+    "imports": [
+      ":std/misc/rwlock"
+    ],
+    "code": "(import :std/misc/rwlock)\n\n;; Create a read-write lock\n(def lock (make-rwlock))\n\n;; Read lock - multiple readers allowed concurrently\n;; IMPORTANT: takes a THUNK (lambda), not a body form\n(with-read-lock lock\n  (lambda ()\n    (displayln \"reading shared data...\")))\n\n;; Write lock - exclusive access\n(with-write-lock lock\n  (lambda ()\n    (displayln \"writing shared data...\")))\n\n;; Manual lock/unlock also available:\n;; (read-lock! lock) / (read-unlock! lock)\n;; (write-lock! lock) / (write-unlock! lock)",
+    "notes": "IMPORTANT: with-read-lock and with-write-lock take a THUNK (zero-argument lambda), not a body form. This is a common gotcha. For manual lock/unlock, use read-lock!/read-unlock! and write-lock!/write-unlock!."
+  },
+  {
+    "id": "protobuf-message-definition",
+    "title": "Define Protocol Buffer Messages",
+    "tags": [
+      "protobuf",
+      "protocol",
+      "buffer",
+      "serialize",
+      "binary",
+      "message"
+    ],
+    "imports": [
+      ":std/protobuf/proto"
+    ],
+    "code": "(import :std/protobuf/proto)\n\n;; Define a protobuf message type\n(begin-protobuf\n  (message Person\n    (required string name   1)\n    (required int32  id     2)\n    (optional string email  3)))\n\n;; Create an instance (uses struct constructor)\n(def p (make-Person name: \"Alice\" id: 42 email: \"alice@example.com\"))\n\n;; Access fields\n(Person-name p)   ; => \"Alice\"\n(Person-id p)     ; => 42\n(Person-email p)  ; => \"alice@example.com\"\n\n;; Serialize to u8vector\n;; (def bytes (Person-serialize p))\n\n;; Deserialize from u8vector\n;; (def p2 (Person-deserialize bytes))",
+    "notes": "begin-protobuf defines message types as Gerbil structs with serialization support. Field types: string, int32, int64, uint32, uint64, sint32, sint64, float, double, bool, bytes, and nested message types. Field rules: required, optional, repeated. Serialization/deserialization generates -serialize and -deserialize methods."
+  },
+  {
+    "id": "misc-evector-extensible-vector",
+    "title": "Extensible Vector (auto-growing array)",
+    "tags": [
+      "evector",
+      "extensible",
+      "vector",
+      "dynamic",
+      "array",
+      "push",
+      "grow"
+    ],
+    "imports": [
+      ":std/misc/evector"
+    ],
+    "code": "(import :std/misc/evector)\n\n;; Create an extensible vector: (make-evector backing-vector fill-pointer)\n(def ev (make-evector (make-vector 8 #f) 0))\n\n;; Push elements (auto-grows when needed)\n(evector-push! ev 'a)\n(evector-push! ev 'b)\n(evector-push! ev 'c)\n\n;; Access and modify\n(evector-ref ev 0)         ; => a\n(evector-set! ev 1 'B)     ; modify element\n(evector-fill-pointer ev)  ; => 3 (logical size)\n\n;; Convert\n(evector->list ev)    ; => (a B c)\n(evector->vector ev)  ; => #(a B c)\n\n;; Create from existing data\n(def ev2 (list->evector '(x y z)))\n(def ev3 (vector->evector #(1 2 3)))",
+    "notes": "make-evector takes a backing vector AND a fill-pointer (not a capacity). Use (make-evector (make-vector N #f) 0) for an empty evector with initial capacity N. Also provides ebytes (extensible u8vector) and ebits (extensible bit vector) with similar APIs."
+  },
+  {
+    "id": "misc-func-composition",
+    "title": "Function Composition and Predicate Combinators",
+    "tags": [
+      "func",
+      "compose",
+      "rcompose",
+      "always",
+      "repeat",
+      "predicate",
+      "combinator",
+      "function"
+    ],
+    "imports": [
+      ":std/misc/func"
+    ],
+    "code": "(import :std/misc/func)\n\n;; compose1 - right-to-left unary composition\n(def double-then-add1 (compose1 (cut + <> 1) (cut * <> 2)))\n(double-then-add1 5)  ; => 11  (5*2=10, 10+1=11)\n\n;; rcompose1 - left-to-right unary composition\n(def add1-then-double (rcompose1 (cut + <> 1) (cut * <> 2)))\n(add1-then-double 5)  ; => 12  (5+1=6, 6*2=12)\n\n;; always - constant value thunk (non-proc) or curried call (proc)\n((always 42))          ; => 42 (returns zero-arg thunk)\n\n;; repeat - repeat value or function call N times, returns list\n(repeat 2 5)                  ; => (2 2 2 2 2)\n(repeat random-integer 3 10)  ; => (8 3 5) (3 random ints < 10)\n\n;; pred-every-of - combine predicates with AND\n(def pos-even? (pred-every-of [positive? even?]))\n(pos-even? 4)   ; => #t\n(pos-even? -2)  ; => #f\n\n;; pred-limit - limit predicate matches\n(filter (pred-limit even? 2) '(1 2 3 4 5 6))  ; => (2 4)",
+    "notes": "compose/rcompose handle multi-arg first function. compose1/rcompose1 are for unary functions (more efficient). compose/values passes multiple return values between functions. always with a procedure creates a curried call: (always random-integer 10) => thunk returning random int. pred-and/pred-or track state across calls (stateful predicates)."
+  },
+  {
+    "id": "misc-prime-numbers",
+    "title": "Prime Number Utilities",
+    "tags": [
+      "prime",
+      "number",
+      "factor",
+      "sieve",
+      "math",
+      "nth-prime"
+    ],
+    "imports": [
+      ":std/misc/prime"
+    ],
+    "code": "(import :std/misc/prime)\n\n;; Test primality\n(prime? 7)   ; => #t\n(prime? 10)  ; => #f\n\n;; Get the nth prime (0-indexed)\n(nth-prime 0)  ; => 0 (note: 0th is 0)\n(nth-prime 4)  ; => 7\n\n;; Find next prime above a value\n(next-prime-above 10)  ; => 11\n\n;; Factor an integer into prime factors\n(factor 60)  ; => (2 2 3 5)\n\n;; Note: `primes` is the internal sieve (an evector), not a function",
+    "notes": "The `primes` export is the internal sieve data structure (an evector), not a function - don't call it. Use prime?, nth-prime, next-prime-above, and factor for the main API. Uses Miller-Rabin for large numbers, sieve for small ones."
+  },
+  {
+    "id": "misc-process-run",
+    "title": "Run External Processes with Captured Output",
+    "tags": [
+      "process",
+      "run",
+      "external",
+      "command",
+      "subprocess",
+      "execute",
+      "shell"
+    ],
+    "imports": [
+      ":std/misc/process"
+    ],
+    "code": "(import :std/misc/process)\n\n;; run-process - run command and return stdout as string\n(run-process [\"echo\" \"hello world\"])  ; => \"hello world\\n\"\n\n;; run-process/batch - run command, discard output, return void\n(run-process/batch [\"ls\" \"-la\"])  ; => #!void\n\n;; filter-with-process - pipe string through external process\n(filter-with-process [\"tr\" \"a-z\" \"A-Z\"] \"hello\")  ; => \"HELLO\\n\"",
+    "notes": "run-process captures stdout as a string. run-process/batch discards output. filter-with-process sends input string to stdin and captures stdout. All take a list of strings [program arg ...]. For more control over stdin/stdout/stderr, use open-process from :std/misc/ports instead."
+  },
+  {
+    "id": "misc-path-utilities",
+    "title": "Path Manipulation Utilities",
+    "tags": [
+      "path",
+      "file",
+      "directory",
+      "extension",
+      "absolute",
+      "parent",
+      "subpath"
+    ],
+    "imports": [
+      ":std/misc/path"
+    ],
+    "code": "(import :std/misc/path)\n\n;; Build paths from components\n(subpath \"/home/user\" \"docs\" \"file.txt\")  ; => \"/home/user/docs/file.txt\"\n\n;; Get parent directory\n(path-parent \"/home/user/file.txt\")  ; => \"/home/user/\"\n\n;; Check/manipulate extensions\n(path-extension-is? \"/foo/bar.txt\" \".txt\")  ; => #t\n(path-force-extension \"/foo/bar.txt\" \".md\") ; => \"/foo/bar.md\"\n(path-default-extension \"/foo/bar\" \".txt\")  ; => \"/foo/bar.txt\" (adds if missing)\n(path-default-extension \"/foo/bar.txt\" \".md\") ; => \"/foo/bar.txt\" (keeps existing)\n\n;; Check if absolute\n(path-absolute? \"/foo/bar\")  ; => #t\n(path-absolute? \"foo/bar\")   ; => #f",
+    "notes": "subpath joins components with /. path-force-extension replaces any existing extension. path-default-extension only adds if no extension exists. Also provides path-simplify (remove . and ..), ensure-absolute-path, path-enough (relative path), and path-maybe-normalize."
+  },
+  {
+    "id": "misc-sync-hash-threadsafe",
+    "title": "Thread-Safe Hash Table (sync-hash)",
+    "tags": [
+      "sync",
+      "hash",
+      "thread-safe",
+      "concurrent",
+      "mutex",
+      "synchronized"
+    ],
+    "imports": [
+      ":std/misc/sync"
+    ],
+    "code": "(import :std/misc/sync)\n\n;; Create thread-safe hash table (wraps an underlying hash table)\n(def sh (make-sync-hash (make-hash-table-eq)))\n\n;; Put and get (synchronized operations)\n(sync-hash-put! sh 'x 10)\n(sync-hash-put! sh 'y 20)\n(sync-hash-get sh 'x)          ; => 10 (returns #f if missing)\n(sync-hash-ref sh 'y #f)       ; => 20 (3 args: hash key default)\n\n;; Check existence\n(sync-hash-key? sh 'x)  ; => #t\n(sync-hash-key? sh 'z)  ; => #f\n\n;; Remove\n(sync-hash-remove! sh 'x)\n\n;; Iterate (with lock held)\n(sync-hash-do sh (lambda (k v) (displayln k \" => \" v)))",
+    "notes": "make-sync-hash takes an underlying hash table as argument. sync-hash-ref requires 3 arguments (hash key default) unlike hash-ref which can take 2. All operations are mutex-protected. Use for shared mutable state across threads."
+  },
+  {
+    "id": "misc-number-utilities",
+    "title": "Numeric Utilities (counters, increments, modular arithmetic)",
+    "tags": [
+      "number",
+      "counter",
+      "increment",
+      "decrement",
+      "modular",
+      "arithmetic",
+      "math"
+    ],
+    "imports": [
+      ":std/misc/number"
+    ],
+    "code": "(import :std/misc/number)\n\n;; Increment/decrement macros\n(def x 5)\n(pre-increment! x)   ; => 6, x is now 6\n(post-increment! x)  ; => 6, x is now 7 (returns old value)\n(pre-decrement! x)   ; => 6, x is now 6\n(post-decrement! x)  ; => 6, x is now 5 (returns old value)\n\n;; Counter generator\n(def cnt (make-counter 0))\n(cnt)  ; => 0\n(cnt)  ; => 1\n(cnt)  ; => 2\n\n;; Min/max with variable args\n(xmin 5 3 8 1 9)  ; => 1\n(xmax 5 3 8 1 9)  ; => 9\n\n;; Number theory\n(integer-log 1024 2)  ; => 10\n(divides? 3 12)       ; => #t\n(divides? 5 12)       ; => #f\n(expt-mod 2 10 1000)  ; modular exponentiation",
+    "notes": "pre-increment!/post-increment! are macros that modify a variable in-place (like ++x and x++ in C). make-counter returns a thunk that returns successive integers. Also provides: bezout (extended GCD), invert-mod, factor-out-powers-of-2, uint-of-length?, sint-of-length?, ceiling-align, floor-align."
+  },
+  {
+    "id": "misc-plist-property-list",
+    "title": "Property List Operations (psetq, premq, plist?)",
+    "tags": [
+      "plist",
+      "property",
+      "list",
+      "keyword",
+      "psetq",
+      "premq",
+      "pgetq"
+    ],
+    "imports": [
+      ":std/misc/plist"
+    ],
+    "code": "(import :std/misc/plist)\n\n;; A plist is a flat list: [key1 val1 key2 val2 ...]\n(def pl [name: \"Alice\" age: 30 city: \"NYC\"])\n\n;; Read with pgetq (builtin, no import needed)\n(pgetq name: pl)  ; => \"Alice\"\n(pgetq age: pl)   ; => 30\n\n;; Set/update - psetq takes (list key val), returns new plist\n(def pl2 (psetq pl email: \"a@b.com\"))  ; add new key\n;; => (email a@b.com name Alice age 30 city NYC)\n(def pl3 (psetq pl age: 31))           ; update existing\n;; => (name Alice age 31 city NYC)\n\n;; Remove - premq takes (key list), returns new plist\n(def pl4 (premq age: pl))  ; => (name Alice city NYC)\n\n;; Check and convert\n(plist? pl)  ; => #t\n(alist->plist '((a . 1) (b . 2)))  ; => (a 1 b 2)",
+    "notes": "pgetq is a runtime builtin (no import needed). psetq/premq are from :std/misc/plist. IMPORTANT: psetq takes (list key val) - plist first. premq takes (key list) - key first. The q/v/plain variants use eq?/eqv?/equal? respectively. Destructive variants: psetq!, premq! modify in-place."
+  },
+  {
+    "id": "misc-threads-utilities",
+    "title": "Thread Inspection and Control Utilities",
+    "tags": [
+      "threads",
+      "thread",
+      "dead",
+      "abort",
+      "inspect",
+      "all-threads",
+      "async"
+    ],
+    "imports": [
+      ":std/misc/threads"
+    ],
+    "code": "(import :std/misc/threads)\n\n;; List all threads\n(all-threads)  ; => list of all live thread objects\n\n;; Check if a thread has terminated\n(def t (spawn (lambda () (thread-sleep! 0.1) 42)))\n(thread-dead? t)         ; => #f (still running)\n(thread-sleep! 0.2)\n(thread-dead? t)         ; => #t (finished)\n\n;; Abort a thread (raise exception in target)\n(def t2 (spawn (lambda () (thread-sleep! 10))))\n(thread-abort! t2)       ; raises abort exception in t2\n\n;; Raise an arbitrary exception in a thread\n(thread-raise! t2 (make-error \"stop\" irritants: []))\n\n;; Run function on all processors (for CPU-bound parallelism)\n;; (on-all-processors (lambda () (heavy-computation)))\n\n;; Async: run thunk in new thread, return a promise-like object\n;; (thread-async! (lambda () (compute-something)))",
+    "notes": "thread-dead? checks if a thread has terminated (normally or abnormally). thread-abort! and thread-raise! inject exceptions into running threads. all-threads returns all threads across all thread groups. primordial-thread-group is the root thread group."
+  },
+  {
+    "id": "misc-vector-utilities",
+    "title": "Extended Vector Operations (filter, map/index, fold/index)",
+    "tags": [
+      "vector",
+      "filter",
+      "map",
+      "index",
+      "fold",
+      "count",
+      "subvector"
+    ],
+    "imports": [
+      ":std/misc/vector"
+    ],
+    "code": "(import :std/misc/vector)\n\n(def v #(10 20 30 40 50))\n\n;; Filter elements\n(vector-filter even? v)  ; => #(10 20 30 40 50)\n\n;; Map with index (lambda receives index and element)\n(vector-map/index (lambda (i x) (+ x i)) v)  ; => #(10 21 32 43 54)\n\n;; For-each with index\n(vector-for-each/index\n  (lambda (i x) (displayln \"[\" i \"] = \" x)) v)\n\n;; Count elements matching predicate (with index)\n(vector-count/index (lambda (i x) (> x 25)) v)  ; => 3\n\n;; Fold with index\n(vector-fold/index (lambda (i acc x) (+ acc x)) 0 v)  ; => 150",
+    "notes": "All /index variants pass the index as first argument to the callback. vector-filter returns a new vector. Also provides: vector-fold-right/index, subvector-for-each, subvector-reverse-for-each, cons->vector, vector-least-index, maybe-subvector."
+  },
+  {
+    "id": "misc-symbol-comparison",
+    "title": "Symbol and Keyword Ordering/Comparison",
+    "tags": [
+      "symbol",
+      "keyword",
+      "compare",
+      "sort",
+      "order",
+      "less-than"
+    ],
+    "imports": [
+      ":std/misc/symbol",
+      ":std/sort"
+    ],
+    "code": "(import :std/misc/symbol :std/sort)\n\n;; Compare symbols lexicographically\n(symbol<? 'a 'b)    ; => #t\n(symbol<? 'b 'a)    ; => #f\n(symbol<=? 'a 'a)   ; => #t\n(symbol>? 'z 'a)    ; => #t\n(symbol>=? 'a 'a)   ; => #t\n\n;; Sort a list of symbols\n(sort '(delta alpha charlie bravo) symbol<?)\n;; => (alpha bravo charlie delta)\n\n;; Also works with keywords\n(keyword<? foo: bar:)   ; compare keywords\n(keyword<=? foo: foo:)  ; => #t",
+    "notes": "Provides symbol<?/symbol<=?/symbol>?/symbol>=? and keyword<?/keyword<=?/keyword>?/keyword>=? for lexicographic ordering. Also exports compare-symbolic for a general 3-way comparator and defsymbolic macro."
+  },
+  {
+    "id": "misc-timeout-creation",
+    "title": "Create Timeout Objects for Timed Operations",
+    "tags": [
+      "timeout",
+      "time",
+      "deadline",
+      "wait",
+      "seconds"
+    ],
+    "imports": [
+      ":std/misc/timeout"
+    ],
+    "code": "(import :std/misc/timeout)\n\n;; Create a timeout N seconds from now\n(def t (make-timeout 5))   ; 5 seconds from now\n(timeout? t)               ; => #t\n\n;; Use with mutex-unlock!, thread-receive, etc.\n;; (mutex-unlock! mx cv t)  ; wait on condvar with timeout\n;; (thread-receive t #f)    ; receive with timeout\n\n;; make-timeout also accepts #f (no timeout) and time objects\n(make-timeout #f)          ; => #f (no timeout)",
+    "notes": "make-timeout converts a number of seconds into a Gambit time object (absolute deadline). Passing #f returns #f (no timeout). Useful for any Gambit API that accepts a timeout parameter (mutex-unlock!, thread-receive, thread-sleep!, etc.)."
+  },
+  {
+    "id": "scheme-generator-r7rs",
+    "title": "R7RS Generators and Accumulators (SRFI-158)",
+    "tags": [
+      "generator",
+      "accumulator",
+      "r7rs",
+      "srfi-158",
+      "lazy",
+      "sequence",
+      "coroutine",
+      "range"
+    ],
+    "imports": [
+      ":scheme/generator"
+    ],
+    "code": "(import :scheme/generator)\n\n;; Create generators\n(def g1 (generator 1 2 3))\n(g1)  ; => 1, (g1) => 2, (g1) => 3, (g1) => #!eof\n\n(def g2 (make-range-generator 0 5))\n(generator->list g2)  ; => (0 1 2 3 4)\n\n(def g3 (make-iota-generator 5 10 2))  ; count start step\n(generator->list g3)  ; => (10 12 14 16 18)\n\n;; Transform generators\n(generator->list (gfilter even? (make-range-generator 0 10)))  ; => (0 2 4 6 8)\n(generator->list (gmap (lambda (x) (* x 2)) (make-range-generator 1 6)))  ; => (2 4 6 8 10)\n\n;; Fold a generator\n(generator-fold + 0 (make-range-generator 1 6))  ; => 15\n\n;; Accumulators (reverse of generators)\n(def acc (list-accumulator))\n(acc 'a) (acc 'b) (acc 'c)\n(acc (eof-object))  ; => (a b c)\n\n;; Coroutine generator\n(def g (make-coroutine-generator\n        (lambda (yield) (yield 10) (yield 20) (yield 30))))\n(generator->list g)  ; => (10 20 30)",
+    "notes": "Generators are thunks that return successive values, then #!eof. Use generator->list to consume all values. gfilter/gmap/gtake/gdrop etc. return new generators. Accumulators are the dual: call with values to accumulate, call with (eof-object) to extract result. Also: circular-generator, make-unfold-generator, gappend, gflatten, gcombine, gmerge, gdelete-neighbor-dups."
+  },
+  {
+    "id": "scheme-comparator-r7rs",
+    "title": "R7RS Comparators (SRFI-128)",
+    "tags": [
+      "comparator",
+      "r7rs",
+      "srfi-128",
+      "compare",
+      "hash",
+      "ordering",
+      "equality"
+    ],
+    "imports": [
+      ":scheme/comparator"
+    ],
+    "code": "(import :scheme/comparator)\n\n;; Create a custom comparator: (make-comparator type-test equality ordering hash)\n(def str-cmp (make-comparator string? string=? string<? string-hash))\n(comparator? str-cmp)                  ; => #t\n(comparator-test-type str-cmp \"hello\") ; => #t (is a string)\n(comparator-test-type str-cmp 42)      ; => #f (not a string)\n(=? str-cmp \"hello\" \"hello\")           ; => #t\n(<? str-cmp \"abc\" \"def\")               ; => #t\n\n;; Default comparator (works with most types)\n(def dc (make-default-comparator))\n(=? dc 42 42)  ; => #t\n(<? dc 1 2)    ; => #t\n\n;; Pre-built comparators\n(make-eq-comparator)     ; uses eq?\n(make-eqv-comparator)    ; uses eqv?\n(make-equal-comparator)  ; uses equal?\n\n;; Extract components\n(comparator-equality-predicate str-cmp)  ; => string=?\n(comparator-ordering-predicate str-cmp)  ; => string<?",
+    "notes": "Comparators bundle type-test, equality, ordering, and hash into one object. Required by :scheme/set, :scheme/mapping, and other R7RS collection modules. make-default-comparator handles numbers, strings, symbols, booleans, chars. Also provides: comparator-hash, >=?, <=?, >?, comparator-if<=> macro."
+  },
+  {
+    "id": "scheme-set-r7rs",
+    "title": "R7RS Sets and Bags (SRFI-113)",
+    "tags": [
+      "set",
+      "bag",
+      "r7rs",
+      "srfi-113",
+      "collection",
+      "union",
+      "intersection",
+      "difference"
+    ],
+    "imports": [
+      ":scheme/set",
+      ":scheme/comparator"
+    ],
+    "code": "(import :scheme/set :scheme/comparator)\n\n;; Create a set (requires a comparator)\n(def cmp (make-default-comparator))\n(def s (set cmp 1 2 3 4 5))\n(set-size s)          ; => 5\n(set-contains? s 3)   ; => #t\n(set-contains? s 9)   ; => #f\n\n;; Set operations\n(def s2 (set cmp 3 4 5 6 7))\n(set->list (set-union s s2))         ; => (1 2 3 4 5 6 7)\n(set->list (set-intersection s s2))  ; => (3 4 5)\n(set->list (set-difference s s2))    ; => (1 2)\n\n;; Functional update (returns new set)\n(set->list (set-adjoin s 10))   ; => (1 2 3 4 5 10)\n(set->list (set-delete s 3))    ; => (1 2 4 5)\n\n;; Filter/fold\n(set->list (set-filter even? s))         ; => (2 4)\n(set-fold + 0 s)                         ; sum = 15\n(set-every? positive? s)                 ; => #t\n\n;; Bags (multisets - allow duplicates)\n(def b (bag cmp 1 1 2 3))\n(bag-element-count b 1)  ; => 2",
+    "notes": "Sets require a comparator (from :scheme/comparator). The default-comparator handles numbers, strings, symbols etc. Bags are multisets that track element counts. Destructive variants (!-suffix) modify in place. Also: set-map, set-for-each, set-any?, set-count, set-search!, set-disjoint?, set=?, set<? (subset), etc."
+  },
+  {
+    "id": "scheme-ideque-r7rs",
+    "title": "R7RS Immutable Deques (SRFI-134)",
+    "tags": [
+      "ideque",
+      "deque",
+      "immutable",
+      "r7rs",
+      "srfi-134",
+      "double-ended",
+      "queue"
+    ],
+    "imports": [
+      ":scheme/ideque"
+    ],
+    "code": "(import :scheme/ideque)\n\n;; Create an immutable deque\n(def dq (ideque 1 2 3 4 5))\n(ideque-front dq)   ; => 1\n(ideque-back dq)    ; => 5\n(ideque-length dq)  ; => 5\n\n;; Add elements (returns new deque)\n(ideque->list (ideque-add-front dq 0))  ; => (0 1 2 3 4 5)\n(ideque->list (ideque-add-back dq 6))   ; => (1 2 3 4 5 6)\n\n;; Remove elements (returns new deque)\n(ideque->list (ideque-remove-front dq))  ; => (2 3 4 5)\n(ideque->list (ideque-remove-back dq))   ; => (1 2 3 4)\n\n;; Map/filter (returns new deque)\n(ideque->list (ideque-map (lambda (x) (* x 2)) dq))  ; => (2 4 6 8 10)\n(ideque->list (ideque-filter even? dq))               ; => (2 4)\n(ideque->list (ideque-reverse dq))                    ; => (5 4 3 2 1)\n\n;; Fold\n(ideque-fold + 0 dq)  ; => 15",
+    "notes": "Immutable deques support efficient O(1) operations on both ends. All operations return new deques (persistent data structure). Also provides: ideque-append, ideque-zip, ideque-count, ideque-any, ideque-every, ideque-find, ideque-take/drop/take-while/drop-while, ideque-unfold, ideque->generator/generator->ideque."
+  },
+  {
+    "id": "scheme-mapping-r7rs",
+    "title": "R7RS Immutable Ordered Mappings (SRFI-146)",
+    "tags": [
+      "mapping",
+      "ordered",
+      "map",
+      "immutable",
+      "r7rs",
+      "srfi-146",
+      "dictionary",
+      "associative"
+    ],
+    "imports": [
+      ":scheme/mapping",
+      ":scheme/comparator"
+    ],
+    "code": "(import :scheme/mapping :scheme/comparator)\n\n;; Create an ordered mapping (requires comparator)\n(def cmp (make-default-comparator))\n(def m (mapping cmp 'a 1 'b 2 'c 3))\n(mapping-size m)                     ; => 3\n(mapping-ref m 'a)                   ; => 1\n(mapping-ref/default m 'z 99)        ; => 99\n(mapping-contains? m 'b)             ; => #t\n\n;; Functional update (returns new mapping)\n(mapping->alist (mapping-set m 'd 4))    ; => ((a . 1) (b . 2) (c . 3) (d . 4))\n(mapping->alist (mapping-delete m 'b))   ; => ((a . 1) (c . 3))\n\n;; Keys, values, alist\n(mapping-keys m)    ; => (a b c)\n(mapping-values m)  ; => (1 2 3)\n(mapping->alist m)  ; => ((a . 1) (b . 2) (c . 3))\n\n;; Map to list\n(mapping-map->list (lambda (k v) (cons k (* v 10))) m)\n;; => ((a . 10) (b . 20) (c . 30))\n\n;; Set operations\n;; mapping-union, mapping-intersection, mapping-difference, mapping-xor",
+    "notes": "Mappings are immutable ordered dictionaries (like Clojure sorted-map). Require a comparator for key ordering. Also provides: mapping-update, mapping-search, mapping-fold, mapping-for-each, mapping-filter, mapping-remove, mapping-partition, range operations (mapping-range<, mapping-range>=, etc.), mapping-min-key/max-key/min-value/max-value."
+  },
+  {
+    "id": "scheme-sort-r7rs",
+    "title": "R7RS Sorting (SRFI-132)",
+    "tags": [
+      "sort",
+      "sorting",
+      "r7rs",
+      "srfi-132",
+      "list-sort",
+      "vector-sort",
+      "merge",
+      "stable"
+    ],
+    "imports": [
+      ":scheme/sort"
+    ],
+    "code": "(import :scheme/sort)\n\n;; Sort a list (returns new sorted list)\n(list-sort < '(5 3 8 1 9 2))  ; => (1 2 3 5 8 9)\n\n;; Sort a vector (returns new sorted vector)\n(vector-sort < #(5 3 8 1 9 2))  ; => #(1 2 3 5 8 9)\n\n;; Stable sort (preserves order of equal elements)\n(list-stable-sort < '(5 3 8 1 9 2))  ; => (1 2 3 5 8 9)\n\n;; Merge sorted lists\n(list-merge < '(1 3 5) '(2 4 6))  ; => (1 2 3 4 5 6)",
+    "notes": "list-sort and vector-sort return new sorted collections. Stable variants preserve relative order of equal elements. Also provides destructive variants: list-sort!, vector-sort!, list-merge!. For Gerbil's native sort, use :std/sort which provides (sort lst less?) directly."
+  },
+  {
+    "id": "scheme-show-formatting",
+    "title": "R7RS Show/Formatting (SRFI-159/166)",
+    "tags": [
+      "show",
+      "format",
+      "display",
+      "r7rs",
+      "srfi-159",
+      "srfi-166",
+      "pretty-print",
+      "numeric",
+      "padding"
+    ],
+    "imports": [
+      ":scheme/show"
+    ],
+    "code": "(import :scheme/show)\n\n;; show returns a string when first arg is #f, outputs when #t\n(show #f \"Hello \" \"World\")         ; => \"Hello World\"\n(show #t \"direct to stdout\" nl)    ; outputs and returns void\n\n;; Numeric formatting\n(show #f \"hex: \" (numeric 255 16))           ; => \"hex: ff\"\n(show #f \"bin: \" (numeric 42 2))             ; => \"bin: 101010\"\n(show #f \"comma: \" (numeric/comma 1234567))  ; => \"comma: 1,234,567\"\n\n;; Padding/alignment\n(show #f \"[\" (padded 10 \"hi\") \"]\")       ; => \"[        hi]\" (right-align)\n(show #f \"[\" (padded/right 10 \"hi\") \"]\") ; => \"[hi        ]\" (left-align)\n\n;; Joining lists\n(show #f (joined displayed '(1 2 3) \", \"))  ; => \"1, 2, 3\"\n\n;; Pretty-printing S-expressions\n(show #f (pretty '(if (> x 0) (+ x 1) (- x 1))))",
+    "notes": "show is a combinatorial formatting library. First arg: #f returns string, #t outputs to stdout, or a port. Combinators: each (sequence), fn (access state), with/with! (modify state), displayed, written, numeric, padded, trimmed, fitted, joined, pretty, nl, fl, space-to, tab-to, escaped. Note: upcased/downcased may not work in all versions."
+  },
+  {
+    "id": "scheme-list-queue-r7rs",
+    "title": "R7RS Mutable FIFO Queues (SRFI-117)",
+    "tags": [
+      "list-queue",
+      "queue",
+      "fifo",
+      "mutable",
+      "r7rs",
+      "srfi-117"
+    ],
+    "imports": [
+      ":scheme/list-queue"
+    ],
+    "code": "(import :scheme/list-queue)\n\n;; Create a mutable FIFO queue\n(def q (list-queue 1 2 3))\n(list-queue-front q)  ; => 1\n(list-queue-back q)   ; => 3\n\n;; Add elements (mutates queue)\n(list-queue-add-back! q 4)\n(list-queue-add-front! q 0)\n(list-queue-list q)  ; => (0 1 2 3 4)\n\n;; Remove from front\n(list-queue-remove-front! q)  ; => 0\n(list-queue-list q)           ; => (1 2 3 4)\n\n;; Check empty\n(list-queue-empty? q)  ; => #f\n(list-queue-empty? (make-list-queue '()))  ; => #t",
+    "notes": "Mutable FIFO queue backed by a list with O(1) front/back access. Unlike :std/misc/queue, this is the R7RS standard API (SRFI-117). Also provides: make-list-queue, list-queue-copy, list-queue-concatenate, list-queue-map, list-queue-for-each, list-queue-append!, list-queue-set-list!."
+  },
+  {
+    "id": "scheme-text-immutable-r7rs",
+    "title": "R7RS Immutable Texts (SRFI-135)",
+    "tags": [
+      "text",
+      "immutable",
+      "string",
+      "r7rs",
+      "srfi-135",
+      "unicode",
+      "textual"
+    ],
+    "imports": [
+      ":scheme/text"
+    ],
+    "code": "(import :scheme/text)\n\n;; Create immutable text\n(def t (text #\\H #\\e #\\l #\\l #\\o))\n(text? t)           ; => #t\n(text-length t)     ; => 5\n(text-ref t 0)      ; => #\\H\n\n;; Convert from/to strings\n(def t2 (string->text \"World\"))\n(textual->string t2)  ; => \"World\"\n\n;; Append texts\n(def t3 (textual-append t (string->text \" \") t2))\n(textual->string t3)  ; => \"Hello World\"\n\n;; Case conversion\n(textual->string (textual-upcase t3))    ; => \"HELLO WORLD\"\n(textual->string (textual-downcase t3))  ; => \"hello world\"\n\n;; Search and compare\n(textual-contains t3 (string->text \"World\"))  ; => index or #f\n(textual=? t t (string->text \"Hello\"))        ; => #t",
+    "notes": "Immutable text type (SRFI-135). Use textual->string (not text->string) for conversion. Most functions take textual args (accepting both text and string). Also provides: textual-map, textual-fold, textual-filter, textual-pad, textual-trim, textual-replace, textual-split, textual-join, subtext, textual-index/skip, textual-prefix?/suffix?."
+  },
+  {
+    "id": "scheme-lseq-lazy-sequence",
+    "title": "R7RS Lazy Sequences (SRFI-127)",
+    "tags": [
+      "lseq",
+      "lazy",
+      "sequence",
+      "r7rs",
+      "srfi-127",
+      "generator",
+      "stream"
+    ],
+    "imports": [
+      ":scheme/lseq",
+      ":scheme/generator"
+    ],
+    "code": "(import :scheme/lseq :scheme/generator)\n\n;; Create from a generator\n(def ls (generator->lseq (make-range-generator 0 10)))\n(lseq? ls)  ; => #t\n\n;; Access elements (lazy - computed on demand)\n(lseq-first ls)  ; => 0\n(lseq-rest ls)   ; rest is also an lseq\n\n;; Take/drop (lazy)\n(lseq-realize (lseq-take ls 5))  ; => (0 1 2 3 4)\n\n;; Filter (lazy)\n(lseq-realize (lseq-take (lseq-filter even? ls) 3))  ; => (0 2 4)\n\n;; Map (lazy)\n(lseq-realize (lseq-take (lseq-map (lambda (x) (* x 2)) ls) 4))\n;; => (0 2 4 6)\n\n;; Convert back to generator\n;; (lseq->generator ls)",
+    "notes": "Lazy sequences are like lists but compute elements on demand from a generator. lseq-realize forces an lseq into a regular list. Operations like lseq-filter, lseq-map, lseq-take return lazy sequences. Also provides: lseq-append, lseq-zip, lseq-for-each, lseq-find, lseq-any, lseq-every, lseq-index, lseq-member/memq/memv, lseq-drop-while/take-while."
+  },
+  {
+    "id": "scheme-box-mutable-container",
+    "title": "R7RS Boxes - Mutable Single-Value Containers (SRFI-111)",
+    "tags": [
+      "box",
+      "mutable",
+      "container",
+      "r7rs",
+      "srfi-111",
+      "reference",
+      "cell"
+    ],
+    "imports": [
+      ":scheme/box"
+    ],
+    "code": "(import :scheme/box)\n\n;; Create a box (mutable container for a single value)\n(def b (box 42))\n(box? b)      ; => #t\n(unbox b)     ; => 42\n(set-box! b 99)\n(unbox b)     ; => 99",
+    "notes": "Boxes are simple mutable containers for a single value. Useful when you need a mutable reference in an otherwise immutable context (e.g., closures that need to share mutable state)."
+  },
+  {
+    "id": "scheme-regex-r7rs",
+    "title": "R7RS Regular Expressions (SRFI-115)",
+    "tags": [
+      "regex",
+      "regexp",
+      "r7rs",
+      "srfi-115",
+      "match",
+      "search",
+      "replace",
+      "split",
+      "pattern"
+    ],
+    "imports": [
+      ":scheme/regex"
+    ],
+    "code": "(import :scheme/regex)\n\n;; Match entire string\n(regexp-matches '(: \"hello\") \"hello\")  ; => match object or #f\n\n;; Search within string\n(regexp-search '(: \"world\") \"hello world\")  ; => match object\n\n;; Extract submatches\n(def m (regexp-search '(: (submatch (+ numeric))) \"abc123def\"))\n(regexp-match-submatch m 1)  ; => \"123\"\n\n;; Replace first occurrence\n(regexp-replace '(+ space) \"hello   world\" \" \")  ; => \"hello world\"\n\n;; Split by pattern\n(regexp-split '(: \",\") \"a,b,c\")  ; => (\"a\" \"b\" \"c\")\n\n;; SRE pattern syntax examples:\n;; (: ...)          - sequence\n;; (or ...)         - alternation\n;; (+ pat)          - one or more\n;; (* pat)          - zero or more\n;; (? pat)          - optional\n;; (submatch pat)   - capture group\n;; numeric, alpha, space, any - character classes",
+    "notes": "Uses SRE (S-expression Regular Expressions) syntax, not PCRE. Character classes: numeric, alpha, upper, lower, space, any, nonl. Quantifiers: +, *, ?, (= n pat), (>= n pat), (** lo hi pat). Also: regexp-replace-all, regexp-extract, regexp-fold, regexp-matches?."
+  },
+  {
+    "id": "scheme-vector-r7rs",
+    "title": "R7RS Vector Library (SRFI-133)",
+    "tags": [
+      "vector",
+      "r7rs",
+      "srfi-133",
+      "map",
+      "fold",
+      "unfold",
+      "index",
+      "count"
+    ],
+    "imports": [
+      ":scheme/vector"
+    ],
+    "code": "(import :scheme/vector)\n\n(def v #(1 2 3 4 5))\n\n;; Map and fold\n(vector-map (lambda (x) (* x 2)) v)       ; => #(2 4 6 8 10)\n(vector-fold (lambda (acc x) (+ acc x)) 0 v)  ; => 15\n\n;; Search\n(vector-index even? v)   ; => 1 (index of first even)\n(vector-count even? v)   ; => 2\n(vector-any even? v)     ; => #t\n(vector-every positive? v) ; => #t\n\n;; Generate\n(vector-unfold (lambda (i) (* i i)) 5)  ; => #(0 1 4 9 16)\n(vector-append #(1 2) #(3 4))           ; => #(1 2 3 4)\n\n;; Also: vector-for-each, vector-copy, vector-reverse-copy,\n;;       vector-concatenate, vector-swap!, vector-fill!",
+    "notes": "SRFI-133 provides a comprehensive vector API beyond R5RS basics. vector-unfold generates from an index function. vector-fold processes left-to-right. vector-index returns the first matching index. For index-aware variants, use :std/misc/vector (vector-map/index, vector-for-each/index, etc.)."
+  },
+  {
+    "id": "scheme-charset-r7rs",
+    "title": "R7RS Character Sets (SRFI-14)",
+    "tags": [
+      "charset",
+      "char-set",
+      "character",
+      "r7rs",
+      "srfi-14",
+      "letter",
+      "digit",
+      "unicode"
+    ],
+    "imports": [
+      ":scheme/charset"
+    ],
+    "code": "(import :scheme/charset)\n\n;; Predefined character sets\n(char-set-contains? char-set:letter #\\A)  ; => #t\n(char-set-contains? char-set:digit #\\5)   ; => #t\n(char-set-contains? char-set:letter #\\5)  ; => #f\n\n;; Create from string\n(def vowels (string->char-set \"aeiou\"))\n(char-set-contains? vowels #\\a)  ; => #t\n(char-set-contains? vowels #\\x)  ; => #f\n\n;; Set operations\n(char-set-intersection char-set:upper-case (string->char-set \"AEIOU\"))\n(char-set-union char-set:letter char-set:digit)  ; alphanumeric\n(char-set-difference char-set:letter (string->char-set \"aeiou\"))  ; consonants+uppercase\n\n;; Predefined sets: char-set:letter, char-set:digit, char-set:whitespace,\n;; char-set:upper-case, char-set:lower-case, char-set:punctuation,\n;; char-set:ascii, char-set:empty, char-set:full",
+    "notes": "Character sets for efficient membership testing and character classification. Set operations: union, intersection, difference, complement, xor. Also provides: char-set-fold, char-set-for-each, char-set-map, char-set-filter, char-set->list, char-set-adjoin, char-set-delete, char-set-cursor/char-set-ref for iteration."
+  },
+  {
+    "id": "scheme-bitwise-r7rs",
+    "title": "R7RS Bitwise Operations (SRFI-151)",
+    "tags": [
+      "bitwise",
+      "bit",
+      "r7rs",
+      "srfi-151",
+      "and",
+      "or",
+      "xor",
+      "shift",
+      "binary"
+    ],
+    "imports": [
+      ":scheme/bitwise"
+    ],
+    "code": "(import :scheme/bitwise)\n\n;; Basic bitwise operations\n(bitwise-and #xFF #x0F)    ; => 15\n(bitwise-ior #xF0 #x0F)   ; => 255\n(bitwise-xor #xFF #x0F)   ; => 240\n(bitwise-not 0)            ; => -1\n\n;; Shifts\n(arithmetic-shift 1 8)     ; => 256 (left shift)\n(arithmetic-shift 256 -8)  ; => 1   (right shift)\n\n;; Bit inspection\n(bit-count #xFF)           ; => 8 (popcount)\n(bit-set? 0 5)             ; => #t (bit 0 of 5=101 is set)\n(bit-set? 1 5)             ; => #f (bit 1 of 5=101 is not set)\n(integer-length 255)       ; => 8 (min bits needed)\n\n;; Bit field operations\n;; (bit-field n start end) - extract bits\n;; (bit-field-set n start end val) - set bits",
+    "notes": "SRFI-151 provides comprehensive bitwise integer operations. bitwise-ior is OR (not bitwise-or). arithmetic-shift: positive = left, negative = right. bit-set? checks a specific bit position. Also provides: bitwise-eqv, bitwise-nand, bitwise-nor, bitwise-andc1/2, bitwise-orc1/2, bit-swap, copy-bit, bits, bitwise-fold, bitwise-for-each, bitwise-unfold."
+  },
+  {
+    "id": "scheme-fixnum-r7rs",
+    "title": "R7RS Fixnum Arithmetic (SRFI-143)",
+    "tags": [
+      "fixnum",
+      "integer",
+      "r7rs",
+      "srfi-143",
+      "arithmetic",
+      "fast",
+      "fx"
+    ],
+    "imports": [
+      ":scheme/fixnum"
+    ],
+    "code": "(import :scheme/fixnum)\n\n;; Fast fixnum arithmetic (no overflow checking, no bignum promotion)\n(fx+ 10 20)   ; => 30\n(fx* 5 7)     ; => 35\n(fx- 10 3)    ; => 7\n(fxquotient 17 5)   ; => 3\n(fxremainder 17 5)  ; => 2\n\n;; Fixnum bounds\nfx-width      ; => 61 (bit width on 64-bit)\nfx-greatest   ; => 1152921504606846975\nfx-least      ; => -1152921504606846976\n\n;; Predicates\n(fxzero? 0)      ; => #t\n(fxpositive? 5)  ; => #t\n(fxnegative? -3) ; => #t\n\n;; Bitwise on fixnums\n(fxarithmetic-shift 1 10)  ; => 1024\n(fxbit-count #xFF)         ; => 8\n(fxand #xFF #x0F)          ; => 15\n(fxior #xF0 #x0F)          ; => 255",
+    "notes": "Fixnum operations are faster than generic arithmetic but don't check for overflow. fx-width is the number of bits in a fixnum (61 on 64-bit Gambit). Results are undefined if args or result overflow fixnum range. For safe fixnum ops in Gerbil, use (declare (fixnum)) in a block."
+  },
+  {
+    "id": "scheme-flonum-r7rs",
+    "title": "R7RS Flonum Arithmetic (SRFI-144)",
+    "tags": [
+      "flonum",
+      "float",
+      "r7rs",
+      "srfi-144",
+      "math",
+      "trigonometry",
+      "constants"
+    ],
+    "imports": [
+      ":scheme/flonum"
+    ],
+    "code": "(import :scheme/flonum)\n\n;; Flonum arithmetic\n(fl+ 1.5 2.5)   ; => 4.0\n(fl* 3.0 4.0)   ; => 12.0\n(fl- 10.0 3.0)  ; => 7.0\n(fl/ 10.0 3.0)  ; => 3.3333...\n\n;; Math functions\n(flsqrt 2.0)    ; => 1.4142135623730951\n(flexp 1.0)     ; => 2.718281828459045\n(fllog 2.718)   ; => ~1.0\n(flsin 0.0)     ; => 0.0\n(flcos 0.0)     ; => 1.0\n\n;; Constants\nfl-e            ; => 2.718281828459045\nfl-pi           ; => 3.141592653589793\nfl-greatest     ; => 1.7976931348623157e308\nfl-least        ; => smallest positive flonum\nfl-epsilon      ; => machine epsilon",
+    "notes": "Flonum operations are specialized for IEEE 754 double-precision. Faster than generic arithmetic when types are known. Constants: fl-e, fl-1/e, fl-pi, fl-pi/2, fl-pi/4, fl-log2, fl-log10, fl-sqrt2, fl-greatest, fl-least, fl-epsilon, fl-infinity, fl-nan. Also: flfloor, flceiling, fltruncate, flround, flexpt, flatan, flasin, flacos."
+  },
+  {
+    "id": "scheme-hash-table-r7rs",
+    "title": "R7RS Hash Tables (SRFI-125)",
+    "tags": [
+      "hash-table",
+      "r7rs",
+      "srfi-125",
+      "dictionary",
+      "map",
+      "key-value",
+      "comparator"
+    ],
+    "imports": [
+      ":scheme/hash-table",
+      ":scheme/comparator"
+    ],
+    "code": "(import :scheme/hash-table :scheme/comparator)\n\n;; Create hash table (requires comparator)\n(def ht (hash-table (make-default-comparator) 'a 1 'b 2 'c 3))\n(hash-table? ht)                       ; => #t\n(hash-table-size ht)                   ; => 3\n(hash-table-ref ht 'a)                 ; => 1\n(hash-table-ref/default ht 'z 99)     ; => 99\n(hash-table-contains? ht 'b)          ; => #t\n\n;; Mutate\n(hash-table-set! ht 'd 4)\n(hash-table-delete! ht 'b)\n\n;; Access keys/values\n(hash-table-keys ht)    ; => (a c d)\n(hash-table-values ht)  ; => (1 3 4)\n(hash-table->alist ht)  ; => ((a . 1) (c . 3) (d . 4))\n\n;; Iterate\n(hash-table-for-each\n  (lambda (k v) (displayln k \" => \" v)) ht)\n\n;; Create from alist\n;; (alist->hash-table '((x . 10) (y . 20)) (make-default-comparator))",
+    "notes": "R7RS hash tables use comparators (from :scheme/comparator) instead of Gerbil's eq?/equal? hash tables. For most Gerbil code, native hash tables (hash, make-hash-table-eq, etc.) are simpler. Use R7RS hash tables when you need SRFI-125 compatibility or custom comparators. Also: hash-table-update!, hash-table-map, hash-table-fold, hash-table-copy, hash-table-empty-copy."
+  },
+  {
+    "id": "scheme-rlist-random-access",
+    "title": "R7RS Random-Access Lists (SRFI-101)",
+    "tags": [
+      "rlist",
+      "random-access",
+      "list",
+      "r7rs",
+      "srfi-101",
+      "index",
+      "immutable"
+    ],
+    "imports": [
+      ":scheme/rlist"
+    ],
+    "code": "(import :scheme/rlist)\n\n;; Create a random-access list (O(log n) access by index)\n(def rl (rlist 'a 'b 'c 'd 'e))\n(rlist? rl)         ; => #t\n(rlength rl)        ; => 5\n\n;; O(log n) index access (vs O(n) for regular lists)\n(rlist-ref rl 0)    ; => a\n(rlist-ref rl 3)    ; => d\n\n;; Standard list operations\n(rcar rl)           ; => a\n(rcdr rl)           ; => rest of rlist\n(rcons 'z rl)       ; => rlist with z prepended\n\n;; Functional update (returns new rlist)\n(rlist->list (rlist-set rl 2 'C))  ; => (a b C d e)\n\n;; Convert to/from regular lists\n(rlist->list rl)     ; => (a b c d e)\n(list->rlist '(1 2 3))",
+    "notes": "Random-access lists provide O(log n) index access and update (vs O(n) for regular lists), while maintaining O(1) cons/car/cdr. Useful when you need both sequential and indexed access. All operations are purely functional (immutable). Also provides: rmap, rfor-each, rappend."
+  },
+  {
+    "id": "scheme-stream-r7rs",
+    "title": "R7RS Lazy Streams (SRFI-41)",
+    "tags": [
+      "stream",
+      "lazy",
+      "infinite",
+      "r7rs",
+      "srfi-41",
+      "sequence",
+      "generator"
+    ],
+    "imports": [
+      ":scheme/stream"
+    ],
+    "code": "(import :scheme/stream)\n\n;; Finite stream\n(def s (stream 1 2 3 4 5))\n(stream-car s)                    ; => 1\n(stream->list (stream-take 3 s))  ; => (1 2 3)\n\n;; Infinite streams\n(def nats (stream-from 0))       ; 0, 1, 2, 3, ...\n(stream->list (stream-take 10 nats))  ; => (0 1 2 3 4 5 6 7 8 9)\n\n;; Filter\n(def evens (stream-filter even? nats))\n(stream->list (stream-take 5 evens))  ; => (0 2 4 6 8)\n\n;; Map\n(def squares (stream-map (lambda (x) (* x x)) nats))\n(stream->list (stream-take 6 squares))  ; => (0 1 4 9 16 25)\n\n;; stream-cons for manual construction\n(def fibs\n  (stream-cons 0\n    (stream-cons 1\n      (stream-map + fibs (stream-cdr fibs)))))",
+    "notes": "Streams are lazy sequences that compute elements on demand. Infinite streams are possible. stream-from creates an infinite counter. stream-cons delays evaluation of the rest. Use stream->list with stream-take to force finite portions. Also provides: stream-append, stream-zip, stream-fold, stream-for-each, stream-drop, stream-drop-while, stream-take-while, stream-range, stream-unfold, stream-constant."
+  },
+  {
+    "id": "scheme-division-r7rs",
+    "title": "R7RS Integer Division (SRFI-141)",
+    "tags": [
+      "division",
+      "integer",
+      "r7rs",
+      "srfi-141",
+      "floor",
+      "ceiling",
+      "truncate",
+      "euclidean",
+      "modulo"
+    ],
+    "imports": [
+      ":scheme/division"
+    ],
+    "code": "(import :scheme/division)\n\n;; Division functions return TWO values (quotient and remainder)\n(call-with-values (lambda () (floor/ 17 5))\n  (lambda (q r) (displayln \"floor: q=\" q \" r=\" r)))\n;; => q=3 r=2\n\n(call-with-values (lambda () (ceiling/ 17 5))\n  (lambda (q r) (displayln \"ceiling: q=\" q \" r=\" r)))\n;; => q=4 r=-3\n\n(call-with-values (lambda () (truncate/ 17 5))\n  (lambda (q r) (displayln \"truncate: q=\" q \" r=\" r)))\n;; => q=3 r=2\n\n(call-with-values (lambda () (euclidean/ 17 5))\n  (lambda (q r) (displayln \"euclidean: q=\" q \" r=\" r)))\n;; => q=3 r=2\n\n;; Single-value variants (just quotient or remainder)\n(floor-quotient 17 5)    ; => 3\n(floor-remainder 17 5)   ; => 2\n(truncate-quotient 17 5) ; => 3\n(euclidean-quotient 17 5) ; => 3",
+    "notes": "The / variants (floor/, ceiling/, truncate/, round/, euclidean/) return TWO values via multiple-value return. Use call-with-values or receive to destructure. Single-value variants: floor-quotient, floor-remainder, ceiling-quotient, etc. Key difference: floor rounds toward -inf, truncate toward zero, ceiling toward +inf, euclidean ensures non-negative remainder."
+  },
+  {
+    "id": "scheme-ilist-immutable-pairs",
+    "title": "R7RS Immutable Pairs/Lists (SRFI-116)",
+    "tags": [
+      "ilist",
+      "immutable",
+      "pair",
+      "list",
+      "r7rs",
+      "srfi-116",
+      "ipair",
+      "icons"
+    ],
+    "imports": [
+      ":scheme/ilist"
+    ],
+    "code": "(import :scheme/ilist)\n\n;; Create immutable list\n(def il (ilist 1 2 3 4 5))\n\n;; Access (like regular lists but immutable)\n(icar il)      ; => 1\n(icdr il)      ; => rest of ilist\n(ilength il)   ; => 5\n\n;; Map (returns new ilist)\n(imap (lambda (x) (* x 2)) il)\n\n;; Convert to/from regular lists\n;; (ilist->list il)\n;; (list->ilist '(a b c))\n\n;; Immutable pairs\n(def ip (ipair 'a 'b))\n(icar ip)  ; => a\n(icdr ip)  ; => b",
+    "notes": "Immutable pairs and lists prevent accidental mutation (set-car!/set-cdr! are not available). Useful for safe data sharing across modules/threads. Provides ilist equivalents of most SRFI-1 functions: imap, ifilter, ifold, ifor-each, iappend, ireverse, itake, idrop, etc."
+  },
+  {
+    "id": "scheme-hashmap-r7rs",
+    "title": "R7RS Hash-Based Immutable Mappings (SRFI-146)",
+    "tags": [
+      "hashmap",
+      "mapping",
+      "hash",
+      "immutable",
+      "r7rs",
+      "srfi-146",
+      "dictionary"
+    ],
+    "imports": [
+      ":scheme/mapping/hash",
+      ":scheme/comparator"
+    ],
+    "code": "(import :scheme/mapping/hash :scheme/comparator)\n\n;; Create hash-based immutable mapping\n(def cmp (make-default-comparator))\n(def m (hashmap cmp 'x 10 'y 20 'z 30))\n(hashmap? m)                    ; => #t\n(hashmap-size m)                ; => 3\n(hashmap-ref m 'x)              ; => 10\n\n;; Functional update\n(hashmap->alist (hashmap-set m 'w 40))    ; adds w\n(hashmap->alist (hashmap-delete m 'y))    ; removes y\n\n;; Access\n(hashmap-keys m)    ; => (y z x) (unordered)\n(hashmap-values m)  ; => (20 30 10)\n(hashmap->alist m)  ; => ((y . 20) (z . 30) (x . 10))\n\n;; Same API as :scheme/mapping but hash-based (unordered, O(1) average)",
+    "notes": "Hash-based mappings are unordered (vs ordered tree-based :scheme/mapping). Same API surface but prefixed with hashmap- instead of mapping-. O(1) average access vs O(log n) for ordered mappings. Use when key ordering doesn't matter. Also provides: hashmap-union, hashmap-intersection, hashmap-difference, hashmap-fold, hashmap-map, hashmap-filter, etc."
   }
 ]
