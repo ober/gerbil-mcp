@@ -20,6 +20,10 @@ export function registerSecurityPatternAddTool(server: McpServer): void {
         'If a rule with the same id already exists, it is replaced (update semantics). ' +
         'By default writes to the gerbil-mcp repo security-rules.json. ' +
         'Optionally specify rules_path to write to a different file.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         rules_path: z
           .string()

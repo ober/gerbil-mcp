@@ -15,6 +15,10 @@ export function registerListFeaturesTool(server: McpServer): void {
         'Search or list existing feature suggestions. ' +
         'If query is provided, searches by tags, title, and description. ' +
         'If no query, returns all suggestions.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         features_path: z
           .string()

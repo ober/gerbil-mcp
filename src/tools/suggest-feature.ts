@@ -33,6 +33,10 @@ export function registerSuggestFeatureTool(server: McpServer): void {
         'If a suggestion with the same id already exists, it is replaced (update semantics). ' +
         'By default writes to the gerbil-mcp repo features.json. ' +
         'Optionally specify features_path to write to a different file.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         features_path: z
           .string()

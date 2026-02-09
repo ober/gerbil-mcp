@@ -100,6 +100,10 @@ export function registerModuleExportsTool(server: McpServer): void {
         'Example: module_path ":std/text/json" returns read-json, write-json, etc. ' +
         'Handles modules that use Gambit (declare ...) forms by falling back to ' +
         'scanning compiled .scm files when the expander fails.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

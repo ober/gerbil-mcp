@@ -317,6 +317,10 @@ export function registerCheckBalanceTool(server: McpServer): void {
         'Check parenthesis/bracket/brace balance in Gerbil Scheme code. ' +
         'Pure delimiter scanner — no subprocess, runs in milliseconds. ' +
         'Reports unclosed delimiters, unexpected closers, and mismatches with positions.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

@@ -13,6 +13,10 @@ export function registerTraceCallsTool(server: McpServer): void {
         'Count how many times specified functions are called while running an expression. ' +
         'Lightweight instrumentation with minimal overhead (no timing). ' +
         'Instruments top-level bindings via set!; does not work on lexical bindings.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         expression: z
           .string()

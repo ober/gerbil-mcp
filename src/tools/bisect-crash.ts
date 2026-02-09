@@ -162,6 +162,10 @@ export function registerBisectCrashTool(server: McpServer): void {
         'that reproduce the crash. Keeps preamble forms (import, export, require, declare, ' +
         'begin-syntax, begin-foreign, extern) and bisects body forms. Useful for isolating ' +
         'segfaults, uncaught exceptions, and other crashes — especially in FFI code.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         file_path: z
           .string()

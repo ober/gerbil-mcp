@@ -18,6 +18,10 @@ export function registerProjectInfoTool(server: McpServer): void {
         'Single-call summary of a Gerbil project: package name, build targets, ' +
         'source files, and external dependencies. Reads gerbil.pkg, build.ss, ' +
         'and scans source files.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

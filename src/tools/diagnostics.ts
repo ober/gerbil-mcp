@@ -19,6 +19,10 @@ export function registerDiagnosticsTool(server: McpServer): void {
         'diagnostics with file, line, column, severity, and message. ' +
         'Provide either file_path for a single file or project_path for project-wide checking. ' +
         'Use loadpath to add directories for resolving project-local module imports.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

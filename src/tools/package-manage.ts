@@ -18,6 +18,10 @@ export function registerPackageManageTool(server: McpServer): void {
         'the tool automatically defaults to HOME as the working directory to prevent ' +
         'gxpkg from operating on the local package context. Use the cwd parameter ' +
         'to override, or global_env to force global environment.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         action: z
           .enum(['install', 'update', 'uninstall'])

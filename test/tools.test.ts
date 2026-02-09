@@ -17,6 +17,12 @@ interface McpResponse {
   result?: {
     content?: Array<{ type: string; text: string }>;
     protocolVersion?: string;
+    tools?: Array<{ name: string; annotations?: Record<string, unknown> }>;
+    prompts?: Array<{ name: string }>;
+    messages?: Array<{ role: string; content: { type: string; text: string } }>;
+    contents?: Array<{ uri: string; mimeType?: string; text?: string }>;
+    resources?: Array<{ uri: string; name: string; description?: string }>;
+    resourceTemplates?: Array<{ uriTemplate: string; name: string; description?: string }>;
   };
   error?: {
     code: number;
@@ -127,6 +133,64 @@ class McpClient {
     return {
       text: content.text,
       isError: (response.result as { isError?: boolean })?.isError === true,
+    };
+  }
+
+  async listTools(): Promise<Array<{ name: string; annotations?: Record<string, unknown> }>> {
+    const response = await this.send({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'tools/list',
+      params: {},
+    });
+    return response.result?.tools ?? [];
+  }
+
+  async callPrompt(
+    name: string,
+    args: Record<string, string> = {},
+  ): Promise<{ messages: Array<{ role: string; content: { type: string; text: string } }> }> {
+    const response = await this.send({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'prompts/get',
+      params: { name, arguments: args },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return { messages: response.result?.messages ?? [] };
+  }
+
+  async readResource(uri: string): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string }> }> {
+    const response = await this.send({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'resources/read',
+      params: { uri },
+    });
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    return { contents: response.result?.contents ?? [] };
+  }
+
+  async listResources(): Promise<{ resources: Array<{ uri: string; name: string }>; resourceTemplates: Array<{ uriTemplate: string; name: string }> }> {
+    const resourcesResp = await this.send({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'resources/list',
+      params: {},
+    });
+    const templatesResp = await this.send({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'resources/templates/list',
+      params: {},
+    });
+    return {
+      resources: resourcesResp.result?.resources ?? [],
+      resourceTemplates: templatesResp.result?.resourceTemplates ?? [],
     };
   }
 
@@ -4293,5 +4357,168 @@ void copy_data(const uint8_t *src, int len) {
       // and consumer.ss imports both
       expect(result.text).toContain('shared-fn');
     }, 30000);
+  });
+
+  // ── Tool annotations ──────────────────────────────────────────
+
+  describe('Tool annotations', () => {
+    it('gerbil_check_syntax has readOnly and idempotent annotations', async () => {
+      const tools = await client.listTools();
+      const checkSyntax = tools.find(t => t.name === 'gerbil_check_syntax');
+      expect(checkSyntax).toBeDefined();
+      expect(checkSyntax!.annotations).toBeDefined();
+      expect(checkSyntax!.annotations!.readOnlyHint).toBe(true);
+      expect(checkSyntax!.annotations!.idempotentHint).toBe(true);
+    });
+
+    it('gerbil_eval has non-readOnly non-idempotent annotations', async () => {
+      const tools = await client.listTools();
+      const evalTool = tools.find(t => t.name === 'gerbil_eval');
+      expect(evalTool).toBeDefined();
+      expect(evalTool!.annotations).toBeDefined();
+      expect(evalTool!.annotations!.readOnlyHint).toBe(false);
+      expect(evalTool!.annotations!.idempotentHint).toBe(false);
+    });
+
+    it('gerbil_rename_symbol has non-readOnly idempotent annotations', async () => {
+      const tools = await client.listTools();
+      const renameTool = tools.find(t => t.name === 'gerbil_rename_symbol');
+      expect(renameTool).toBeDefined();
+      expect(renameTool!.annotations).toBeDefined();
+      expect(renameTool!.annotations!.readOnlyHint).toBe(false);
+      expect(renameTool!.annotations!.idempotentHint).toBe(true);
+    });
+  });
+
+  // ── Describe tool ─────────────────────────────────────────────
+
+  describe('Describe tool', () => {
+    it('describes a hash table', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '(hash ("a" 1) ("b" 2))',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('hash-table');
+      expect(result.text).toContain('2 entries');
+    });
+
+    it('describes a list', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '[1 2 3]',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('list');
+      expect(result.text).toContain('length 3');
+    });
+
+    it('describes a number', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '42',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('exact integer');
+      expect(result.text).toContain('42');
+    });
+
+    it('describes a string', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '"hello"',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('string');
+      expect(result.text).toContain('length 5');
+    });
+
+    it('describes a boolean', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '#t',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('boolean');
+      expect(result.text).toContain('#t');
+    });
+
+    it('describes a procedure', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: 'car',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('procedure');
+    });
+
+    it('handles errors gracefully', async () => {
+      const result = await client.callTool('gerbil_describe', {
+        expression: '(/ 1 0)',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── New prompts ───────────────────────────────────────────────
+
+  describe('New prompts', () => {
+    it('write-gerbil-module prompt returns module guidance', async () => {
+      const result = await client.callPrompt('write-gerbil-module', {
+        module_name: 'myapp/handler',
+        purpose: 'handle HTTP requests',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('myapp/handler');
+      expect(result.messages[0].content.text).toContain('def');
+    });
+
+    it('debug-gerbil-error prompt includes debugging workflow', async () => {
+      const result = await client.callPrompt('debug-gerbil-error', {
+        error_message: 'Wrong number of arguments',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('Wrong number of arguments');
+      expect(result.messages[0].content.text).toContain('gerbil_function_signature');
+    });
+
+    it('port-to-gerbil prompt includes dialect mapping', async () => {
+      const result = await client.callPrompt('port-to-gerbil', {
+        code: '(define (hello) (display "hi"))',
+        source_dialect: 'Racket',
+      });
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.messages[0].content.text).toContain('Racket');
+      expect(result.messages[0].content.text).toContain('hash-get');
+    });
+  });
+
+  // ── Cookbook resources ─────────────────────────────────────────
+
+  describe('Cookbook resources', () => {
+    it('gerbil://cookbooks returns recipe index', async () => {
+      const result = await client.readResource('gerbil://cookbooks');
+      expect(result.contents.length).toBeGreaterThan(0);
+      expect(result.contents[0].mimeType).toBe('application/json');
+      const index = JSON.parse(result.contents[0].text!);
+      expect(Array.isArray(index)).toBe(true);
+      expect(index.length).toBeGreaterThan(0);
+      expect(index[0]).toHaveProperty('id');
+      expect(index[0]).toHaveProperty('title');
+      expect(index[0]).toHaveProperty('tags');
+    });
+
+    it('gerbil://cookbooks/{id} returns recipe detail', async () => {
+      // First get the index to find a valid recipe ID
+      const indexResult = await client.readResource('gerbil://cookbooks');
+      const index = JSON.parse(indexResult.contents[0].text!);
+      const firstId = index[0].id;
+
+      const result = await client.readResource('gerbil://cookbooks/' + firstId);
+      expect(result.contents.length).toBeGreaterThan(0);
+      const recipe = JSON.parse(result.contents[0].text!);
+      expect(recipe.id).toBe(firstId);
+      expect(recipe).toHaveProperty('code');
+      expect(recipe).toHaveProperty('imports');
+    });
+
+    it('gerbil://cookbooks/{id} returns not found for unknown id', async () => {
+      const result = await client.readResource('gerbil://cookbooks/nonexistent-recipe-xyz');
+      expect(result.contents[0].text).toContain('not found');
+    });
   });
 });

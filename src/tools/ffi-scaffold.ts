@@ -569,6 +569,10 @@ export function registerFfiScaffoldTool(server: McpServer): void {
         '#define constants, enums, and create/destroy pairs (for automatic GC cleanup). ' +
         'Returns generated Scheme code with begin-ffi, c-define-type, and c-lambda declarations. ' +
         'Does not write to disk.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

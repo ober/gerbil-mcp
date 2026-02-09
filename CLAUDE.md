@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 286 tests must pass before considering any change complete. The test suite covers:
+All 302 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -123,6 +123,10 @@ All 286 tests must pass before considering any change complete. The test suite c
 - Run tests auto-loadpath (gerbil.pkg depend: auto-detection)
 - Build and report auto-retry (lock error detection, missing exe_c detection, missing C header detection)
 - Function signature keyword breakdown (positional vs keyword arg extraction from compiled artifacts)
+- Tool annotations (readOnlyHint/idempotentHint on all tools, verified via tools/list)
+- Describe tool (hash table, list, number, string, boolean, procedure description, error handling)
+- New prompts (write-gerbil-module, debug-gerbil-error, port-to-gerbil)
+- Cookbook resources (gerbil://cookbooks index, gerbil://cookbooks/{id} detail, unknown id handling)
 
 
 ### Adding a New Tool
@@ -132,7 +136,7 @@ All 286 tests must pass before considering any change complete. The test suite c
 3. Import and call the register function in `src/index.ts`
 4. Add the tool to the `INSTRUCTIONS` string in `src/index.ts`
 5. Add corresponding test(s) in `test/tools.test.ts`
-6. Add the tool to `CLAUDE.md.gerbil-example` under the appropriate section (this is the template that users copy into their Gerbil projects as CLAUDE.md — it documents all available MCP tools)
+6. Add the tool to both `CLAUDE.md.gerbil-example` and `copilot-instructions.md.gerbil-example` under the appropriate section (these are the templates that users copy into their projects — the former for Claude Code, the latter for GitHub Copilot). The copilot version omits Claude-specific sections (skills, hooks, PreCompact) but has the same tool listings.
 7. Update the test count and coverage list in this file (`CLAUDE.md`)
 8. If the tool was listed in `features.json`, remove that entry (it's now implemented)
 9. Run `npm run build && npm run test` to verify

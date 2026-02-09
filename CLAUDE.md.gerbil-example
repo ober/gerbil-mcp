@@ -26,6 +26,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_module_deps`**: See what a module imports. Use `transitive: true` for full dependency tree.
 - **`gerbil_demangle`**: Decode Gambit-mangled C symbol names from GDB backtraces or core dumps back to readable Gerbil module/function paths. Recognizes prefixes like `___H_` (module init), `___G_` (global).
 - **`gerbil_bisect_crash`**: Binary-search a crashing Gerbil file to find the minimal set of top-level forms that reproduce the crash. Keeps preamble (imports, exports, declarations) and bisects body forms. Useful for isolating segfaults and uncaught exceptions in FFI code.
+- **`gerbil_describe`**: Evaluate an expression and describe the resulting value's type, structure, and contents. Shows hash table entries, list length, vector elements, string length, number type, etc. Useful for understanding what a function returns.
 
 ### When Understanding Macros
 

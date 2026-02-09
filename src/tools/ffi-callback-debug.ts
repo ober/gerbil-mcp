@@ -140,6 +140,10 @@ export function registerFfiCallbackDebugTool(server: McpServer): void {
         'Analyze FFI c-define/extern linkage in a Gerbil source file. ' +
         'Detects: c-define without matching extern, extern without matching c-define, ' +
         'duplicate c-define C names, and c-define outside begin-foreign blocks.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

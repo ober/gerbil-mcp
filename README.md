@@ -2,6 +2,8 @@
 
 An MCP (Model Context Protocol) server that gives AI assistants live access to a Gerbil Scheme environment. It lets Claude (or any MCP client) evaluate expressions, inspect module exports, check syntax, expand macros, compile-check code, trace macro expansion step by step, maintain persistent REPL sessions, profile function performance, analyze heap memory usage, trace call counts, visualize call graphs, manage packages, scaffold projects and test files, generate module stubs, build projects with structured diagnostics, find symbol references, and suggest imports — all against a real Gerbil runtime instead of guessing from training data.
 
+The server also provides MCP **resources** for browsing the cookbook recipe library, **prompts** for common Gerbil workflows, and **tool annotations** (`readOnlyHint`/`idempotentHint`) so clients can make informed decisions about tool safety.
+
 ## Prerequisites
 
 - **Node.js** >= 18
@@ -1415,6 +1417,49 @@ project_path: "/path/to/project"
 => No Makefile found in /path/to/project.
 ```
 
+### gerbil_describe
+
+Evaluate a Gerbil Scheme expression and describe the resulting value's type, structure, and key properties. Useful for understanding what a function returns or what a data structure contains.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `expression` | string | yes | The Gerbil Scheme expression to evaluate and describe |
+| `imports` | string[] | no | Modules to import first |
+| `loadpath` | string[] | no | Directories to add to `GERBIL_LOADPATH` |
+| `project_path` | string | no | Project directory for auto-configuring `GERBIL_LOADPATH` |
+| `env` | object | no | Environment variables for the subprocess |
+
+```
+expression: "(hash (\"name\" \"alice\") (\"age\" 30))"
+=> hash-table (2 entries)
+     "name" => "alice"
+     "age" => 30
+
+expression: "[1 2 3]"
+=> list (length 3)
+     1
+     2
+     3
+
+expression: "42"
+=> exact integer: 42
+
+expression: "car"
+=> procedure
+```
+
+## Resources
+
+The server exposes MCP resources for browsing the built-in cookbook recipe library.
+
+### gerbil://cookbooks
+
+Returns a JSON index of all cookbook recipes with `id`, `title`, and `tags` for each entry. Useful for browsing available patterns without fetching full code.
+
+### gerbil://cookbooks/{id}
+
+Returns the full JSON detail for a single recipe, including `code`, `imports`, `notes`, and `related` recipes.
+
 ## Prompts
 
 The server provides reusable prompt templates that MCP clients can invoke to get Gerbil-aware instructions.
@@ -1452,6 +1497,33 @@ Review Gerbil Scheme code for issues with a checklist of common Gerbil pitfalls 
 |----------|------|----------|-------------|
 | `code` | string | yes | The Gerbil Scheme code to review |
 
+### write-gerbil-module
+
+Get guidance for writing a new Gerbil Scheme module, following Gerbil conventions (`def`, `defstruct`, keyword args, `:std/iter`, etc.).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `module_name` | string | yes | The module name (e.g. `"myapp/handler"`) |
+| `purpose` | string | yes | What the module should do |
+
+### debug-gerbil-error
+
+Get help debugging a Gerbil Scheme error with a structured debugging workflow that leverages the available MCP tools.
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `error_message` | string | yes | The error message or stack trace |
+| `code` | string | no | The code that produced the error (if available) |
+
+### port-to-gerbil
+
+Port code from another Scheme dialect (Racket, Guile, Chicken, Chez) to idiomatic Gerbil with a mapping of key differences (`hash-ref` → `hash-get`, `#:keyword` → `keyword:`, etc.).
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | yes | The Scheme code to port |
+| `source_dialect` | string | no | Source Scheme dialect (auto-detected if omitted) |
+
 ## How It Works
 
 Most tools invoke `gxi -e` as a short-lived subprocess — no persistent state between calls. Expressions are wrapped in error-handling code using `with-catch` and output structured markers (`GERBIL-MCP-RESULT:` / `GERBIL-MCP-ERROR:`) that the TypeScript layer parses.
@@ -1476,9 +1548,10 @@ User input is injected via `(read (open-input-string ...))` rather than string i
 
 ```
 src/
-  index.ts                Server entry point, tool & prompt registration
+  index.ts                Server entry point, tool & prompt & resource registration
   gxi.ts                  gxi/gxc/gxpkg subprocess wrapper, REPL session manager
-  prompts.ts              MCP prompt templates (explain, convert, test, review)
+  prompts.ts              MCP prompt templates (7 prompts)
+  resources.ts            MCP resources (cookbook index and recipe detail)
   tools/
     eval.ts               gerbil_eval
     module-exports.ts     gerbil_module_exports
@@ -1529,6 +1602,7 @@ src/
     howto-add.ts          gerbil_howto_add
     file-summary.ts       gerbil_file_summary
     make.ts               gerbil_make
+    describe.ts           gerbil_describe
     parse-utils.ts        Shared parsing utilities
 test/
   tools.test.ts           Functional tests for all MCP tools

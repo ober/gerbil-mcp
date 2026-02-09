@@ -15,6 +15,10 @@ export function registerFfiInspectTool(server: McpServer): void {
         'Classifies exports as C constants (UPPERCASE), C-style functions (underscore_names), ' +
         'or Gerbil wrappers. Shows values for constants and arity for functions. ' +
         'Optionally provide a source file_path to also extract begin-foreign and extern declarations.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

@@ -13,6 +13,10 @@ export function registerClassInfoTool(server: McpServer): void {
         'Inspect a Gerbil defclass/defstruct type descriptor. Shows type name, slots, ' +
         'own fields, struct vs class, super type, precedence list (MRO), and constructor. ' +
         'The type_name should be the base name (e.g. "Error", "JSON") — the tool appends ::t automatically.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         type_name: z
           .string()

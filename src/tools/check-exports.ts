@@ -104,6 +104,10 @@ export function registerCheckExportsTool(server: McpServer): void {
         '(2) cross-module import mismatches where file A imports from project module B ' +
         'but uses symbols that B does not export. ' +
         'Pure static analysis — no subprocess, fast.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         project_path: z
           .string()

@@ -13,6 +13,10 @@ export function registerCallGraphTool(server: McpServer): void {
         'Uses static analysis (no execution). Shows a tree visualization and flat listing ' +
         'of call relationships between locally defined functions. ' +
         'Optionally filter to show only the tree rooted at a specific function.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z
           .string()

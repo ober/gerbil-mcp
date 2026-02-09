@@ -21,6 +21,10 @@ export function registerExampleApiCoverageTool(server: McpServer): void {
         'Check which module exports are referenced in example/documentation files. ' +
         'Scans .ss files in a directory (or explicit file list) for references to each ' +
         'exported symbol. Reports coverage percentage and per-export usage.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

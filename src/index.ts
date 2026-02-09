@@ -79,7 +79,9 @@ import { registerSecurityPatternAddTool } from './tools/security-pattern-add.js'
 import { registerHowtoGetTool } from './tools/howto-get.js';
 import { registerStaleLinkedPkgTool } from './tools/stale-linked-pkg.js';
 import { registerFfiTypeCheckTool } from './tools/ffi-type-check.js';
+import { registerDescribeTool } from './tools/describe.js';
 import { registerPrompts } from './prompts.js';
+import { registerResources } from './resources.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -162,6 +164,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To add security patterns: use gerbil_security_pattern_add to contribute new security detection rules to the scanner. Each pattern has an id, severity, scope (scheme/c-shim/ffi-boundary), regex pattern, and remediation guidance.
 - To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages (via gerbil pkg link) have source files newer than their compiled artifacts. Reports which packages need rebuilding with \`gerbil pkg build\`.
 - To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches between c-lambda/define-c-lambda declarations and call sites. Flags known incompatible combinations like u8vector passed to (pointer void), string passed to int. Static analysis, no subprocess.
+- To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -247,8 +250,10 @@ registerSecurityPatternAddTool(server);
 registerHowtoGetTool(server);
 registerStaleLinkedPkgTool(server);
 registerFfiTypeCheckTool(server);
+registerDescribeTool(server);
 
 registerPrompts(server);
+registerResources(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

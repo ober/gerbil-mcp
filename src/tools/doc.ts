@@ -15,6 +15,10 @@ export function registerDocTool(server: McpServer): void {
         '(procedure/macro/value), arity, qualified name, and related symbols. ' +
         'Optionally import a module to bring the symbol into scope. ' +
         'Example: symbol "read-json" with module_path ":std/text/json".',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         symbol: z.string().describe('Symbol name to look up (e.g. "map", "read-json")'),
         module_path: z

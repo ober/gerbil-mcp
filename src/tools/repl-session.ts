@@ -24,6 +24,10 @@ export function registerReplSessionTool(server: McpServer): void {
         '"destroy" closes a session, ' +
         '"list" shows active sessions. ' +
         'Sessions auto-expire after 10 minutes of inactivity. Max 5 concurrent sessions.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+      },
       inputSchema: {
         action: z
           .enum(['create', 'eval', 'destroy', 'list'])

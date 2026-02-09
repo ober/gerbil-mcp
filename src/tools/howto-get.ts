@@ -11,6 +11,10 @@ export function registerHowtoGetTool(server: McpServer): void {
         'Fetch a single cookbook recipe by its ID. Returns the full recipe with code, ' +
         'imports, notes, and related recipes. Use after gerbil_howto with compact: true ' +
         'to retrieve only the recipes you need.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         id: z
           .string()

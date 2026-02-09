@@ -9,9 +9,13 @@ src/
   index.ts          # Server entry point, tool & prompt registration
   gxi.ts            # gxi/gxc/gxpkg subprocess wrapper, REPL session manager
   prompts.ts        # MCP prompt templates
+  resources.ts      # MCP resource providers (cookbook access)
   tools/            # Individual tool implementations (one file per tool)
+    verify-utils.ts # Shared verification utilities (used by howto-verify + CLI script)
 test/
   tools.test.ts     # Functional tests for all MCP tools
+scripts/
+  test-cookbooks.ts # Cross-version cookbook recipe tester (standalone CLI)
 ```
 
 ## Build & Test Commands
@@ -33,36 +37,19 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 109 tests must pass before considering any change complete. The test suite covers:
-- Core evaluation tools (eval, syntax checking, compilation)
-- Module inspection tools (exports, dependencies, signatures)
-- Symbol lookup tools (doc, find definition, suggest imports)
-- Macro tools (expand, trace)
-- Type inspection tools (class info, error hierarchy)
-- File analysis tools (load file, document symbols, lint, diagnostics, hash literal lint, channel pattern lint, unquote/dot-in-brackets/missing-export pitfall detection)
-- Balance checking tools (delimiter balance, inline code)
-- Read forms tool (top-level form listing, reader errors)
-- Project tools (workspace symbols, find callers, rename, project map)
-- Run tests tool (single-file, directory mode, filter, validation)
-- REPL session tools (create, eval, destroy lifecycle, loadpath, project_path, preload_file)
-- Performance and profiling tools (profile, heap profile, trace calls, call graph)
-- Code generation tools (scaffold test, generate module stub, generate module from template)
-- Build and report tool (structured build diagnostics)
-- Enhanced find definition (source preview)
-- Cross-module export checker (check-exports)
-- Diagnostics with loadpath support
-- Function signature parameter names (source-level formals extraction)
-- Makefile awareness in build-and-report and gerbil_make tool
-- Howto cookbook tool (keyword-based recipe search, external cookbook loading, howto_add)
-- File summary tool (structural overview)
+All 302 tests must pass before considering any change complete.
 
 ### Adding a New Tool
 
 1. Create a new file in `src/tools/` (e.g., `src/tools/my-tool.ts`)
 2. Export a `registerMyTool(server: McpServer)` function
 3. Import and call the register function in `src/index.ts`
-4. Add corresponding test(s) in `test/tools.test.ts`
-5. Run `npm run build && npm run test` to verify
+4. Add the tool to the `INSTRUCTIONS` string in `src/index.ts`
+5. Add corresponding test(s) in `test/tools.test.ts`
+6. Add the tool to both `CLAUDE.md.gerbil-example` and `copilot-instructions.md.gerbil-example` under the appropriate section
+7. Update the test count and coverage list in `CLAUDE.md`
+8. If the tool was listed in `features.json`, remove that entry (it's now implemented)
+9. Run `npm run build && npm run test` to verify
 
 ### Common Patterns
 

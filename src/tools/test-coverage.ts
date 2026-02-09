@@ -16,6 +16,10 @@ export function registerTestCoverageTool(server: McpServer): void {
         'Compare a module\'s exports against its test file to identify exported symbols ' +
         'that have no corresponding test cases. Scans *-test.ss files for references ' +
         'to each exported symbol and reports which are covered and which are missing.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

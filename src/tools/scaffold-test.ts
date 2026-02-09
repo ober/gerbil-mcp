@@ -13,6 +13,10 @@ export function registerScaffoldTestTool(server: McpServer): void {
         'Generate a :std/test skeleton from a module\'s exports. ' +
         'Introspects the module to discover exported procedures, macros, and values, ' +
         'then produces a ready-to-fill test file. Does not write to disk — returns the generated text.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

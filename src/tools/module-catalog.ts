@@ -67,6 +67,10 @@ export function registerModuleCatalogTool(server: McpServer): void {
         'kind (procedure/macro/value), arity, and a brief description. ' +
         'Has curated descriptions for :std/sugar, :std/iter, and other well-known modules. ' +
         'Replaces multiple gerbil_doc calls with a single compact reference.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         module_path: z
           .string()

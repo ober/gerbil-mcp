@@ -19,6 +19,10 @@ export function registerWrapFormTool(server: McpServer): void {
         'Wrap lines in a new Scheme form with guaranteed matching parentheses. ' +
         'For example, wrapping with "when (> x 0)" produces (when (> x 0) <body>). ' +
         'Dry-run by default. Pure TypeScript — no subprocess.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z.string().describe('Absolute path to the Gerbil source file'),
         start_line: z

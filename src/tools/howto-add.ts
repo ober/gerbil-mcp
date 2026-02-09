@@ -15,6 +15,10 @@ export function registerHowtoAddTool(server: McpServer): void {
         'If a recipe with the same id already exists, it is replaced (update semantics). ' +
         'By default writes to the gerbil-mcp repo cookbook. ' +
         'Optionally specify cookbook_path to write to a different file.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         cookbook_path: z
           .string()

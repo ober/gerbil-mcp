@@ -14,6 +14,10 @@ export function registerVoteFeatureTool(server: McpServer): void {
         'Use this when you encounter a situation where a suggested feature would have saved time or tokens. ' +
         'By default reads/writes the gerbil-mcp repo features.json. ' +
         'Optionally specify features_path for a different file.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         features_path: z
           .string()

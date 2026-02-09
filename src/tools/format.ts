@@ -10,6 +10,10 @@ export function registerFormatTool(server: McpServer): void {
       description:
         'Pretty-print/format Gerbil Scheme expressions using Gambit\'s pretty-print. ' +
         'Reads all expressions from the input and returns them properly indented.',
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
       inputSchema: {
         code: z
           .string()

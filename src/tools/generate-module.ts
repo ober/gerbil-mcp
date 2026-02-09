@@ -61,6 +61,10 @@ export function registerGenerateModuleTool(server: McpServer): void {
         'word-boundary-aware string substitutions. Returns the generated text ' +
         '(does NOT write to disk). Useful for creating mechanical variations ' +
         'of an existing module pattern.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         template_path: z
           .string()

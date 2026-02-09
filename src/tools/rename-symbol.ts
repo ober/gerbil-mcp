@@ -32,6 +32,10 @@ export function registerRenameSymbolTool(server: McpServer): void {
         'Default is dry-run mode (showing proposed changes). ' +
         'Set dry_run to false to apply changes. Uses word-boundary detection ' +
         'to avoid renaming partial matches.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         old_name: z.string().describe('Current symbol name to rename'),
         new_name: z.string().describe('New symbol name'),

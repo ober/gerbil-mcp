@@ -21,6 +21,10 @@ export function registerSpliceFormTool(server: McpServer): void {
         'Child indices are 1-based (1=head token, 2=first arg, etc.). ' +
         'Default: keep all children except the head (index 1). ' +
         'Dry-run by default. Pure TypeScript — no subprocess.',
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: true,
+      },
       inputSchema: {
         file_path: z.string().describe('Absolute path to the Gerbil source file'),
         line: z
