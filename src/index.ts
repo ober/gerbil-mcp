@@ -3,6 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerEvalTool } from './tools/eval.js';
+import { registerDescribeTool } from './tools/describe.js';
 import { registerModuleExportsTool } from './tools/module-exports.js';
 import { registerCheckSyntaxTool } from './tools/check-syntax.js';
 import { registerExpandMacroTool } from './tools/expand-macro.js';
@@ -80,6 +81,7 @@ import { registerHowtoGetTool } from './tools/howto-get.js';
 import { registerStaleLinkedPkgTool } from './tools/stale-linked-pkg.js';
 import { registerFfiTypeCheckTool } from './tools/ffi-type-check.js';
 import { registerPrompts } from './prompts.js';
+import { registerResources } from './resources.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
@@ -89,6 +91,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - When debugging Gerbil code: use gerbil_eval to reproduce and isolate issues. Use loadpath or project_path for project context. Use env parameter for FFI library paths.
+- To understand value types: use gerbil_describe to see the type and structure of a value (e.g., hash table with 5 entries, vector of length 10, struct instance with field count). More informative than just seeing the printed value.
 - To trace let bindings: use gerbil_trace_eval to step through let*/let/letrec/letrec* bindings, showing each variable's name, type, and value as it is bound.
 - To inspect SXML trees: use gerbil_sxml_inspect to parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
 - When exploring unfamiliar Gerbil APIs: use gerbil_apropos to search for relevant symbols, gerbil_module_exports to see what's available, and gerbil_list_std_modules to discover modules.
@@ -171,6 +174,7 @@ const server = new McpServer(
 );
 
 registerEvalTool(server);
+registerDescribeTool(server);
 registerModuleExportsTool(server);
 registerCheckSyntaxTool(server);
 registerExpandMacroTool(server);
@@ -249,6 +253,7 @@ registerStaleLinkedPkgTool(server);
 registerFfiTypeCheckTool(server);
 
 registerPrompts(server);
+registerResources(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
