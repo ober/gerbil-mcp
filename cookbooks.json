@@ -7165,5 +7165,125 @@
     "imports": [],
     "code": ";; PROBLEM: Using ##shell-command or (shell-command) with string concatenation\n;; allows shell injection. The string is passed to /bin/sh -c, so\n;; metacharacters (;, |, $, `, etc.) are interpreted.\n;;\n;; WRONG — shell injection vulnerability:\n;; (def (unmount mp)\n;;   (##shell-command (string-append \"umount \" mp)))\n;; ;; (unmount \"/tmp/foo; rm -rf /\")  => executes rm -rf /\n\n;; CORRECT — use open-process with explicit argv (no shell):\n(def (unmount mountpoint)\n  (let* ((on-mac? (equal? (cadr (system-type)) 'apple))\n         (cmd (if on-mac? \"/sbin/umount\" \"/usr/bin/fusermount3\"))\n         (args (if on-mac?\n                 [mountpoint]\n                 [\"-u\" mountpoint]))\n         (proc (open-process [path: cmd\n                              arguments: args\n                              stdout-redirection: #f\n                              stderr-redirection: #f])))\n    (process-status proc)))\n\n;; KEY POINTS:\n;; 1. open-process with path: + arguments: bypasses the shell entirely\n;; 2. Each argument is passed as a separate argv entry — no interpretation\n;; 3. Metacharacters in mountpoint are treated as literal characters\n;; 4. stdout-redirection: #f and stderr-redirection: #f let output\n;;    pass through to the terminal (or use #t to capture)\n;; 5. process-status waits for completion and returns exit code\n;;\n;; PLATFORM DETECTION:\n;; (cadr (system-type)) returns:\n;;   'apple on macOS\n;;   'linux-gnu on Linux\n;; Use this to choose the right unmount command.",
     "notes": "This is a critical security pattern. NEVER use ##shell-command or (shell-command) with user-controlled input. Always use open-process with separate path: and arguments: keywords. The arguments list is passed directly to execv() — no shell interpretation occurs. This pattern was applied to fix a command injection vulnerability in gerbil-fuse's fuse-unmount function where mountpoint was concatenated into a shell command. Also note: (cadr (system-type)) is the portable way to detect the OS in Gerbil/Gambit — software-type doesn't exist."
+  },
+  {
+    "id": "ffi-initialize-return-check",
+    "title": "Check FFI initialization function return values (void→int fix)",
+    "tags": [
+      "ffi",
+      "initialize",
+      "return",
+      "check",
+      "void",
+      "int",
+      "error",
+      "libyaml",
+      "yaml_parser_initialize"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; PROBLEM: Many C library init functions return int (1=success, 0=failure)\n;; but FFI bindings often declare them as void, silently ignoring failures.\n;;\n;; Example: libyaml's yaml_parser_initialize returns int, not void.\n;;\n;; WRONG — in .scm FFI file:\n;; (define-c-lambda yaml_parser_initialize (yaml_parser_t*) void\n;;   \"yaml_parser_initialize\")\n;;\n;; CORRECT — return int so Scheme can check:\n;; (define-c-lambda yaml_parser_initialize (yaml_parser_t*) int\n;;   \"yaml_parser_initialize\")\n;;\n;; Then in the Scheme caller, check the return value:\n(def (yaml-parse-input file parser-set-input!)\n  (let* ((parser (make_yaml_parser))\n         (r      (yaml_parser_initialize parser))\n         (_      (when (zero? r)\n                   (error \"Failed to initialize YAML parser\")))\n         (_      (parser-set-input! parser file))\n         (event  (make_yaml_event)))\n    (try (yaml-parse parser event)\n      (finally (yaml_parser_delete parser)))))\n\n;; PATTERN: For any C function that returns 0=failure, 1=success:\n;; 1. Declare return type as int in define-c-lambda (not void)\n;; 2. Check (zero? r) in let* binding and raise error on failure",
+    "notes": "Common C libraries affected: libyaml (yaml_parser_initialize, yaml_emitter_initialize), libxml2, sqlite3. The C convention is typically 0=failure, 1=success (opposite of Unix exit codes). Always check the C header to verify the actual return type before declaring void in FFI bindings."
+  },
+  {
+    "id": "yaml-octal-1.1-1.2-compat",
+    "title": "Parse YAML octal values for both 1.1 (0777) and 1.2 (0o777) formats",
+    "tags": [
+      "yaml",
+      "octal",
+      "parse",
+      "regex",
+      "yaml-1.1",
+      "yaml-1.2",
+      "pregexp"
+    ],
+    "imports": [
+      ":std/pregexp"
+    ],
+    "code": ";; YAML 1.1 uses 0777 for octal, YAML 1.2 uses 0o777.\n;; A compatible parser should accept both formats.\n\n;; Regex matches both: 0o? makes the 'o' optional\n(def rx-scalar-octal\n  (pregexp \"^0o?[0-7]+$\"))\n\n;; When parsing, dynamically determine the prefix length to skip:\n(def (parse-yaml-octal str)\n  (let (skip (if (eqv? (string-ref str 1) #\\o) 2 1))\n    (string->number (substring str skip (string-length str)) 8)))\n\n;; Examples:\n;; (pregexp-match rx-scalar-octal \"0o777\")  => (\"0o777\")  ; YAML 1.2\n;; (pregexp-match rx-scalar-octal \"0777\")   => (\"0777\")   ; YAML 1.1\n;; (parse-yaml-octal \"0o777\")              => 511\n;; (parse-yaml-octal \"0777\")               => 511",
+    "notes": "YAML 1.1 (used by PyYAML, many Ruby tools) uses C-style 0777. YAML 1.2 (the current spec) uses 0o777 like Python 3. When implementing a YAML parser, support both for maximum compatibility. The key insight is using `0o?` in the regex and checking `(string-ref str 1)` to determine the skip length at parse time."
+  },
+  {
+    "id": "ffi-event-delete-leak-prevention",
+    "title": "Always call event_delete on FFI event structs before discarding",
+    "tags": [
+      "ffi",
+      "event",
+      "delete",
+      "memory",
+      "leak",
+      "libyaml",
+      "yaml_event_delete",
+      "resource"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: C libraries that use event structs (libyaml, libxml2, etc.)\n;; often allocate internal data (strings, buffers) inside the event.\n;; You must call the delete/free function for EVERY event that contains\n;; allocated data, not just some branches.\n;;\n;; WRONG — leaks event data for STREAM_END and DOCUMENT_END:\n;; (cond\n;;   ((eq? t YAML_STREAM_END_EVENT))          ;; LEAK! no delete\n;;   ((eq? t YAML_DOCUMENT_START_EVENT)\n;;    (yaml_event_delete event)                ;; OK\n;;    (process-document))\n;;   ((eq? t YAML_DOCUMENT_END_EVENT)          ;; LEAK! no delete\n;;    (lp))\n;;   ((eq? t YAML_NO_EVENT)                    ;; OK — no data allocated\n;;    (lp)))\n;;\n;; CORRECT — delete before every branch that discards the event:\n;; (cond\n;;   ((eq? t YAML_STREAM_END_EVENT)\n;;    (yaml_event_delete event))               ;; FIXED\n;;   ((eq? t YAML_DOCUMENT_START_EVENT)\n;;    (yaml_event_delete event)\n;;    (process-document))\n;;   ((eq? t YAML_DOCUMENT_END_EVENT)\n;;    (yaml_event_delete event)                ;; FIXED\n;;    (lp))\n;;   ((eq? t YAML_NO_EVENT)\n;;    (lp)))                                   ;; OK — NO_EVENT has no data\n;;\n;; RULE OF THUMB:\n;; - Call event_delete for every event type EXCEPT NO_EVENT\n;; - NO_EVENT means the parser returned without producing an event\n;; - All other event types may have internal allocations\n;; - This includes \"simple\" events like STREAM_END, DOCUMENT_END,\n;;   SEQUENCE_END, MAPPING_END — even if they carry no user-visible data",
+    "notes": "This pattern applies to any C library with event/message structs: libyaml (yaml_event_delete), libxml2 SAX (xmlFreeNode), libevent, etc. The bug is insidious because the leak only manifests under sustained parsing of many documents. The NO_EVENT case genuinely does not need deletion because it means the parser had nothing to report (polling scenario)."
+  },
+  {
+    "id": "hash-table-equal-test-normalize",
+    "title": "Compare hash tables in tests by normalizing to sorted alists",
+    "tags": [
+      "hash",
+      "table",
+      "equal",
+      "compare",
+      "test",
+      "normalize",
+      "alist",
+      "sort"
+    ],
+    "imports": [
+      ":std/sort"
+    ],
+    "code": ";; PROBLEM: Hash tables do NOT compare with equal? in Gerbil:\n;; (equal? (hash (\"a\" 1)) (hash (\"a\" 1)))  => #f\n;;\n;; This means (check (some-fn) => (hash (\"a\" 1))) ALWAYS FAILS\n;; in :std/test, even when the values match.\n;;\n;; SOLUTION: Recursively normalize values, converting hash tables\n;; to sorted alists. Then use check ... => ... on normalized values.\n\n(import :std/sort)\n\n(def (normalize val)\n  (cond\n   ((hash-table? val)\n    (sort (map (lambda (p) (cons (normalize (car p)) (normalize (cdr p))))\n               (hash->list val))\n          (lambda (a b) (string<? (object->string (car a))\n                                  (object->string (car b))))))\n   ((list? val)\n    (map normalize val))\n   (else val)))\n\n;; Usage in tests:\n;; (check (normalize (hash (\"b\" 2) (\"a\" 1)))\n;;        => '((\"a\" . 1) (\"b\" . 2)))\n;;\n;; For functions that return hash tables:\n;; (check (normalize (my-fn input))\n;;        => '((\"key1\" . \"val1\") (\"key2\" . \"val2\")))\n;;\n;; For nested structures (list of hash tables):\n;; (check (normalize (list (hash (\"x\" 1)) (hash (\"y\" 2))))\n;;        => '(((\"x\" . 1)) ((\"y\" . 2))))",
+    "notes": "This is essential for testing ANY function that returns hash tables. The normalize function handles nested structures recursively: hash tables inside lists, hash tables inside hash tables, etc. Keys are sorted by (object->string key) so it works with string, symbol, and keyword keys. Note that a hash table with a list value like (\"items\" . (1 2 3)) becomes (\"items\" 1 2 3) in alist form since (cons \"items\" (1 2 3)) = (\"items\" 1 2 3).",
+    "related": [
+      "write-tests-with-std-test",
+      "hash-table-basics"
+    ]
+  },
+  {
+    "id": "yaml-round-trip-test-pattern",
+    "title": "Round-trip test pattern for yaml-dump and yaml-load",
+    "tags": [
+      "yaml",
+      "dump",
+      "load",
+      "round-trip",
+      "test",
+      "temporary",
+      "file"
+    ],
+    "imports": [
+      ":std/os/temporaries",
+      ":clan/text/yaml"
+    ],
+    "code": ";; yaml-dump writes to a file, yaml-load reads from a file.\n;; Round-trip testing requires a temporary file.\n;;\n;; yaml-load-string parses a string and returns a LIST of documents.\n;; yaml-dump takes a filename and REST args, each arg = one document.\n\n(import :std/os/temporaries :clan/text/yaml)\n\n;; Round-trip helper: dump objects, load back\n(def (round-trip . objs)\n  (call-with-temporary-file-name \"yaml-rt\"\n    (lambda (tmp)\n      (apply yaml-dump tmp objs)\n      (yaml-load tmp))))\n\n;; Examples:\n(round-trip \"hello\")           ;; => (\"hello\")\n(round-trip 42)                ;; => (42)\n(round-trip #t #f)             ;; => (#t #f)\n(round-trip '(1 2 3))          ;; => ((1 2 3))\n(round-trip (hash (\"a\" 1)))    ;; => (#&lt;HashTable&gt;)\n\n;; Multiple documents:\n(round-trip \"doc1\" \"doc2\")     ;; => (\"doc1\" \"doc2\")\n\n;; Symbols dump as strings:\n(round-trip 'my-sym)           ;; => (\"my-sym\")\n\n;; Vectors dump as lists:\n(round-trip #(1 2 3))          ;; => ((1 2 3))\n\n;; void/null round-trips:\n(void? (car (round-trip (void)))) ;; => #t\n\n;; NaN requires special check (NaN != NaN):\n(nan? (car (round-trip +nan.0)))  ;; => #t",
+    "notes": "yaml-load-string and yaml-load both return a LIST of documents, even for single-document YAML. Always use (car result) to get the first document. yaml-dump takes rest args where each arg becomes a separate YAML document. call-with-temporary-file-name from :std/os/temporaries handles cleanup automatically. NaN cannot be compared with equal? so use (nan? ...) instead. Hash table results need the normalize pattern (see hash-table-equal-test-normalize recipe).",
+    "related": [
+      "hash-table-equal-test-normalize",
+      "write-tests-with-std-test"
+    ]
+  },
+  {
+    "id": "path-normalize-throws-nonexistent",
+    "title": "Gambit path-normalize throws for non-existent files",
+    "tags": [
+      "path",
+      "normalize",
+      "error",
+      "file",
+      "nonexistent",
+      "exception"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: Gambit's path-normalize throws an exception for\n;; non-existent paths, unlike most path utilities in other languages.\n;;\n;; (path-normalize \"/nonexistent/file.yaml\")\n;; => ERROR: No such file or directory\n;;\n;; This means any function that calls path-normalize on user input\n;; will throw BEFORE your own error handling runs.\n;;\n;; Example from yaml-load:\n;; (def (yaml-load fname)\n;;   (cond\n;;    ((open_yaml_input_file (path-normalize fname))  ;; throws HERE\n;;     => ...)\n;;    (else\n;;     (error \"Cannot open yaml input file\" fname)))) ;; never reached\n;;\n;; The error raised is a no-such-file-or-directory-exception,\n;; NOT a Gerbil Error. It's wrapped in a RuntimeException.\n;;\n;; To handle it:\n(try (path-normalize \"/nonexistent/path\")\n  (catch (e) (displayln \"caught\")))",
+    "notes": "This is important for testing error cases: if you expect (error \"Cannot open...\") from your yaml-load function, you'll actually get a no-such-file-or-directory-exception from path-normalize instead. The exception is a Gambit exception wrapped in RuntimeException, not a Gerbil Error, so error-message returns #f. Use display-exception or with-output-to-string + display-exception to get the message.",
+    "related": [
+      "error-handling",
+      "error-message-returns-false"
+    ]
   }
 ]

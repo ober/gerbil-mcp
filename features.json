@@ -14,7 +14,7 @@
     "use_case": "Running test files for projects that have external dependencies (e.g., :clan/text/yaml) listed in gerbil.pkg depend: entries. Currently must fall back to running tests via bash with manual GERBIL_LOADPATH.",
     "example_scenario": "gerbil_run_tests with file_path webex/gui-theme-test.ss fails because the module imports :ober/webex/gui-theme which transitively depends on :clan/text/yaml (via util.ss). The compiled module needs ~/.gerbil/lib on GERBIL_LOADPATH but gerbil_run_tests doesn't set it. Had to fall back to: GERBIL_LOADPATH=$HOME/.gerbil/lib:.gerbil/lib gxi webex/gui-theme-test.ss",
     "estimated_token_reduction": "~300 tokens per test run (eliminates fallback to bash + manual GERBIL_LOADPATH construction)",
-    "votes": 3
+    "votes": 5
   },
   {
     "id": "build-and-report-auto-retry-on-lock",
@@ -153,7 +153,7 @@
     "use_case": "When working on projects with FFI bindings that load dynamic libraries at runtime (FUSE, Qt, OpenSSL, etc.), all MCP eval/test tools fail with dlopen errors because the library search path isn't set.",
     "example_scenario": "gerbil-fuse project compiles fuse-ffi.ss which links against libfuse-t.dylib. gerbil_eval with import :gerbil-fuse/fuse/fuse-ffi fails with 'Library not loaded: @rpath/libfuse-t.dylib'. Had to fall back to: DYLD_LIBRARY_PATH=/usr/local/lib gxi -e '...' via bash for all testing.",
     "estimated_token_reduction": "~200 tokens per eval/test invocation (eliminates bash fallback boilerplate and manual env var construction)",
-    "votes": 1
+    "votes": 2
   },
   {
     "id": "ffi-type-safety-check",
@@ -172,6 +172,42 @@
     "use_case": "When writing or auditing FFI code that passes Scheme objects to C functions. Type mismatches between Scheme values and FFI parameter types cause crashes or data corruption at runtime, with no compile-time warning.",
     "example_scenario": "In gerbil-fuse, ffi-xattr-set-result! was declared with (pointer void) but callers passed u8vectors. This caused data corruption because Gambit passed the raw Scheme object address (including header) instead of the data bytes. A static check would flag: 'ffi-xattr-set-result! expects (pointer void) at arg 1, but call site passes u8vector result — did you mean scheme-object with U8_DATA()?'",
     "estimated_token_reduction": "~500 tokens per FFI type mismatch (eliminates runtime debugging of crashes and data corruption)",
+    "votes": 0
+  },
+  {
+    "id": "build-detect-missing-c-headers",
+    "title": "Detect missing C system headers in build output and report clearly",
+    "description": "When gerbil_build_and_report fails because a C header file is not found (e.g., `yaml.h: No such file or directory`), the error is buried in generic \"gsc exited with nonzero status\" output. The tool should detect the specific `fatal error: *.h: No such file or directory` pattern and report it as a distinct diagnostic category: \"Missing system header: yaml.h — install libyaml-dev (apt) or libyaml (brew) to compile this FFI module.\" This would immediately distinguish \"your code is wrong\" from \"your system is missing a C library\" — saving significant debugging time.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "ffi",
+      "c-header",
+      "missing",
+      "system-dependency",
+      "diagnostic"
+    ],
+    "use_case": "When building a project with FFI bindings that require system C libraries (libyaml, libfuse, libssl, etc.) on a machine that doesn't have the development headers installed.",
+    "example_scenario": "gerbil_build_and_report on gerbil-libyaml fails with 7 generic errors. The actual root cause is `yaml.h: No such file or directory` but this is buried in cascading errors about gsc nonzero exit. Had to fall back to `gerbil build 2>&1` via bash to see the actual cc1 error. A structured diagnostic saying \"Missing C header: yaml.h\" would have been immediate.",
+    "estimated_token_reduction": "~300 tokens per occurrence (eliminates bash fallback to read raw compiler output + diagnosing cascading errors)",
+    "votes": 1
+  },
+  {
+    "id": "howto-compact-search",
+    "title": "Two-phase howto search: compact listing + fetch-by-id",
+    "description": "gerbil_howto currently returns up to 5 full recipes per query, each with complete code blocks (20-50 lines), notes, and related links. A single search dumps ~200 lines into context. Most searches only need 0-1 of those recipes. Proposed changes: (1) Add a `compact` parameter (default true) that returns only id, title, tags, and a 1-line summary for each match. (2) Add a `max_results` parameter (default 5) to limit results. (3) Add a `gerbil_howto_get` tool to fetch a single recipe by id when the full code is needed. This makes the common case (checking if a recipe exists, finding the right one) very cheap, and only pays the full token cost when actually reading a specific recipe.",
+    "impact": "high",
+    "tags": [
+      "howto",
+      "cookbook",
+      "search",
+      "compact",
+      "tokens",
+      "performance"
+    ],
+    "use_case": "Every session that follows the CLAUDE.md mandatory cookbook-first workflow. The instruction says to call gerbil_howto BEFORE writing ANY non-trivial Gerbil code. With 4+ searches per session, each returning ~200 lines, this consumes ~800+ lines of context on cookbook results alone — often with 80% irrelevant content.",
+    "example_scenario": "In a test-writing session, searched howto 4 times: \"test suite check equal\", \"hash table equal compare\", \"check-exception error test\", \"temporary file create temp\". Each returned 5 full recipes (~200 lines). Only ~3 of the 20 total recipes were actually useful. Compact mode would have returned ~50 lines total for the listings, plus ~60 lines for the 3 fetched recipes = ~110 lines vs ~800 lines. A 7x reduction.",
+    "estimated_token_reduction": "~700 tokens per session (from ~800 lines of howto output down to ~110 with two-phase search). Compounds across sessions — this is the single highest-volume MCP tool call.",
     "votes": 0
   }
 ]
