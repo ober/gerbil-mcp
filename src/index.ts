@@ -74,11 +74,14 @@ import { registerExampleApiCoverageTool } from './tools/example-api-coverage.js'
 import { registerValidateExampleImportsTool } from './tools/validate-example-imports.js';
 import { registerBisectCrashTool } from './tools/bisect-crash.js';
 import { registerCheckImportConflictsTool } from './tools/check-import-conflicts.js';
+import { registerSecurityScanTool } from './tools/security-scan.js';
+import { registerSecurityPatternAddTool } from './tools/security-pattern-add.js';
 import { registerPrompts } from './prompts.js';
 
 const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via this MCP server. Use these tools proactively when working with Gerbil Scheme code:
 
 - BEFORE writing ANY Gerbil code: FIRST use gerbil_howto to search the cookbook for relevant patterns. The cookbook contains 240+ verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g. "dialog create", "layout parent", "hash iterate", "json parse"). Skipping this step has repeatedly caused bugs that were already solved in the cookbook.
+- BEFORE finalizing Gerbil code involving FFI, shell commands, file I/O, or C shims: run gerbil_security_scan on the file or project. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation. Skipping this step risks shipping code with known vulnerability patterns.
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures. Use loadpath or project_path to resolve project-local dependency modules.
 - BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules.
@@ -151,6 +154,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To validate example imports: use gerbil_validate_example_imports to check that imported modules actually export the symbols used in a file. Detects potentially undefined symbols.
 - To bisect crashes: use gerbil_bisect_crash to binary-search a crashing Gerbil file and find the minimal set of top-level forms that reproduce the crash. Keeps preamble (imports, exports, declarations) and bisects body forms. Useful for isolating segfaults and uncaught exceptions in FFI code.
 - To detect import conflicts: use gerbil_check_import_conflicts to find local definitions that clash with imported module exports before building. Catches "Bad binding; import conflict" errors early with clear messages showing which symbol conflicts with which module. Also detects cross-import conflicts where multiple imports provide the same symbol.
+- To scan for security issues: use gerbil_security_scan to analyze Gerbil .ss and C .c/.h files for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns). Scans a single file or entire project. Reports findings with severity, line number, and remediation guidance.
+- To add security patterns: use gerbil_security_pattern_add to contribute new security detection rules to the scanner. Each pattern has an id, severity, scope (scheme/c-shim/ffi-boundary), regex pattern, and remediation guidance.
 
 Gerbil is a niche Scheme dialect — your training data is limited. Always verify with these tools rather than guessing.`;
 
@@ -231,6 +236,8 @@ registerExampleApiCoverageTool(server);
 registerValidateExampleImportsTool(server);
 registerBisectCrashTool(server);
 registerCheckImportConflictsTool(server);
+registerSecurityScanTool(server);
+registerSecurityPatternAddTool(server);
 
 registerPrompts(server);
 

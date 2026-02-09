@@ -153,6 +153,25 @@
     "use_case": "When working on projects with FFI bindings that load dynamic libraries at runtime (FUSE, Qt, OpenSSL, etc.), all MCP eval/test tools fail with dlopen errors because the library search path isn't set.",
     "example_scenario": "gerbil-fuse project compiles fuse-ffi.ss which links against libfuse-t.dylib. gerbil_eval with import :gerbil-fuse/fuse/fuse-ffi fails with 'Library not loaded: @rpath/libfuse-t.dylib'. Had to fall back to: DYLD_LIBRARY_PATH=/usr/local/lib gxi -e '...' via bash for all testing.",
     "estimated_token_reduction": "~200 tokens per eval/test invocation (eliminates bash fallback boilerplate and manual env var construction)",
+    "votes": 1
+  },
+  {
+    "id": "ffi-type-safety-check",
+    "title": "Detect FFI type mismatches between c-define/c-lambda declarations and call sites",
+    "description": "Static analysis to detect when a Scheme function passes a value of the wrong type to an FFI function. For example, passing a u8vector to a define-c-lambda declared with (pointer void) — the types are incompatible but no compile-time error is generated. The tool would parse FFI type declarations and cross-reference call sites to flag potential type mismatches: u8vector passed to (pointer void), string passed to char-string when UTF-8-string is needed, etc.",
+    "impact": "high",
+    "tags": [
+      "ffi",
+      "type",
+      "safety",
+      "static-analysis",
+      "u8vector",
+      "pointer",
+      "scheme-object"
+    ],
+    "use_case": "When writing or auditing FFI code that passes Scheme objects to C functions. Type mismatches between Scheme values and FFI parameter types cause crashes or data corruption at runtime, with no compile-time warning.",
+    "example_scenario": "In gerbil-fuse, ffi-xattr-set-result! was declared with (pointer void) but callers passed u8vectors. This caused data corruption because Gambit passed the raw Scheme object address (including header) instead of the data bytes. A static check would flag: 'ffi-xattr-set-result! expects (pointer void) at arg 1, but call site passes u8vector result — did you mean scheme-object with U8_DATA()?'",
+    "estimated_token_reduction": "~500 tokens per FFI type mismatch (eliminates runtime debugging of crashes and data corruption)",
     "votes": 0
   }
 ]

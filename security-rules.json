@@ -1,0 +1,73 @@
+[
+  {
+    "id": "shell-injection-string-concat",
+    "title": "Shell injection via string concatenation",
+    "severity": "critical",
+    "scope": "scheme",
+    "pattern": "(##shell-command|shell-command)\\s.*?(string-append|string-concatenate|format\\s)",
+    "message": "Shell command constructed via string concatenation. User-controlled input may allow arbitrary command execution.",
+    "remediation": "Use a safe process API (e.g., run-process with explicit argument lists) instead of shell-command with concatenated strings.",
+    "tags": ["shell", "injection", "command", "string-append", "rce"]
+  },
+  {
+    "id": "ffi-pointer-void-u8vector",
+    "title": "FFI (pointer void) likely passed a u8vector",
+    "severity": "high",
+    "scope": "ffi-boundary",
+    "pattern": "c-lambda\\s+\\([^)]*pointer\\s+void[^)]*\\)",
+    "message": "c-lambda uses (pointer void) parameter type. If callers pass u8vector values, Gambit will pass the raw Scheme object address (including header) instead of the data bytes, causing data corruption.",
+    "remediation": "Use scheme-object parameter type and access data bytes via ___BODY(arg) or U8_DATA() macro in the C body.",
+    "related_recipe": "ffi-scheme-object-u8vector-data",
+    "tags": ["ffi", "pointer", "void", "u8vector", "type-mismatch", "data-corruption"]
+  },
+  {
+    "id": "alloc-scmobj-no-fixnump-check",
+    "title": "___alloc_scmobj without ___FIXNUMP failure check",
+    "severity": "high",
+    "scope": "c-shim",
+    "pattern": "___alloc_scmobj",
+    "message": "___alloc_scmobj can return a fixnum error code on allocation failure. Without a ___FIXNUMP check, the code will dereference a non-pointer, causing a crash.",
+    "remediation": "Check the return value with: if (___FIXNUMP(result)) { /* handle allocation failure */ }",
+    "tags": ["alloc", "scmobj", "fixnump", "oom", "crash", "gambit", "c"]
+  },
+  {
+    "id": "port-open-no-unwind-protect",
+    "title": "Port opened without unwind-protect resource guard",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "(open-input-file|open-output-file|open-input-string|open-output-string|open-tcp-client|open-tcp-server|open-process)",
+    "message": "File/network port opened without unwind-protect or call-with-* guard. If an exception occurs before close-port, the port leaks.",
+    "remediation": "Wrap in (call-with-input-file path proc) or (unwind-protect (begin ... (close-port p)) (close-port p)).",
+    "tags": ["port", "file", "resource-leak", "unwind-protect", "exception"]
+  },
+  {
+    "id": "c-buffer-silent-truncation",
+    "title": "C buffer memcpy with clamped size (silent truncation)",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "memcpy\\s*\\([^;]*\\bmin\\b[^;]*\\)",
+    "message": "memcpy with min/clamp on size silently truncates data without reporting the truncation to the caller. This can cause data corruption or incomplete operations.",
+    "remediation": "Return the actual bytes copied or an error code when the buffer is too small, rather than silently truncating.",
+    "tags": ["memcpy", "truncation", "buffer", "silent", "c"]
+  },
+  {
+    "id": "static-global-buffer-thread-safety",
+    "title": "Static global buffer in C shim (thread safety)",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "static\\s+(char|uint8_t|unsigned\\s+char)\\s+\\w+\\s*\\[",
+    "message": "Static buffer in C shim is shared across all threads. Concurrent calls from multiple Gerbil threads will cause data races.",
+    "remediation": "Use thread-local storage (__thread or pthread_key), allocate on the heap, or pass a caller-provided buffer.",
+    "tags": ["static", "buffer", "thread", "race", "c", "global"]
+  },
+  {
+    "id": "unused-security-parameter",
+    "title": "Unused security-relevant function parameter",
+    "severity": "low",
+    "scope": "scheme",
+    "pattern": "\\(def\\s+\\([^)]*\\b(mode|mask|perm|permission|auth|token|secret|credential|password)\\b",
+    "message": "Function parameter with a security-relevant name (mode, mask, perm, etc.) may be intentionally ignored. Verify the parameter is actually used in the function body.",
+    "remediation": "Ensure the security-relevant parameter is used. If intentionally unused, prefix with underscore (_mode) to document the intent.",
+    "tags": ["unused", "parameter", "permission", "mode", "heuristic"]
+  }
+]

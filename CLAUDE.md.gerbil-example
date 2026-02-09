@@ -9,6 +9,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 ### Before Writing Code — Cookbook First!
 
 - **`gerbil_howto`** (**MUST call FIRST**): Before writing ANY non-trivial Gerbil code, search the cookbook for relevant patterns. The cookbook contains verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g., `"dialog create"`, `"layout parent"`, `"shortcut keyboard"`, `"hash iterate"`). **Skipping this step has repeatedly caused bugs that were already solved in the cookbook.**
+- **`gerbil_security_scan`** (**MUST run on new/modified code**): Before finalizing ANY Gerbil code that involves FFI, shell commands, file I/O, or C shims, run the security scanner. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation guidance. Run on a single file or an entire project. **Skipping this step risks shipping code with known vulnerability patterns that the scanner would have caught.**
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
 - **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
@@ -67,6 +68,11 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Checks if locally defined symbols conflict with imported module exports (causing "Bad binding; import conflict" errors), and if multiple imports export the same symbol. Resolves standard library exports at runtime and project-local exports statically. Handles `only-in` filtered imports.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
+
+### For Security Auditing
+
+- **`gerbil_security_scan`**: Static security scanner for Gerbil `.ss` and C `.c`/`.h` files. Scans for known vulnerability patterns including shell injection via string concatenation, FFI `(pointer void)` type mismatches, `___alloc_scmobj` without `___FIXNUMP` failure checks, ports opened without `unwind-protect`, C buffer silent truncation, static global buffers (thread safety), and unused security-relevant parameters. Reports findings with severity (critical/high/medium/low), line number, and remediation guidance. Scans a single file (`file_path`) or entire project (`project_path`). Merge custom rules via `rules_path`. Filter by `severity_threshold`.
+- **`gerbil_security_pattern_add`**: Add new security detection rules to the scanner. Each rule needs an `id` (kebab-case), `title`, `severity` (critical/high/medium/low), `scope` (scheme/c-shim/ffi-boundary), `pattern` (regex), `message` (vulnerability explanation), and `remediation` (fix guidance). Optional: `related_recipe` (cookbook recipe ID with fix), `tags` (search keywords). If a rule with the same `id` exists, it is replaced (update semantics). By default writes to the gerbil-mcp repo `security-rules.json`.
 
 ### For Navigation and Discovery
 

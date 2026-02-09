@@ -7079,5 +7079,91 @@
       "endian-aware-binary-access",
       "pass-u8vector-to-c"
     ]
+  },
+  {
+    "id": "ffi-alloc-scmobj-failure-handling",
+    "title": "Handle ___alloc_scmobj failure in FFI by returning ___FAL (#f)",
+    "tags": [
+      "ffi",
+      "alloc",
+      "scmobj",
+      "OOM",
+      "memory",
+      "u8vector",
+      "FAL",
+      "false",
+      "error-handling"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: ___alloc_scmobj returns a fixnum error code on failure,\n;; NOT a proper Scheme object. If you return it directly to Scheme,\n;; the caller receives a fixnum instead of the expected type (e.g. u8vector),\n;; causing type errors or crashes.\n;;\n;; PATTERN: Check with ___FIXNUMP and return ___FAL (#f) on failure.\n;; Scheme callers then check for #f and return an appropriate error.\n\n;; In C (inside begin-ffi c-declare):\n;; ___SCMOBJ result = ___EXT(___alloc_scmobj)(___PSTATE, ___sU8VECTOR, len);\n;; if (___FIXNUMP(result)) {\n;;     ___return(___FAL);  // return #f to Scheme\n;; }\n;; memcpy(U8_DATA(result), src, len);\n;; ___return(result);\n\n;; In Scheme wrapper — check for #f before using:\n;; (def (wrap-write user-fn)\n;;   (lambda (path buf size offset fh)\n;;     (let (data (ffi-buffer-to-u8vector buf size))\n;;       (if (not data)          ;; #f means allocation failed\n;;         (- ENOMEM)            ;; return -ENOMEM to caller\n;;         (let (result (user-fn path data offset fh))\n;;           (if (fixnum? result) result (- EIO)))))))\n\n;; WRONG — returns fixnum error code directly:\n;; ___SCMOBJ result = ___EXT(___alloc_scmobj)(...);\n;; if (!___FIXNUMP(result)) { memcpy(...); }\n;; ___return(result);  // BUG: returns fixnum on OOM!\n\n;; CORRECT — converts to #f:\n;; if (___FIXNUMP(result)) { ___return(___FAL); }\n;; memcpy(U8_DATA(result), src, len);\n;; ___return(result);",
+    "notes": "___alloc_scmobj is Gambit's low-level allocator for Scheme objects. On failure (OOM), it returns a fixnum error code — NOT #f or a tagged error. If you blindly return this to Scheme, callers expecting a u8vector/string will crash with type errors. The ___FAL constant is Gambit's internal representation of #f. Always use ___FIXNUMP() to detect failure. This pattern was discovered in gerbil-fuse where ffi-buffer-to-u8vector could return a fixnum on OOM, crashing user callbacks."
+  },
+  {
+    "id": "ffi-posix-syscall-inline-errno",
+    "title": "Wrap POSIX syscalls with inline C returning -errno on failure",
+    "tags": [
+      "ffi",
+      "posix",
+      "syscall",
+      "errno",
+      "access",
+      "chmod",
+      "inline-c",
+      "c-lambda"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: Wrap POSIX syscalls via define-c-lambda with inline C\n;; that returns 0 on success or -errno on failure.\n;; This avoids needing a separate C shim file.\n\n;; Inside (begin-ffi (...) ...)\n;; Include required headers:\n;; (c-declare \"#include <unistd.h>\")\n;; (c-declare \"#include <sys/stat.h>\")\n;; (c-declare \"#include <errno.h>\")\n\n;; access() — check file permissions\n;; (define-c-lambda ffi-access (nonnull-UTF-8-string int) int\n;;   \"int r = access(___arg1, ___arg2); ___return(r == 0 ? 0 : -errno);\")\n\n;; chmod() — change file mode\n;; (define-c-lambda ffi-chmod (nonnull-UTF-8-string int) int\n;;   \"int r = chmod(___arg1, (mode_t)___arg2); ___return(r == 0 ? 0 : -errno);\")\n\n;; Constants for access():\n;; (define-const F_OK)  ;; existence check\n;; (define-const R_OK)  ;; read permission\n;; (define-const W_OK)  ;; write permission\n;; (define-const X_OK)  ;; execute permission\n\n;; Usage from Scheme:\n;; (ffi-access \"/tmp/test\" R_OK)  ;; => 0 or -13 (EACCES)\n;; (ffi-chmod \"/tmp/test\" #o644)  ;; => 0 or -1 (EPERM)\n\n;; IMPORTANT: Use nonnull-UTF-8-string (not char-string) for Unicode paths.\n;; Cast to appropriate C types (mode_t for chmod).\n;; Return -errno, not errno, so Scheme can check (< result 0) for errors.",
+    "notes": "This pattern is ideal for simple POSIX syscalls that return 0/-1 and set errno. The inline C string avoids needing a separate .c file. Use ___arg1, ___arg2 etc. for positional args and ___return() for the return value. For syscalls that return data (like read()), you need a more complex C wrapper. Always use nonnull-UTF-8-string for paths to handle Unicode filenames. The -errno convention matches FUSE callback return conventions."
+  },
+  {
+    "id": "ffi-scheme-object-u8vector-data",
+    "title": "Pass u8vector data to C using scheme-object type with U8_DATA() macro",
+    "tags": [
+      "ffi",
+      "scheme-object",
+      "u8vector",
+      "U8_DATA",
+      "pointer",
+      "memcpy",
+      "c-lambda",
+      "buffer"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: You need to pass a u8vector's raw data to a C function.\n;; Using (pointer void) as the FFI type is WRONG — a u8vector is a\n;; Scheme object, not a C pointer.\n;;\n;; SOLUTION: Use scheme-object type and extract data with U8_DATA() macro.\n\n;; WRONG — type mismatch, crashes or corrupts:\n;; (define-c-lambda bad-copy! ((pointer void) size_t) void\n;;   \"memcpy(dest, ___arg1, ___arg2);\")\n;; (bad-copy! my-u8vector 10)  ;; BUG: passes object header, not data!\n\n;; CORRECT — use scheme-object + U8_DATA():\n;; (define-c-lambda ffi-xattr-set-result! (scheme-object size_t) int\n;;   \"___return(ffi_xattr_set_result((const char *)U8_DATA(___arg1), ___arg2));\")\n\n;; ALSO CORRECT — inline memcpy with scheme-object:\n;; (define-c-lambda ffi-copy-from-u8vec! (void* scheme-object int int) void\n;;   \"memcpy(___arg1, (char *)U8_DATA(___arg2) + ___arg3, ___arg4);\")\n\n;; U8_DATA macro extracts the raw byte pointer from a u8vector.\n;; It's defined as: #define U8_DATA(obj) ___CAST(___U8*, ___BODY_AS(obj, ___tSUBTYPED))\n\n;; For copying TO a u8vector (C buffer -> Scheme):\n;; Use ___alloc_scmobj to create, then memcpy into U8_DATA(result).\n;; See recipe: ffi-alloc-scmobj-failure-handling\n\n;; KEY RULES:\n;; 1. Never use (pointer void) for u8vector args — always scheme-object\n;; 2. Cast U8_DATA() result to appropriate C pointer type\n;; 3. The u8vector must remain live during the C call (GC safety)\n;; 4. For output buffers, allocate in C or pre-allocate in Scheme",
+    "notes": "U8_DATA() is a Gambit macro that extracts the raw data pointer from a u8vector Scheme object. It works by skipping the object header to get to the actual byte array. The scheme-object FFI type passes the raw Scheme object handle to C without any conversion. CRITICAL: using (pointer void) for a u8vector is a type error — the C code receives the Scheme object address (including header), not the data bytes, causing memcpy to read/write the wrong memory. Discovered in gerbil-fuse where ffi-xattr-set-result! was declared with (pointer void) but called with u8vectors."
+  },
+  {
+    "id": "ffi-c-buffer-overflow-error-return",
+    "title": "Return error codes from C for buffer overflow instead of silent truncation",
+    "tags": [
+      "ffi",
+      "buffer",
+      "overflow",
+      "truncation",
+      "ENAMETOOLONG",
+      "ERANGE",
+      "error",
+      "shim"
+    ],
+    "imports": [],
+    "code": ";; PATTERN: When C functions copy data into fixed-size buffers,\n;; return an error code instead of silently truncating.\n\n;; WRONG — silent truncation (data loss!):\n;; void set_result(const char *data, size_t len) {\n;;     if (len > sizeof(buf)) len = sizeof(buf);  // silent truncation\n;;     memcpy(buf, data, len);\n;; }\n\n;; CORRECT — return error on overflow:\n;; int set_result(const char *data, size_t len) {\n;;     if (len > sizeof(buf))\n;;         return -ERANGE;  // or -ENAMETOOLONG for paths\n;;     memcpy(buf, data, len);\n;;     return 0;\n;; }\n\n;; Update FFI declaration to return int:\n;; (define-c-lambda ffi-set-result! (scheme-object size_t) int\n;;   \"___return(set_result((const char *)U8_DATA(___arg1), ___arg2));\")\n\n;; Scheme wrapper checks and propagates the error:\n;; (let (rc (ffi-set-result! data len))\n;;   (if (< rc 0) rc len))  ;; return -ERANGE or data length\n\n;; CONVENTIONS:\n;; -ERANGE    — generic buffer too small (xattr, statvfs)\n;; -ENAMETOOLONG — path/name too long (readlink, symlink)\n;; -E2BIG     — argument list too long\n;; -EOVERFLOW — value too large for data type",
+    "notes": "Silent truncation in C shim functions is a common source of data corruption bugs. When data exceeds a fixed buffer, always return a negative errno value. The Scheme wrapper must check (< rc 0) before using the result. This pattern was applied in gerbil-fuse to fix silent truncation in readlink (4KB buffer) and xattr (64KB buffer) shim functions. Change the FFI return type from void to int, and update all callers to check the return value."
+  },
+  {
+    "id": "fuse-unmount-safe-open-process",
+    "title": "Safe command execution with open-process to avoid shell injection",
+    "tags": [
+      "security",
+      "shell",
+      "injection",
+      "open-process",
+      "command",
+      "safe",
+      "umount",
+      "fusermount"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Using ##shell-command or (shell-command) with string concatenation\n;; allows shell injection. The string is passed to /bin/sh -c, so\n;; metacharacters (;, |, $, `, etc.) are interpreted.\n;;\n;; WRONG — shell injection vulnerability:\n;; (def (unmount mp)\n;;   (##shell-command (string-append \"umount \" mp)))\n;; ;; (unmount \"/tmp/foo; rm -rf /\")  => executes rm -rf /\n\n;; CORRECT — use open-process with explicit argv (no shell):\n(def (unmount mountpoint)\n  (let* ((on-mac? (equal? (cadr (system-type)) 'apple))\n         (cmd (if on-mac? \"/sbin/umount\" \"/usr/bin/fusermount3\"))\n         (args (if on-mac?\n                 [mountpoint]\n                 [\"-u\" mountpoint]))\n         (proc (open-process [path: cmd\n                              arguments: args\n                              stdout-redirection: #f\n                              stderr-redirection: #f])))\n    (process-status proc)))\n\n;; KEY POINTS:\n;; 1. open-process with path: + arguments: bypasses the shell entirely\n;; 2. Each argument is passed as a separate argv entry — no interpretation\n;; 3. Metacharacters in mountpoint are treated as literal characters\n;; 4. stdout-redirection: #f and stderr-redirection: #f let output\n;;    pass through to the terminal (or use #t to capture)\n;; 5. process-status waits for completion and returns exit code\n;;\n;; PLATFORM DETECTION:\n;; (cadr (system-type)) returns:\n;;   'apple on macOS\n;;   'linux-gnu on Linux\n;; Use this to choose the right unmount command.",
+    "notes": "This is a critical security pattern. NEVER use ##shell-command or (shell-command) with user-controlled input. Always use open-process with separate path: and arguments: keywords. The arguments list is passed directly to execv() — no shell interpretation occurs. This pattern was applied to fix a command injection vulnerability in gerbil-fuse's fuse-unmount function where mountpoint was concatenated into a shell command. Also note: (cadr (system-type)) is the portable way to detect the OS in Gerbil/Gambit — software-type doesn't exist."
   }
 ]

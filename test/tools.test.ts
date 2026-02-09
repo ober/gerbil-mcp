@@ -634,6 +634,75 @@ extern void iterator_destroy(iterator_t *it);
 `,
     );
 
+    // Security scan fixtures
+    writeFileSync(
+      join(TEST_DIR, 'sec-shell-inject.ss'),
+      `(import :std/os/shell)
+(def (run-cmd user-input)
+  (shell-command (string-append "echo " user-input)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'sec-ffi-pointer.ss'),
+      `(import :std/foreign)
+(def process-buf
+  (c-lambda (pointer void int) int "process_buffer"))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'sec-static-buf.c'),
+      `#include <string.h>
+static char global_buf[1024];
+
+void process(const char *input) {
+  strncpy(global_buf, input, sizeof(global_buf));
+}
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'sec-port-leak.ss'),
+      `(def (read-data path)
+  (let ((port (open-input-file path)))
+    (read-line port)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'sec-clean.ss'),
+      `(import :std/text/json)
+(def (safe-fn x)
+  (+ x 1))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'sec-port-safe.ss'),
+      `(def (read-data path)
+  (call-with-input-file path read-line))
+`,
+    );
+
+    const secProjectDir = join(TEST_DIR, 'sec-project');
+    mkdirSync(secProjectDir, { recursive: true });
+    writeFileSync(
+      join(secProjectDir, 'app.ss'),
+      `(import :std/os/shell)
+(def (run user-input)
+  (shell-command (string-append "ls " user-input)))
+`,
+    );
+    writeFileSync(
+      join(secProjectDir, 'shim.c'),
+      `static uint8_t temp_buf[256];
+void copy_data(const uint8_t *src, int len) {
+  memcpy(temp_buf, src, min(len, 256));
+}
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -3887,5 +3956,155 @@ extern void iterator_destroy(iterator_t *it);
       expect(result.isError).toBe(false);
       expect(result.text).toContain('(tested: v0.18, v0.19)');
     }, 60000);
+  });
+
+  describe('Security scan tool', () => {
+    it('gerbil_security_scan detects shell injection pattern', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-shell-inject.ss'),
+      });
+      expect(result.isError).toBe(true); // critical finding
+      expect(result.text).toContain('[CRITICAL]');
+      expect(result.text).toContain('shell-injection-string-concat');
+      expect(result.text).toContain('string-append');
+    });
+
+    it('gerbil_security_scan detects FFI pointer-void mismatch', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-ffi-pointer.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[HIGH]');
+      expect(result.text).toContain('ffi-pointer-void-u8vector');
+    });
+
+    it('gerbil_security_scan detects static global buffer in C file', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-static-buf.c'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('[MEDIUM]');
+      expect(result.text).toContain('static-global-buffer-thread-safety');
+    });
+
+    it('gerbil_security_scan detects port without unwind-protect', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-port-leak.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('port-open-no-unwind-protect');
+    });
+
+    it('gerbil_security_scan reports no issues for clean file', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-clean.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No security issues found');
+    });
+
+    it('gerbil_security_scan respects severity_threshold', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-shell-inject.ss'),
+        severity_threshold: 'critical',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('[CRITICAL]');
+      // Port-open-no-unwind-protect (medium) should not appear with critical threshold
+      // (this file doesn't have that anyway, but the filter is applied)
+    });
+
+    it('gerbil_security_scan scans project directory', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        project_path: join(TEST_DIR, 'sec-project'),
+      });
+      expect(result.text).toContain('Files scanned:');
+      // Should find shell injection in app.ss
+      expect(result.text).toContain('shell-injection-string-concat');
+      // Should find static buffer in shim.c
+      expect(result.text).toContain('static-global-buffer-thread-safety');
+    });
+
+    it('gerbil_security_scan returns error for missing file', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'nonexistent.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Failed to read file');
+    });
+
+    it('gerbil_security_scan skips port-open with call-with-input-file guard', async () => {
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: join(TEST_DIR, 'sec-port-safe.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No security issues found');
+    });
+  });
+
+  describe('Security pattern add tool', () => {
+    it('gerbil_security_pattern_add creates new rules file and adds rule', async () => {
+      const rulesPath = join(TEST_DIR, 'custom-sec-rules.json');
+      const result = await client.callTool('gerbil_security_pattern_add', {
+        rules_path: rulesPath,
+        id: 'test-custom-rule',
+        title: 'Test custom rule',
+        severity: 'high',
+        scope: 'scheme',
+        pattern: 'dangerous-function',
+        message: 'Do not use dangerous-function',
+        remediation: 'Use safe-function instead',
+        tags: ['test', 'custom'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Added');
+      expect(result.text).toContain('test-custom-rule');
+      expect(result.text).toContain('[high]');
+
+      // Verify the file was written
+      const data = JSON.parse(readFileSync(rulesPath, 'utf-8'));
+      expect(data).toHaveLength(1);
+      expect(data[0].id).toBe('test-custom-rule');
+      expect(data[0].severity).toBe('high');
+    });
+
+    it('gerbil_security_pattern_add replaces existing rule with same id', async () => {
+      const rulesPath = join(TEST_DIR, 'custom-sec-rules.json');
+      const result = await client.callTool('gerbil_security_pattern_add', {
+        rules_path: rulesPath,
+        id: 'test-custom-rule',
+        title: 'Updated custom rule',
+        severity: 'critical',
+        scope: 'c-shim',
+        pattern: 'very-dangerous',
+        message: 'Updated message',
+        remediation: 'Updated fix',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Updated');
+      expect(result.text).toContain('[critical]');
+
+      const data = JSON.parse(readFileSync(rulesPath, 'utf-8'));
+      expect(data).toHaveLength(1);
+      expect(data[0].title).toBe('Updated custom rule');
+      expect(data[0].severity).toBe('critical');
+    });
+
+    it('gerbil_security_pattern_add returns error for corrupt JSON', async () => {
+      const rulesPath = join(TEST_DIR, 'corrupt-sec-rules.json');
+      writeFileSync(rulesPath, 'not valid json{{{');
+      const result = await client.callTool('gerbil_security_pattern_add', {
+        rules_path: rulesPath,
+        id: 'some-rule',
+        title: 'Some rule',
+        severity: 'low',
+        scope: 'scheme',
+        pattern: 'test',
+        message: 'test',
+        remediation: 'test',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Error reading');
+    });
   });
 });
