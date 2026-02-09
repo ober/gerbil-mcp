@@ -1,9 +1,9 @@
 ---
 name: save-discoveries
-description: Save Gerbil discoveries as cookbook recipes and suggest tooling improvements
+description: Save Gerbil discoveries as cookbook recipes, suggest tooling improvements, and add security patterns
 ---
 
-Review what was learned during this session and save it in two ways:
+Review what was learned during this session and save it in three ways:
 
 ## Step 1: Save Cookbook Recipes
 
@@ -36,6 +36,24 @@ For each workflow friction point or missing tool capability noticed during this 
    - `example_scenario`: concrete example of the problem
    - `estimated_token_reduction`: specific estimate (e.g. "~500 tokens per invocation", "eliminates 3 tool calls")
 
+## Step 3: Add Security Patterns
+
+For each new vulnerability pattern, unsafe coding practice, or FFI misuse discovered during this session:
+
+1. Run `gerbil_security_scan` on relevant files to check if the pattern is already detected
+2. If not already covered, call `gerbil_security_pattern_add` with:
+   - `id`: kebab-case identifier (e.g., `"shell-injection-format-string"`)
+   - `title`: human-readable title
+   - `severity`: `critical`, `high`, `medium`, or `low`
+   - `scope`: `scheme` (`.ss` files), `c-shim` (`.c`/`.h` files), or `ffi-boundary` (`.ss` `c-lambda`)
+   - `pattern`: regex to detect the vulnerability in source lines
+   - `message`: explanation of the vulnerability
+   - `remediation`: how to fix the issue
+   - Optional `tags`: search keywords for discoverability
+   - Optional `related_recipe`: cookbook recipe ID with the safe alternative
+
+Skip patterns that are too project-specific to generalize.
+
 ## What to Look For
 
 Recipes to save:
@@ -51,4 +69,11 @@ Features to suggest or vote for:
 - Repeated cross-session patterns that could be automated
 - If the friction point matches an existing feature suggestion, vote for it instead of creating a duplicate
 
-Report what was saved, suggested, and voted for when done.
+Security patterns to add:
+- New vulnerability patterns found during code review or debugging
+- Unsafe FFI calling conventions (e.g., missing null checks, type mismatches)
+- Shell injection vectors via string concatenation or `open-process`
+- Resource leaks (ports, file descriptors, mutexes) without `unwind-protect`
+- Unsafe C shim patterns (buffer overflows, static globals, missing error checks)
+
+Report what was saved, suggested, voted for, and security patterns added when done.
