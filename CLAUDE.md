@@ -175,6 +175,17 @@ All 426 tests must pass before considering any change complete. The test suite c
 - Source-informed translation rules (~40 rules from Gerbil source analysis)
 
 
+### MANDATORY: Update Documentation After Every Change
+
+After ANY code change (new tool, modified tool, bug fix, enhancement, infrastructure change), you MUST update ALL of the following before considering the work complete. **This is not optional — skipping documentation updates creates drift that compounds over time.**
+
+1. **`CLAUDE.md.gerbil-example`** — Add or update tool entries under the appropriate section. This is the template users copy into their projects for Claude Code. Every tool must be documented here with a description matching its actual behavior.
+2. **`copilot-instructions.md.gerbil-example`** — Mirror the same tool entries. This is the GitHub Copilot version. It has identical tool listings but omits Claude-specific sections (skills, hooks, PreCompact).
+3. **`CLAUDE.md`** (this file) — Update the test count, test coverage list, and any affected sections (e.g., "Adding a New Tool" checklist, "Common Patterns").
+4. **`src/index.ts` INSTRUCTIONS string** — If a tool was added or its description changed, update the INSTRUCTIONS string that gets sent to MCP clients.
+
+**Both `*.gerbil-example` files MUST stay in sync with the actual tools.** If you add a tool to one, add it to the other. If you change a tool's behavior, update both. These are the primary way users discover what tools are available.
+
 ### Adding a New Tool
 
 1. Create a new file in `src/tools/` (e.g., `src/tools/my-tool.ts`)
@@ -182,7 +193,7 @@ All 426 tests must pass before considering any change complete. The test suite c
 3. Import and call the register function in `src/index.ts`
 4. Add the tool to the `INSTRUCTIONS` string in `src/index.ts`
 5. Add corresponding test(s) in `test/tools.test.ts`
-6. Add the tool to both `CLAUDE.md.gerbil-example` and `copilot-instructions.md.gerbil-example` under the appropriate section (these are the templates that users copy into their projects — the former for Claude Code, the latter for GitHub Copilot). The copilot version omits Claude-specific sections (skills, hooks, PreCompact) but has the same tool listings.
+6. **MANDATORY**: Add the tool to **both** `CLAUDE.md.gerbil-example` and `copilot-instructions.md.gerbil-example` under the appropriate section (these are the templates that users copy into their projects — the former for Claude Code, the latter for GitHub Copilot). The copilot version omits Claude-specific sections (skills, hooks, PreCompact) but has the same tool listings. **Do not skip this step.**
 7. Update the test count and coverage list in this file (`CLAUDE.md`)
 8. If the tool was listed in `features.json`, remove that entry (it's now implemented)
 9. Run `npm run build && npm run test` to verify
