@@ -261,5 +261,42 @@
       "BLST_SUCCESS",
       "crypto"
     ]
+  },
+  {
+    "id": "shell-injection-format-sh",
+    "title": "Shell injection via format string passed to /bin/sh -c",
+    "severity": "critical",
+    "scope": "scheme",
+    "pattern": "\"(/bin/sh|/bin/bash)\".*\"-c\".*format\\s",
+    "message": "Using (format ...) to build a shell command string passed to /bin/sh -c allows shell injection if any interpolated value contains shell metacharacters (;, &&, |, $, backticks, etc). User-controlled input in the format arguments can execute arbitrary commands.",
+    "remediation": "Use run-process or run-process/batch with an argument list instead of invoking a shell. Pass each argument as a separate list element: (run-process/batch [\"cmd\" \"arg1\" arg2-variable]). This bypasses shell interpretation entirely.",
+    "related_recipe": "safe-run-process-no-shell",
+    "tags": [
+      "shell",
+      "injection",
+      "format",
+      "sh",
+      "bash",
+      "command",
+      "run-process"
+    ]
+  },
+  {
+    "id": "shell-injection-string-append-sh",
+    "title": "Shell injection via string-append passed to /bin/sh -c",
+    "severity": "critical",
+    "scope": "scheme",
+    "pattern": "\"(/bin/sh|/bin/bash)\".*\"-c\".*string-append",
+    "message": "Using string-append to build a shell command string passed to /bin/sh -c allows shell injection if any concatenated value contains shell metacharacters. This is the string-append variant of the format-based injection pattern.",
+    "remediation": "Use run-process or run-process/batch with an argument list instead of invoking a shell. Pass each argument as a separate list element: (run-process/batch [\"cmd\" \"arg1\" arg2-variable]).",
+    "related_recipe": "safe-run-process-no-shell",
+    "tags": [
+      "shell",
+      "injection",
+      "string-append",
+      "sh",
+      "bash",
+      "command"
+    ]
   }
 ]

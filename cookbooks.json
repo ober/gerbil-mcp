@@ -8922,5 +8922,24 @@
     "related": [
       "blst-compress-uncompress-not-serialize"
     ]
+  },
+  {
+    "id": "safe-run-process-no-shell",
+    "title": "Avoid shell injection: use argument lists instead of /bin/sh -c with format",
+    "tags": [
+      "security",
+      "shell",
+      "injection",
+      "run-process",
+      "format",
+      "safe",
+      "command",
+      "run-process/batch"
+    ],
+    "imports": [
+      ":std/misc/process"
+    ],
+    "code": ";; DANGEROUS — shell injection via format string interpolation:\n;; (run-process/batch [\"/bin/sh\" \"-c\" (format \"cmd -o ~a ~a\" file user-input)])\n;; If user-input contains \"; rm -rf /\" this executes arbitrary commands.\n\n;; SAFE — pass arguments as a list, no shell involved:\n(run-process/batch [\"qrencode\" \"-s\" \"5\" \"-o\" output-file uri])\n(run-process/batch [\"feh\" \"--auto-zoom\" \"--fullscreen\" output-file])",
+    "notes": "Never use (format ...) to build a command string passed to /bin/sh -c. Instead, pass each argument as a separate list element to run-process or run-process/batch. This avoids shell metacharacter interpretation entirely. The same applies to open-process with [path: \\\"/bin/sh\\\" arguments: [\\\"-c\\\" ...]]."
   }
 ]
