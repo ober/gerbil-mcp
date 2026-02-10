@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 351 tests must pass before considering any change complete. The test suite covers:
+All 389 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -139,6 +139,27 @@ All 351 tests must pass before considering any change complete. The test suite c
 - Prompt improvements (debug-error with describe/explain, review with security scan, write-module with howto, convert with keywords, generate-tests with async, port with quasiquote)
 - Multi-module integration tests (check_exports + dep_graph + dependency_cycles agreement)
 - Find definition stdlib source lookup (lib/ → src/ path rewrite, module_path fallback, missing source graceful handling)
+- FFI null safety audit (unguarded pointer dereferences in .scm files, cross-reference with .ss wrappers, clean file handling, required params validation)
+- Method dispatch audit (defmethod call detection, cross-reference with declarations, no-method-calls handling)
+- FFI buffer size audit (buffer allocation detection, cross-reference C functions with Scheme allocations, required params validation)
+- Stack trace decode (GDB/Gambit backtrace parsing, hex decode, module/symbol split, empty trace handling)
+- Tail position check (recursive call analysis, wrapping form detection, missing function/file handling)
+- Module quickstart (module introspection, export classification, runnable example generation)
+- Dynamic reference (auto-generated API docs, export classification via module-context-export, markdown formatting)
+- Project health check (composite audit: lint + dead code + dependency cycles + export consistency)
+- Interface compliance check (struct/class interface method verification, no-interfaces handling)
+- Return type analysis (hash-ref #!void, when/unless void, gotcha return value detection)
+- HTTP handler scaffold (route spec to server code generation)
+- Parser grammar scaffold (deflexer/defparser skeleton generation)
+- Actor ensemble scaffold (distributed actor project template)
+- Event system guide (interactive :std/event patterns, topic-based, live module introspection)
+- Macro hygiene check (free variable capture detection, clean file handling)
+- Concurrent plan validate (DAG validation, cycle detection, missing dependency detection)
+- Test fixture generator (mock module generation, parameterize patterns, factory functions)
+- DB pattern scaffold (SQLite/PostgreSQL CRUD with connection pooling)
+- Graceful shutdown scaffold (signal handling, cleanup patterns, actor system integration)
+- Run tests clean_stale parameter (stale artifact cleanup before test runs)
+- New tool annotations (readOnlyHint/idempotentHint on all 20 new tools)
 
 
 ### Adding a New Tool

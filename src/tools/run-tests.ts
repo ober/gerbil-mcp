@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { join, dirname, basename } from 'node:path';
+import { readFile, readdir, stat, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { runGxiFile, runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 
@@ -24,6 +24,51 @@ async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
     // No gerbil.pkg or can't read it — no auto-detection
   }
   return [];
+}
+
+/**
+ * Clean stale compiled artifacts that could shadow source files.
+ * Removes compiled modules from .gerbil/lib/ and ~/.gerbil/lib/ matching
+ * source files in the given directory.
+ */
+async function cleanStaleArtifacts(testDir: string, projectPath?: string): Promise<string[]> {
+  const cleaned: string[] = [];
+  const baseDir = projectPath || testDir;
+
+  // Find .ss source files to determine which compiled artifacts to check
+  const sourceModules: string[] = [];
+  try {
+    const entries = await readdir(baseDir);
+    for (const entry of entries) {
+      if (entry.endsWith('.ss') && !entry.endsWith('-test.ss')) {
+        sourceModules.push(entry.replace(/\.ss$/, ''));
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Check .gerbil/lib/ and ~/.gerbil/lib/ for stale artifacts
+  const artifactDirs = [
+    join(baseDir, '.gerbil', 'lib'),
+    join(process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'), 'lib'),
+  ];
+
+  for (const artDir of artifactDirs) {
+    for (const mod of sourceModules) {
+      // Check for compiled artifacts: mod.ssi, mod.scm, mod/ directory
+      for (const ext of ['.ssi', '.scm', '']) {
+        const artPath = join(artDir, mod + ext);
+        try {
+          const s = await stat(artPath);
+          if (s.isFile() || s.isDirectory()) {
+            await rm(artPath, { recursive: true, force: true });
+            cleaned.push(artPath);
+          }
+        } catch { /* doesn't exist */ }
+      }
+    }
+  }
+
+  return cleaned;
 }
 
 export function registerRunTestsTool(server: McpServer): void {
@@ -93,9 +138,18 @@ export function registerRunTestsTool(server: McpServer): void {
             'Environment variables to pass to the subprocess ' +
             '(e.g. {"DYLD_LIBRARY_PATH": "/usr/local/lib"})',
           ),
+        clean_stale: z
+          .boolean()
+          .optional()
+          .describe(
+            'Clean stale compiled artifacts before running tests. ' +
+            'Removes compiled modules from .gerbil/lib/ and ~/.gerbil/lib/ ' +
+            'that could shadow source files (common cause of test failures when ' +
+            'a module exports main for exe builds).',
+          ),
       },
     },
-    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path, env: extraEnv }) => {
+    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path, env: extraEnv, clean_stale }) => {
       // Validate: exactly one of file_path or directory
       if (file_path && directory) {
         return {
@@ -125,6 +179,16 @@ export function registerRunTestsTool(server: McpServer): void {
         return await runDirectoryTests(directory, { filter, quiet, timeout });
       }
 
+      // Clean stale artifacts if requested
+      const staleWarnings: string[] = [];
+      if (clean_stale && file_path) {
+        const testDir = dirname(file_path);
+        const cleaned = await cleanStaleArtifacts(testDir, project_path);
+        if (cleaned.length > 0) {
+          staleWarnings.push(`Cleaned ${cleaned.length} stale artifact(s): ${cleaned.join(', ')}`);
+        }
+      }
+
       // Build effective loadpath from loadpath array and project_path
       const effectiveLoadpath: string[] = [...(loadpath ?? [])];
       if (project_path) {
@@ -136,7 +200,12 @@ export function registerRunTestsTool(server: McpServer): void {
         }
       }
 
-      return await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
+      const result = await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
+      if (staleWarnings.length > 0 && result.content?.[0]) {
+        const existing = (result.content[0] as { text: string }).text;
+        (result.content[0] as { text: string }).text = staleWarnings.join('\n') + '\n\n' + existing;
+      }
+      return result;
     },
   );
 }

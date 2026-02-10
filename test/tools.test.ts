@@ -5062,4 +5062,610 @@ void copy_data(const uint8_t *src, int len) {
       }
     });
   });
+
+  // ── FFI null safety tool ──────────────────────────────────────
+
+  describe('FFI null safety tool', () => {
+    it('detects unguarded pointer dereferences in .scm files', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-ffinull-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'bindings.scm'),
+        '(define-c-lambda xmlNode-name (xmlNode*) char-string\n' +
+        '  "___return(___arg1->name);")\n');
+
+      try {
+        const result = await client.callTool('gerbil_ffi_null_safety', {
+          file_path: join(tempDir, 'bindings.scm'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('xmlNode-name');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no issues for clean files', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-ffinull-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'clean.scm'),
+        '(define-c-lambda my-func (int) int "___return(___arg1 + 1);")\n');
+
+      try {
+        const result = await client.callTool('gerbil_ffi_null_safety', {
+          file_path: join(tempDir, 'clean.scm'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No unguarded');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('requires file_path or project_path', async () => {
+      const result = await client.callTool('gerbil_ffi_null_safety', {});
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Method dispatch audit tool ────────────────────────────────
+
+  describe('Method dispatch audit tool', () => {
+    it('detects method dispatch calls', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-method-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(defstruct widget (name))\n' +
+        '(def w (make-widget "test"))\n' +
+        '(def result {close w})\n');
+
+      try {
+        const result = await client.callTool('gerbil_method_dispatch_audit', {
+          file_path: join(tempDir, 'main.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('close');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no issues when no method calls', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-method-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'), '(def (hello) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_method_dispatch_audit', {
+          file_path: join(tempDir, 'main.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No method dispatch');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+  });
+
+  // ── FFI buffer size audit tool ────────────────────────────────
+
+  describe('FFI buffer size audit tool', () => {
+    it('detects buffer allocations', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-ffi-buf-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'bindings.ss'),
+        '(def (get-data)\n  (let ((buf (make-u8vector 48)))\n    buf))\n');
+
+      try {
+        const result = await client.callTool('gerbil_ffi_buffer_size_audit', {
+          file_path: join(tempDir, 'bindings.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('48');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('requires file_path or project_path', async () => {
+      const result = await client.callTool('gerbil_ffi_buffer_size_audit', {});
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Stack trace decode tool ───────────────────────────────────
+
+  describe('Stack trace decode tool', () => {
+    it('decodes GDB-style backtrace', async () => {
+      const result = await client.callTool('gerbil_stack_trace_decode', {
+        trace: '#0 0x7fff12345678 in ___H_gerbil_2f_crypto_2f_blst () at blst.o2.c:142\n' +
+               '#1 0x7fff12345679 in ___G_gerbil_2f_crypto_2f_blst__init () at blst.o2.c:200\n',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Decoded Stack Trace');
+      expect(result.text).toContain('gerbil/crypto/blst');
+    });
+
+    it('handles empty trace', async () => {
+      const result = await client.callTool('gerbil_stack_trace_decode', {
+        trace: 'no frames here',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Could not parse');
+    });
+  });
+
+  // ── Tail position check tool ──────────────────────────────────
+
+  describe('Tail position check tool', () => {
+    it('detects non-tail recursive calls', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-tail-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'example.ss'),
+        '(def (flatten lst)\n' +
+        '  (match lst\n' +
+        '    ([] [])\n' +
+        '    ([hd . tl] (append (flatten hd) (flatten tl)))))\n');
+
+      try {
+        const result = await client.callTool('gerbil_tail_position_check', {
+          file_path: join(tempDir, 'example.ss'),
+          function_name: 'flatten',
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('flatten');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing function', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-tail-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'example.ss'), '(def (other) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_tail_position_check', {
+          file_path: join(tempDir, 'example.ss'),
+          function_name: 'nonexistent',
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No recursive calls');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing file', async () => {
+      const result = await client.callTool('gerbil_tail_position_check', {
+        file_path: '/tmp/nonexistent-file.ss',
+        function_name: 'test',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Module quickstart tool ────────────────────────────────────
+
+  describe('Module quickstart tool', () => {
+    it('generates quickstart for std module', async () => {
+      const result = await client.callTool('gerbil_module_quickstart', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Quickstart');
+    });
+  });
+
+  // ── Dynamic reference tool ────────────────────────────────────
+
+  describe('Dynamic reference tool', () => {
+    it('generates reference for std module', async () => {
+      const result = await client.callTool('gerbil_dynamic_reference', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('API Reference');
+    });
+  });
+
+  // ── Project health check tool ─────────────────────────────────
+
+  describe('Project health check tool', () => {
+    it('audits a project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-health-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(export fn)\n(def (fn) 42)\n(def (unused-helper) 99)\n');
+
+      try {
+        const result = await client.callTool('gerbil_project_health_check', {
+          project_path: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('Health Check');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing directory', async () => {
+      const result = await client.callTool('gerbil_project_health_check', {
+        project_path: '/tmp/nonexistent-dir-xyz',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Interface compliance check tool ───────────────────────────
+
+  describe('Interface compliance check tool', () => {
+    it('checks interface implementations', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-iface-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'),
+        '(definterface Closeable (close))\n' +
+        '(defstruct widget (name))\n');
+
+      try {
+        const result = await client.callTool('gerbil_interface_compliance_check', {
+          file_path: join(tempDir, 'main.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('Interface Compliance');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no interfaces found', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-iface-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'main.ss'), '(def (hello) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_interface_compliance_check', {
+          file_path: join(tempDir, 'main.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No definterface');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+  });
+
+  // ── Return type analysis tool ─────────────────────────────────
+
+  describe('Return type analysis tool', () => {
+    it('detects hash-ref gotcha', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-rettype-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'example.ss'),
+        '(def (lookup config key)\n' +
+        '  (if (hash-ref config key)\n' +
+        '    (hash-ref config key)\n' +
+        '    "default"))\n');
+
+      try {
+        const result = await client.callTool('gerbil_return_type_analysis', {
+          file_path: join(tempDir, 'example.ss'),
+          function_name: 'lookup',
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('hash-ref');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing file', async () => {
+      const result = await client.callTool('gerbil_return_type_analysis', {
+        file_path: '/tmp/nonexistent-file.ss',
+        function_name: 'test',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── HTTP handler scaffold tool ────────────────────────────────
+
+  describe('HTTP handler scaffold tool', () => {
+    it('generates server code from routes', async () => {
+      const result = await client.callTool('gerbil_httpd_handler_scaffold', {
+        routes: [
+          { method: 'GET', path: '/users', handler: 'list-users' },
+          { method: 'POST', path: '/users', handler: 'create-user' },
+          { method: 'GET', path: '/users/:id', handler: 'get-user' },
+        ],
+        port: 9090,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('list-users');
+      expect(result.text).toContain('create-user');
+      expect(result.text).toContain('9090');
+    });
+  });
+
+  // ── Parser grammar scaffold tool ──────────────────────────────
+
+  describe('Parser grammar scaffold tool', () => {
+    it('generates parser code', async () => {
+      const result = await client.callTool('gerbil_parser_grammar_scaffold', {
+        grammar_name: 'calc',
+        tokens: [
+          { name: 'NUMBER', pattern: '[0-9]+' },
+          { name: 'PLUS', pattern: '\\+' },
+        ],
+        rules: [
+          { name: 'expr', alternatives: ['(NUMBER PLUS NUMBER)'] },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('calc');
+      expect(result.text).toContain('NUMBER');
+    });
+  });
+
+  // ── Actor ensemble scaffold tool ──────────────────────────────
+
+  describe('Actor ensemble scaffold tool', () => {
+    it('generates actor project', async () => {
+      const result = await client.callTool('gerbil_actor_ensemble_scaffold', {
+        project_name: 'my-service',
+        actors: [
+          { name: 'worker', messages: ['process', 'done'] },
+          { name: 'manager', messages: ['assign', 'status'] },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('worker');
+      expect(result.text).toContain('manager');
+      expect(result.text).toContain('supervisor');
+    });
+  });
+
+  // ── Event system guide tool ───────────────────────────────────
+
+  describe('Event system guide tool', () => {
+    it('returns overview', async () => {
+      const result = await client.callTool('gerbil_event_system_guide', {
+        topic: 'overview',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Event System');
+      expect(result.text).toContain('sync');
+    });
+
+    it('returns timeout topic', async () => {
+      const result = await client.callTool('gerbil_event_system_guide', {
+        topic: 'timeout',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('timeout');
+    });
+  });
+
+  // ── Macro hygiene check tool ──────────────────────────────────
+
+  describe('Macro hygiene check tool', () => {
+    it('detects free variable capture', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-hygiene-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'macros.ss'),
+        '(defrules my-bind ()\n' +
+        '  ((_ expr body) => (let ((result expr)) body)))\n');
+
+      try {
+        const result = await client.callTool('gerbil_macro_hygiene_check', {
+          file_path: join(tempDir, 'macros.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('result');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports no issues for clean file', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-hygiene-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'clean.ss'), '(def (hello) 42)\n');
+
+      try {
+        const result = await client.callTool('gerbil_macro_hygiene_check', {
+          file_path: join(tempDir, 'clean.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No macro hygiene issues');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('handles missing file', async () => {
+      const result = await client.callTool('gerbil_macro_hygiene_check', {
+        file_path: '/tmp/nonexistent-file.ss',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Concurrent plan validate tool ─────────────────────────────
+
+  describe('Concurrent plan validate tool', () => {
+    it('validates a valid DAG plan', async () => {
+      const result = await client.callTool('gerbil_concurrent_plan_validate', {
+        steps: [
+          { name: 'fetch-a', deps: [] },
+          { name: 'fetch-b', deps: [] },
+          { name: 'merge', deps: ['fetch-a', 'fetch-b'] },
+          { name: 'store', deps: ['merge'] },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No issues found');
+      expect(result.text).toContain('Execution Schedule');
+    });
+
+    it('detects circular dependencies', async () => {
+      const result = await client.callTool('gerbil_concurrent_plan_validate', {
+        steps: [
+          { name: 'a', deps: ['b'] },
+          { name: 'b', deps: ['a'] },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Circular');
+    });
+
+    it('detects missing dependencies', async () => {
+      const result = await client.callTool('gerbil_concurrent_plan_validate', {
+        steps: [
+          { name: 'a', deps: ['nonexistent'] },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('does not exist');
+    });
+  });
+
+  // ── Test fixture gen tool ─────────────────────────────────────
+
+  describe('Test fixture gen tool', () => {
+    it('generates fixtures for std module', async () => {
+      const result = await client.callTool('gerbil_test_fixture_gen', {
+        module_path: ':std/text/json',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Test Fixture');
+    });
+  });
+
+  // ── DB pattern scaffold tool ──────────────────────────────────
+
+  describe('DB pattern scaffold tool', () => {
+    it('generates sqlite patterns', async () => {
+      const result = await client.callTool('gerbil_db_pattern_scaffold', {
+        db_type: 'sqlite',
+        tables: [
+          {
+            name: 'users',
+            columns: [
+              { name: 'id', type: 'INTEGER', primary_key: true },
+              { name: 'name', type: 'TEXT' },
+              { name: 'email', type: 'TEXT' },
+            ],
+          },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('sqlite');
+      expect(result.text).toContain('users');
+      expect(result.text).toContain('insert-users');
+    });
+
+    it('generates postgresql patterns', async () => {
+      const result = await client.callTool('gerbil_db_pattern_scaffold', {
+        db_type: 'postgresql',
+        tables: [
+          {
+            name: 'items',
+            columns: [
+              { name: 'id', type: 'SERIAL', primary_key: true },
+              { name: 'title', type: 'TEXT' },
+            ],
+          },
+        ],
+        use_pool: false,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('postgresql');
+    });
+  });
+
+  // ── Graceful shutdown scaffold tool ───────────────────────────
+
+  describe('Graceful shutdown scaffold tool', () => {
+    it('generates shutdown patterns', async () => {
+      const result = await client.callTool('gerbil_graceful_shutdown_scaffold', {
+        service_name: 'my-server',
+        components: ['http-server', 'db-pool', 'worker'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('SIGTERM');
+      expect(result.text).toContain('shutdown');
+      expect(result.text).toContain('http-server');
+    });
+
+    it('includes actor system when requested', async () => {
+      const result = await client.callTool('gerbil_graceful_shutdown_scaffold', {
+        service_name: 'actor-service',
+        components: ['main-actor'],
+        has_actors: true,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('actor');
+    });
+  });
+
+  // ── Run tests clean_stale parameter ───────────────────────────
+
+  describe('Run tests clean_stale parameter', () => {
+    it('accepts clean_stale parameter', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-stale-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(join(tempDir, 'test.ss'),
+        '(import :std/test)\n' +
+        '(def test-suite (test-suite "basic" (test-case "t" (check-equal? 1 1))))\n' +
+        '(run-tests! test-suite)\n' +
+        '(test-report-summary!)\n');
+
+      try {
+        const result = await client.callTool('gerbil_run_tests', {
+          file_path: join(tempDir, 'test.ss'),
+          clean_stale: true,
+        });
+        // Should not error even if there are no stale artifacts to clean
+        expect(result.text).toBeDefined();
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+  });
+
+  // ── Tool annotations for new tools ────────────────────────────
+
+  describe('New tool annotations', () => {
+    it('all new tools have annotations', async () => {
+      const tools = await client.listTools();
+      const newToolNames = [
+        'gerbil_ffi_null_safety',
+        'gerbil_method_dispatch_audit',
+        'gerbil_ffi_buffer_size_audit',
+        'gerbil_stack_trace_decode',
+        'gerbil_tail_position_check',
+        'gerbil_module_quickstart',
+        'gerbil_dynamic_reference',
+        'gerbil_project_health_check',
+        'gerbil_interface_compliance_check',
+        'gerbil_return_type_analysis',
+        'gerbil_httpd_handler_scaffold',
+        'gerbil_parser_grammar_scaffold',
+        'gerbil_actor_ensemble_scaffold',
+        'gerbil_event_system_guide',
+        'gerbil_macro_hygiene_check',
+        'gerbil_concurrent_plan_validate',
+        'gerbil_test_fixture_gen',
+        'gerbil_db_pattern_scaffold',
+        'gerbil_graceful_shutdown_scaffold',
+      ];
+
+      for (const name of newToolNames) {
+        const tool = tools.find(t => t.name === name);
+        expect(tool).toBeDefined();
+        expect(tool!.annotations).toBeDefined();
+        expect(tool!.annotations!.readOnlyHint).toBeDefined();
+      }
+    });
+  });
 });

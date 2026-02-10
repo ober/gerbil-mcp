@@ -87,6 +87,25 @@ import { registerMigrationCheckTool } from './tools/migration-check.js';
 import { registerDeadCodeTool } from './tools/dead-code.js';
 import { registerDependencyCyclesTool } from './tools/dependency-cycles.js';
 import { registerGenerateApiDocsTool } from './tools/generate-api-docs.js';
+import { registerFfiNullSafetyTool } from './tools/ffi-null-safety.js';
+import { registerMethodDispatchAuditTool } from './tools/method-dispatch-audit.js';
+import { registerFfiBufferSizeAuditTool } from './tools/ffi-buffer-size-audit.js';
+import { registerStackTraceDecodeTool } from './tools/stack-trace-decode.js';
+import { registerTailPositionCheckTool } from './tools/tail-position-check.js';
+import { registerModuleQuickstartTool } from './tools/module-quickstart.js';
+import { registerDynamicReferenceTool } from './tools/dynamic-reference.js';
+import { registerProjectHealthCheckTool } from './tools/project-health-check.js';
+import { registerInterfaceComplianceCheckTool } from './tools/interface-compliance-check.js';
+import { registerReturnTypeAnalysisTool } from './tools/return-type-analysis.js';
+import { registerHttpdHandlerScaffoldTool } from './tools/httpd-handler-scaffold.js';
+import { registerParserGrammarScaffoldTool } from './tools/parser-grammar-scaffold.js';
+import { registerActorEnsembleScaffoldTool } from './tools/actor-ensemble-scaffold.js';
+import { registerEventSystemGuideTool } from './tools/event-system-guide.js';
+import { registerMacroHygieneCheckTool } from './tools/macro-hygiene-check.js';
+import { registerConcurrentPlanValidateTool } from './tools/concurrent-plan-validate.js';
+import { registerTestFixtureGenTool } from './tools/test-fixture-gen.js';
+import { registerDbPatternScaffoldTool } from './tools/db-pattern-scaffold.js';
+import { registerGracefulShutdownScaffoldTool } from './tools/graceful-shutdown-scaffold.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -187,6 +206,25 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To add security patterns: use gerbil_security_pattern_add to contribute new detection rules.
 - To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages need rebuilding.
 - To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches in c-lambda declarations.
+- To audit FFI null safety: use gerbil_ffi_null_safety to find c-lambda pointer dereferences without null checks.
+- To audit FFI buffer sizes: use gerbil_ffi_buffer_size_audit to detect buffer overflows in FFI bindings.
+- To audit method dispatch: use gerbil_method_dispatch_audit to find {method obj} calls that may fail at runtime.
+- To decode stack traces: use gerbil_stack_trace_decode to parse GDB/Gambit backtraces into readable form.
+- To check tail positions: use gerbil_tail_position_check to verify recursive calls are in tail position.
+- To explore a module: use gerbil_module_quickstart to generate a working example for any stdlib module.
+- To generate module docs: use gerbil_dynamic_reference for auto-generated API reference for any module.
+- To audit project health: use gerbil_project_health_check for a composite quality audit in one call.
+- To check interfaces: use gerbil_interface_compliance_check to verify struct/class implements required methods.
+- To analyze return types: use gerbil_return_type_analysis to detect gotcha return values (void, hash-ref, when).
+- To scaffold HTTP servers: use gerbil_httpd_handler_scaffold to generate :std/net/httpd server code.
+- To scaffold parsers: use gerbil_parser_grammar_scaffold to generate :std/parser lexer and grammar code.
+- To scaffold actor systems: use gerbil_actor_ensemble_scaffold to generate distributed actor projects.
+- To explore events: use gerbil_event_system_guide for sync/select/choice patterns from :std/event.
+- To check macro hygiene: use gerbil_macro_hygiene_check to detect variable capture in macro definitions.
+- To validate DAG plans: use gerbil_concurrent_plan_validate for :std/misc/concurrent-plan DAG validation.
+- To generate test fixtures: use gerbil_test_fixture_gen to create mock modules and test setup with parameterize.
+- To scaffold database access: use gerbil_db_pattern_scaffold to generate CRUD with connection pooling and transactions.
+- To scaffold graceful shutdown: use gerbil_graceful_shutdown_scaffold for signal handling and cleanup patterns.
 
 ## Common Workflows
 
@@ -198,6 +236,10 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - **Migrate between versions**: gerbil_migration_check → gerbil_diff_modules → gerbil_howto "v0.19" → gerbil_compile_check
 - **Debug an error**: gerbil_explain_error → follow suggested tools → gerbil_howto for fix patterns
 - **Write a new module**: gerbil_howto → gerbil_module_exports (check APIs) → write code → gerbil_lint → gerbil_security_scan
+- **Audit FFI safety**: gerbil_ffi_null_safety → gerbil_ffi_buffer_size_audit → gerbil_ffi_type_check → gerbil_security_scan
+- **Explore unknown module**: gerbil_module_quickstart → gerbil_dynamic_reference → gerbil_howto
+- **Build a service**: gerbil_httpd_handler_scaffold → gerbil_db_pattern_scaffold → gerbil_graceful_shutdown_scaffold
+- **Project quality audit**: gerbil_project_health_check → fix issues → gerbil_security_scan
 
 ## Important Guidance
 
@@ -305,6 +347,25 @@ registerMigrationCheckTool(server);
 registerDeadCodeTool(server);
 registerDependencyCyclesTool(server);
 registerGenerateApiDocsTool(server);
+registerFfiNullSafetyTool(server);
+registerMethodDispatchAuditTool(server);
+registerFfiBufferSizeAuditTool(server);
+registerStackTraceDecodeTool(server);
+registerTailPositionCheckTool(server);
+registerModuleQuickstartTool(server);
+registerDynamicReferenceTool(server);
+registerProjectHealthCheckTool(server);
+registerInterfaceComplianceCheckTool(server);
+registerReturnTypeAnalysisTool(server);
+registerHttpdHandlerScaffoldTool(server);
+registerParserGrammarScaffoldTool(server);
+registerActorEnsembleScaffoldTool(server);
+registerEventSystemGuideTool(server);
+registerMacroHygieneCheckTool(server);
+registerConcurrentPlanValidateTool(server);
+registerTestFixtureGenTool(server);
+registerDbPatternScaffoldTool(server);
+registerGracefulShutdownScaffoldTool(server);
 
 registerPrompts(server);
 registerResources(server);

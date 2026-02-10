@@ -9287,6 +9287,31 @@
       "memory-snapshot-profiling",
       "force-gc-gambit",
       "concurrent-load-test-spawn-with-catch"
+    ],
+    "deprecated": true,
+    "superseded_by": "process-statistics-field-layout"
+  },
+  {
+    "id": "process-statistics-field-layout",
+    "title": "##process-statistics field layout: field 0 is CPU time, field 7 is live heap bytes",
+    "tags": [
+      "process-statistics",
+      "heap",
+      "memory",
+      "cpu-time",
+      "gc",
+      "profiling",
+      "leak",
+      "gambit",
+      "f64vector"
+    ],
+    "imports": [],
+    "code": ";; ##process-statistics returns an f64vector.\n;; CRITICAL: field 0 is USER CPU TIME (seconds), NOT heap size!\n;; Field 7 is LIVE HEAP BYTES — goes up with allocation, down after GC.\n\n;; Correct way to measure heap:\n(##gc)\n(thread-sleep! 0.1)\n(let* ((stats (##process-statistics))\n       (heap-bytes (f64vector-ref stats 7))\n       (heap-mb (/ heap-bytes (* 1024.0 1024.0))))\n  (displayln \"Live heap: \" heap-mb \"MB\"))\n\n;; Proof that field 7 tracks live data (goes down after GC):\n;; (let ()\n;;   (##gc)\n;;   (let ((h0 (f64vector-ref (##process-statistics) 7)))\n;;     (let ((big (make-u8vector (* 100 1024 1024) 0)))  ; alloc 100MB\n;;       (let ((h1 (f64vector-ref (##process-statistics) 7)))\n;;         (set! big #f)\n;;         (##gc)\n;;         (let ((h2 (f64vector-ref (##process-statistics) 7)))\n;;           ;; h0 ~ 49MB, h1 ~ 154MB, h2 ~ 49MB (back down!)\n;;           (list h0 h1 h2))))))\n\n;; Field 0 is USER CPU TIME — monotonically increasing, never goes down.\n;; Using field 0 for \"heap growth\" will show linear growth that\n;; looks like a memory leak but is actually just CPU time accumulating.",
+    "notes": "Common mistake: using (f64vector-ref (##process-statistics) 0) for heap measurement. Field 0 is user CPU time in seconds. Field 7 is the actual live heap size in bytes that reflects GC collection. Always use field 7 and divide by (* 1024.0 1024.0) for MB display. Call (##gc) before measurement for accurate readings.",
+    "related": [
+      "memory-leak-detection-sustained-load",
+      "memory-snapshot-profiling",
+      "force-gc-gambit"
     ]
   }
 ]

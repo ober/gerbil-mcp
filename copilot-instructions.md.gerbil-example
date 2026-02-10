@@ -29,6 +29,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_demangle`**: Decode Gambit-mangled C symbol names from GDB backtraces or core dumps back to readable Gerbil module/function paths. Recognizes prefixes like `___H_` (module init), `___G_` (global).
 - **`gerbil_bisect_crash`**: Binary-search a crashing Gerbil file to find the minimal set of top-level forms that reproduce the crash. Keeps preamble (imports, exports, declarations) and bisects body forms. Useful for isolating segfaults and uncaught exceptions in FFI code.
 - **`gerbil_describe`**: Evaluate an expression and describe the resulting value's type, structure, and contents. Shows hash table entries, list length, vector elements, string length, number type, etc. Useful for understanding what a function returns.
+- **`gerbil_stack_trace_decode`**: Parse GDB/Gambit stack traces and decode mangled C symbol names to readable Gerbil module/function paths. Complements `gerbil_demangle` for full backtrace analysis.
 
 ### When Understanding Macros
 
@@ -42,6 +43,8 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_ffi_scaffold`**: Parse a C header file and generate Gambit FFI binding code with `c-define-type`, `c-lambda`, and `define-const` declarations. Recognizes create/destroy pairs for automatic GC cleanup.
 - **`gerbil_ffi_callback_debug`**: Static analysis of FFI `c-define`/`extern` linkage in `.ss` files. Detects orphan callbacks (c-define without matching extern), missing callbacks (extern without c-define), duplicate C names, and c-define outside `begin-foreign` blocks.
 - **`gerbil_ffi_type_check`**: Detect FFI type mismatches between `c-lambda`/`define-c-lambda` declarations and call sites. Flags known incompatible combinations like u8vector passed to `(pointer void)`, string passed to int. Static analysis, no subprocess.
+- **`gerbil_ffi_null_safety`**: Static analysis of `.scm` FFI files to find `c-lambda` declarations that dereference pointer arguments without null checks. Cross-references with `.ss` wrapper files to check for guards.
+- **`gerbil_ffi_buffer_size_audit`**: Cross-reference C function output buffer sizes with Scheme-side `make-u8vector` allocations. Detects potential buffer overflow mismatches.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 
 ### For Multi-Step Exploration
@@ -52,7 +55,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
 - **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Auto-detects external dependencies from `gerbil.pkg` `depend:` entries and sets `GERBIL_LOADPATH` automatically. Auto-retries with clean on lock errors or missing exe C files. Detects missing C system headers and suggests package install commands. Use `loadpath` to override.
-- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output. Auto-detects `GERBIL_LOADPATH` from `gerbil.pkg` `depend:` entries. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`).
+- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output. Auto-detects `GERBIL_LOADPATH` from `gerbil.pkg` `depend:` entries. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`). Use `clean_stale: true` to remove stale compiled artifacts before running tests.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages. Automatically defaults to `$HOME` as working directory when in a project directory (with `gerbil.pkg`) to prevent destructive operations on local package context.
 - **`gerbil_scaffold`**: Create a new Gerbil project from a template using gxpkg new.
@@ -77,6 +80,13 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_diff_modules`**: Compare exports between two modules, showing added, removed, and shared symbols. Useful for understanding API differences between module versions.
 - **`gerbil_format`**: Pretty-print Gerbil expressions using Gambit's pretty-print.
 - **`gerbil_benchmark`**: Measure wall-clock time, CPU time, GC stats, and memory allocation.
+- **`gerbil_tail_position_check`**: Analyze whether recursive calls in a function are in tail position. Detects non-tail calls wrapped in forms like `+`, `cons`, `let`.
+- **`gerbil_return_type_analysis`**: Detect gotcha return values: `hash-ref` returning `#!void`, `when`/`unless` returning `#<void>`, and other common Gerbil return value pitfalls.
+- **`gerbil_method_dispatch_audit`**: Detect `{method-name obj}` dispatch calls and cross-reference with `defmethod` declarations to find potential dispatch mismatches.
+- **`gerbil_macro_hygiene_check`**: Detect free variable capture in `defrule`/`defsyntax` macro definitions — a common source of subtle bugs.
+- **`gerbil_interface_compliance_check`**: Verify that struct/class types implement all required interface methods by cross-referencing type definitions with interface declarations.
+- **`gerbil_concurrent_plan_validate`**: Validate DAG-based execution plans (step dependencies). Detects circular dependencies, missing steps, and unreachable steps.
+- **`gerbil_project_health_check`**: Composite project audit that runs lint, dead code detection, dependency cycle checking, and export consistency in a single call.
 
 ### For Security Auditing
 
@@ -104,6 +114,12 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_wrap_form`**: Wrap lines in a new Scheme form (e.g. `when`, `let`, `begin`) with guaranteed matching parentheses. Auto-detects form boundaries when `end_line` is omitted. Dry-run by default.
 - **`gerbil_splice_form`**: Remove a wrapper form while keeping selected children (inverse of wrap). Child indices are 1-based. Default: keep all children except the head. Dry-run by default.
 - **`gerbil_generate_api_docs`**: Generate markdown API documentation from a module's exports. Introspects procedures (with arities), macros, and values to produce a complete API reference.
+- **`gerbil_httpd_handler_scaffold`**: Generate HTTP server code from route specifications. Produces handler functions, routing setup, and middleware patterns for `:std/net/httpd`.
+- **`gerbil_parser_grammar_scaffold`**: Generate `deflexer`/`defparser` skeleton from token and rule specifications for `:std/parser`.
+- **`gerbil_actor_ensemble_scaffold`**: Generate distributed actor project template with multiple actor types, message protocols, and supervision trees.
+- **`gerbil_test_fixture_gen`**: Generate mock modules, factory functions, and `parameterize`-based test setup/teardown patterns for `:std/test`.
+- **`gerbil_db_pattern_scaffold`**: Generate database CRUD patterns with connection pooling for SQLite (`:std/db/sqlite`) or PostgreSQL (`:std/db/postgresql`).
+- **`gerbil_graceful_shutdown_scaffold`**: Generate signal handling and cleanup patterns with optional actor system integration.
 
 ### For Project Context
 
@@ -114,6 +130,9 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_module_catalog`**: Compact reference of all exports from a module with kind, arity, and brief descriptions. Has curated descriptions for `:std/sugar`, `:std/iter`. Replaces multiple `gerbil_doc` calls.
 - **`gerbil_example_api_coverage`**: Check which module exports are referenced in example/doc files. Scans a directory of `.ss` files and reports per-export coverage with file references and overall coverage percentage.
 - **`gerbil_validate_example_imports`**: Validate that imported modules actually export the symbols used in a Gerbil source file. Hybrid static+runtime analysis that detects symbols used but not available from any import or local definition.
+- **`gerbil_module_quickstart`**: Generate a working example file that exercises a module's main exports. Introspects exports, arities, and types, then produces a runnable `.ss` file. Useful for undocumented stdlib modules.
+- **`gerbil_dynamic_reference`**: Auto-generate reference documentation for any Gerbil module on demand. Introspects all exports, classifies them (procedure/macro/value/type), and formats as markdown. Not limited to hardcoded reference docs.
+- **`gerbil_event_system_guide`**: Interactive guide for `:std/event` patterns (sync, select, choice, wrap, handle, timeout, channels). Topic-based exploration with live module introspection.
 
 ### For Recipes and Idioms
 
