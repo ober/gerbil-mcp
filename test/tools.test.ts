@@ -3119,9 +3119,9 @@ void copy_data(const uint8_t *src, int len) {
       mkdirSync(localDir, { recursive: true });
       mkdirSync(globalDir, { recursive: true });
       const content = 'identical-content';
-      writeFileSync(join(globalDir, 'pkg__mod.scm'), content);
-      // Write local file with same content — the global mtime will be <= local
+      // Write local first, then global — so global mtime >= local (not stale)
       writeFileSync(join(localDir, 'pkg__mod.scm'), content);
+      writeFileSync(join(globalDir, 'pkg__mod.scm'), content);
       const result = await client.callTool('gerbil_stale_static', {
         project_path: join(staleDir, 'match'),
         gerbil_path: join(staleDir, 'global-match'),
@@ -4285,8 +4285,8 @@ void copy_data(const uint8_t *src, int len) {
         max_results: 2,
       });
       expect(result.isError).toBe(false);
-      // Should have at most 2 entries - count the " — " separators
-      const entries = (result.text.match(/ — /g) || []).length;
+      // Should have at most 2 entries - count "tags:" lines (one per entry)
+      const entries = (result.text.match(/^\s+tags:/gm) || []).length;
       expect(entries).toBeLessThanOrEqual(2);
     });
 

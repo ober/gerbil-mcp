@@ -1,4 +1,4 @@
-.PHONY: all install build clean update
+.PHONY: all install build test clean update
 
 all: install build
 
@@ -7,6 +7,9 @@ install:
 
 build:
 	npm run build
+
+test: build
+	npm run test
 
 clean:
 	rm -rf dist node_modules
