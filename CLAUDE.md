@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 389 tests must pass before considering any change complete. The test suite covers:
+All 426 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -160,6 +160,19 @@ All 389 tests must pass before considering any change complete. The test suite c
 - Graceful shutdown scaffold (signal handling, cleanup patterns, actor system integration)
 - Run tests clean_stale parameter (stale artifact cleanup before test runs)
 - New tool annotations (readOnlyHint/idempotentHint on all 20 new tools)
+- Combined verify tool (syntax + compile + lint + arity in one pass, valid code, invalid code, missing params)
+- Stdlib source reader (valid module resolution, nonexistent module handling)
+- Howto run recipe (valid recipe execution, nonexistent recipe handling)
+- Function behavior card (built-in cards for ~50 functions, unknown function dynamic probing, custom cases, sort with module import, when/unless edge cases, hash-merge)
+- Translate Scheme (define→def, hash-has-key?→hash-key?, hash-set!→hash-put!, make-hash→make-hash-table, raise-argument-error→error, with-handlers→try, port->string→read-all-as-string, racket/path module mapping, module+ test warning, semantic warnings, #lang removal)
+- Project templates (CLI generation, existing dir rejection, HTTP API)
+- Error fix lookup (hash-get arity, unbound for/collect, unknown error fallback, search_all)
+- Error fix add (add new fix, invalid regex rejection)
+- Cookbook semantic search (synonym "dict"→hash, synonym "traverse"→iterate, synonym "path"→file)
+- Stdlib resources (dynamic stdlib resource listing)
+- Cookbook synonym expansion (~75 synonym groups for fuzzy matching)
+- Source-informed function behavior cards (~50 built-in cards from Gerbil source analysis)
+- Source-informed translation rules (~40 rules from Gerbil source analysis)
 
 
 ### Adding a New Tool

@@ -106,6 +106,13 @@ import { registerConcurrentPlanValidateTool } from './tools/concurrent-plan-vali
 import { registerTestFixtureGenTool } from './tools/test-fixture-gen.js';
 import { registerDbPatternScaffoldTool } from './tools/db-pattern-scaffold.js';
 import { registerGracefulShutdownScaffoldTool } from './tools/graceful-shutdown-scaffold.js';
+import { registerVerifyTool } from './tools/verify.js';
+import { registerStdlibSourceTool } from './tools/stdlib-source.js';
+import { registerHowtoRunTool } from './tools/howto-run.js';
+import { registerFunctionBehaviorTool } from './tools/function-behavior.js';
+import { registerTranslateSchemeTool } from './tools/translate-scheme.js';
+import { registerProjectTemplateTool } from './tools/project-template.js';
+import { registerErrorFixLookupTool, registerErrorFixAddTool } from './tools/error-fix.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -225,6 +232,14 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To generate test fixtures: use gerbil_test_fixture_gen to create mock modules and test setup with parameterize.
 - To scaffold database access: use gerbil_db_pattern_scaffold to generate CRUD with connection pooling and transactions.
 - To scaffold graceful shutdown: use gerbil_graceful_shutdown_scaffold for signal handling and cleanup patterns.
+- To verify code in one pass: use gerbil_verify to run syntax check, compile check, lint, and arity check in a single call. Replaces sequential check_syntax → compile_check → lint → check_arity workflow.
+- To read stdlib source: use gerbil_stdlib_source to read the full source code of any standard library module by its module path.
+- To test a cookbook recipe: use gerbil_howto_run to compile-check and optionally execute a recipe in the current environment.
+- To probe function behavior: use gerbil_function_behavior to generate a behavior card showing return values for normal and edge cases (missing keys, empty lists, out of bounds, etc.).
+- To translate Scheme to Gerbil: use gerbil_translate_scheme to mechanically convert R7RS or Racket code to idiomatic Gerbil with semantic warnings.
+- To generate project structure: use gerbil_project_template to create a complete multi-file project from a template (cli, http-api, library, actor-service, db-crud, parser, ffi-wrapper, test-project).
+- To look up error fixes: use gerbil_error_fix_lookup for instant fix lookup from a database of ~20 common error→fix mappings. Much faster than explain_error for known errors.
+- To add error fixes: use gerbil_error_fix_add to record new error→fix mappings discovered during a session.
 
 ## Common Workflows
 
@@ -240,6 +255,10 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - **Explore unknown module**: gerbil_module_quickstart → gerbil_dynamic_reference → gerbil_howto
 - **Build a service**: gerbil_httpd_handler_scaffold → gerbil_db_pattern_scaffold → gerbil_graceful_shutdown_scaffold
 - **Project quality audit**: gerbil_project_health_check → fix issues → gerbil_security_scan
+- **Quick verify**: gerbil_verify → fix all issues at once → gerbil_verify again to confirm clean
+- **Port from Racket**: gerbil_translate_scheme → gerbil_verify → gerbil_suggest_imports → manual review
+- **Fix common error**: gerbil_error_fix_lookup → apply fix → gerbil_verify
+- **Start new project**: gerbil_project_template → gerbil build → make test
 
 ## Important Guidance
 
@@ -366,6 +385,14 @@ registerConcurrentPlanValidateTool(server);
 registerTestFixtureGenTool(server);
 registerDbPatternScaffoldTool(server);
 registerGracefulShutdownScaffoldTool(server);
+registerVerifyTool(server);
+registerStdlibSourceTool(server);
+registerHowtoRunTool(server);
+registerFunctionBehaviorTool(server);
+registerTranslateSchemeTool(server);
+registerProjectTemplateTool(server);
+registerErrorFixLookupTool(server);
+registerErrorFixAddTool(server);
 
 registerPrompts(server);
 registerResources(server);

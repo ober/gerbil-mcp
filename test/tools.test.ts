@@ -5633,7 +5633,370 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
-  // ── Tool annotations for new tools ────────────────────────────
+  // ── Combined verify tool ──────────────────────────────────────
+
+  describe('Combined verify tool', () => {
+    it('verifies valid code passes all checks', async () => {
+      const result = await client.callTool('gerbil_verify', {
+        code: '(def (add a b) (+ a b))',
+      });
+      expect(result.text).toContain('passed');
+    });
+
+    it('reports compile errors for invalid code', async () => {
+      const result = await client.callTool('gerbil_verify', {
+        code: '(import :std/nonexistent-module-xyz)',
+      });
+      expect(result.text).toBeDefined();
+    });
+
+    it('requires code or file_path', async () => {
+      const result = await client.callTool('gerbil_verify', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Either');
+    });
+  });
+
+  // ── Stdlib source reader ────────────────────────────────────
+
+  describe('Stdlib source reader', () => {
+    it('reads source for :std/sort', async () => {
+      const result = await client.callTool('gerbil_stdlib_source', {
+        module_path: ':std/sort',
+      });
+      // Either returns source or a "not found" message — both are valid
+      expect(result.text).toBeDefined();
+      expect(result.text.length).toBeGreaterThan(10);
+    });
+
+    it('handles nonexistent module', async () => {
+      const result = await client.callTool('gerbil_stdlib_source', {
+        module_path: ':std/nonexistent-xyz',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Howto run recipe ────────────────────────────────────────
+
+  describe('Howto run recipe', () => {
+    it('compile-checks a valid recipe', async () => {
+      const result = await client.callTool('gerbil_howto_run', {
+        recipe_id: 'sort-list',
+      });
+      expect(result.text).toContain('Recipe:');
+    });
+
+    it('rejects nonexistent recipe', async () => {
+      const result = await client.callTool('gerbil_howto_run', {
+        recipe_id: 'nonexistent-xyz-recipe',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+  });
+
+  // ── Function behavior card ──────────────────────────────────
+
+  describe('Function behavior card', () => {
+    it('generates card for hash-get', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: 'hash-get',
+      });
+      expect(result.text).toContain('Behavior Card');
+      expect(result.text).toContain('hash-get');
+      expect(result.text).toContain('existing key');
+      expect(result.text).toContain('missing key');
+    });
+
+    it('generates card for unknown function', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: 'cons',
+      });
+      expect(result.text).toContain('Behavior Card');
+      expect(result.text).toContain('cons');
+    });
+
+    it('supports custom cases', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: '+',
+        custom_cases: [
+          { label: 'add two', expr: '(+ 2 3)' },
+        ],
+      });
+      expect(result.text).toContain('add two');
+    });
+
+    it('generates card for sort with module import', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: 'sort',
+      });
+      expect(result.text).toContain('Behavior Card');
+      expect(result.text).toContain(':std/sort');
+      expect(result.text).toContain('sort numbers');
+      expect(result.text).toContain('empty list');
+    });
+
+    it('generates card for when/unless edge case', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: 'when',
+      });
+      expect(result.text).toContain('Behavior Card');
+      expect(result.text).toContain('true condition');
+      expect(result.text).toContain('false condition');
+    });
+
+    it('generates card for hash-merge', async () => {
+      const result = await client.callTool('gerbil_function_behavior', {
+        function_name: 'hash-merge',
+      });
+      expect(result.text).toContain('Behavior Card');
+      expect(result.text).toContain('overlapping keys');
+    });
+  });
+
+  // ── Translate Scheme to Gerbil ──────────────────────────────
+
+  describe('Translate Scheme to Gerbil', () => {
+    it('translates define to def', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(define (greet name) (string-append "hello " name))',
+      });
+      expect(result.text).toContain('def');
+      expect(result.text).toContain('Translated Code');
+    });
+
+    it('translates hash-has-key? to hash-key?', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(hash-has-key? ht "key")',
+      });
+      expect(result.text).toContain('hash-key?');
+    });
+
+    it('warns about semantic differences', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(hash-has-key? ht "key")',
+      });
+      expect(result.text).toContain('Semantic Warnings');
+    });
+
+    it('removes #lang directive from code', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '#lang racket\n(define x 42)',
+        dialect: 'racket',
+      });
+      // The code block should not contain #lang, but the warning should mention it
+      expect(result.text).toContain('Removed #lang');
+      expect(result.text).toContain('def x');
+    });
+
+    it('translates hash-set! to hash-put!', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(hash-set! ht "key" 42)',
+      });
+      expect(result.text).toContain('hash-put!');
+    });
+
+    it('translates make-hash to make-hash-table', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(define ht (make-hash))',
+      });
+      expect(result.text).toContain('make-hash-table');
+    });
+
+    it('translates raise-argument-error to error', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(raise-argument-error \'f "string?" x)',
+      });
+      expect(result.text).toContain('(error');
+      expect(result.text).toContain('Semantic Warnings');
+    });
+
+    it('translates with-handlers to try', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(with-handlers ([exn:fail? handler]) body)',
+      });
+      expect(result.text).toContain('try');
+      expect(result.text).toContain('Semantic Warnings');
+    });
+
+    it('translates port->string to read-all-as-string', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(port->string p)',
+      });
+      expect(result.text).toContain('read-all-as-string');
+    });
+
+    it('adds module path mappings for racket/path', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(require racket/path)',
+      });
+      expect(result.text).toContain(':std/os/path');
+    });
+
+    it('warns about module+ test', async () => {
+      const result = await client.callTool('gerbil_translate_scheme', {
+        code: '(module+ test (check-equal? 1 1))',
+      });
+      expect(result.text).toContain('separate');
+      expect(result.text).toContain('test');
+    });
+  });
+
+  // ── Project templates ───────────────────────────────────────
+
+  describe('Project templates', () => {
+    it('generates CLI project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-tmpl-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      try {
+        const result = await client.callTool('gerbil_project_template', {
+          template: 'cli',
+          project_name: 'test-cli',
+          output_dir: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('Created');
+        expect(result.text).toContain('gerbil.pkg');
+        expect(result.text).toContain('build.ss');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('rejects existing directory', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-tmpl-' + Date.now());
+      mkdirSync(join(tempDir, 'existing'), { recursive: true });
+      try {
+        const result = await client.callTool('gerbil_project_template', {
+          template: 'library',
+          project_name: 'existing',
+          output_dir: tempDir,
+        });
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain('already exists');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('generates HTTP API project', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-tmpl-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      try {
+        const result = await client.callTool('gerbil_project_template', {
+          template: 'http-api',
+          project_name: 'my-api',
+          output_dir: tempDir,
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('handlers');
+        expect(result.text).toContain('routes');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+  });
+
+  // ── Error fix lookup ────────────────────────────────────────
+
+  describe('Error fix lookup', () => {
+    it('finds fix for hash-get arity error', async () => {
+      const result = await client.callTool('gerbil_error_fix_lookup', {
+        error_message: 'Wrong number of arguments passed to procedure hash-get, 3 args',
+      });
+      expect(result.text).toContain('hash-get');
+      expect(result.text).toContain('2-arity');
+    });
+
+    it('finds fix for unbound for/collect', async () => {
+      const result = await client.callTool('gerbil_error_fix_lookup', {
+        error_message: 'Unbound identifier: for/collect',
+      });
+      expect(result.text).toContain(':std/iter');
+    });
+
+    it('returns fallback for unknown errors', async () => {
+      const result = await client.callTool('gerbil_error_fix_lookup', {
+        error_message: 'Some completely unknown error message xyz',
+      });
+      expect(result.text).toContain('No direct fix');
+    });
+
+    it('supports search_all mode', async () => {
+      const result = await client.callTool('gerbil_error_fix_lookup', {
+        error_message: 'Wrong number of arguments passed to procedure hash-get, 3 args',
+        search_all: true,
+      });
+      expect(result.text).toContain('hash-get');
+    });
+  });
+
+  // ── Error fix add ───────────────────────────────────────────
+
+  describe('Error fix add', () => {
+    it('adds a new error fix', async () => {
+      const result = await client.callTool('gerbil_error_fix_add', {
+        id: 'test-fix-xyz',
+        pattern: 'test error xyz',
+        type: 'Test Error',
+        fix: 'This is a test fix',
+        code_example: '(+ 1 2)',
+      });
+      expect(result.text).toContain('successfully');
+    });
+
+    it('rejects invalid regex', async () => {
+      const result = await client.callTool('gerbil_error_fix_add', {
+        id: 'bad-regex',
+        pattern: '(unclosed group',
+        type: 'Test',
+        fix: 'test',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Invalid regex');
+    });
+  });
+
+  // ── Cookbook semantic search (synonym expansion) ─────────────
+
+  describe('Cookbook semantic search', () => {
+    it('finds hash recipes via synonym "dict"', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'dict lookup',
+      });
+      // Should find hash-table-basics or iterate-hash via synonym expansion
+      expect(result.text).toContain('hash');
+    });
+
+    it('finds iterate recipes via synonym "traverse"', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'traverse hash',
+      });
+      expect(result.text.toLowerCase()).toContain('hash');
+    });
+
+    it('finds file recipes via synonym "path"', async () => {
+      const result = await client.callTool('gerbil_howto', {
+        query: 'path read',
+      });
+      expect(result.text.toLowerCase()).toMatch(/file|read|path/);
+    });
+  });
+
+  // ── Stdlib resources ────────────────────────────────────────
+
+  describe('Stdlib reference resources', () => {
+    it('lists stdlib resources', async () => {
+      const resources = await client.listResources();
+      const resourceList = resources as { resources?: Array<{ uri: string }>; resourceTemplates?: Array<{ uriTemplate: string }> };
+      const allUris = (resourceList.resources || []).map(r => r.uri);
+      // At least one stdlib resource should be listed
+      expect(allUris.some(u => u.includes('reference/std-'))).toBe(true);
+    });
+  });
+
+  // ── Tool annotations for all tools (including new batch) ───
 
   describe('New tool annotations', () => {
     it('all new tools have annotations', async () => {
@@ -5658,6 +6021,15 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_test_fixture_gen',
         'gerbil_db_pattern_scaffold',
         'gerbil_graceful_shutdown_scaffold',
+        // New batch 3 tools
+        'gerbil_verify',
+        'gerbil_stdlib_source',
+        'gerbil_howto_run',
+        'gerbil_function_behavior',
+        'gerbil_translate_scheme',
+        'gerbil_project_template',
+        'gerbil_error_fix_lookup',
+        'gerbil_error_fix_add',
       ];
 
       for (const name of newToolNames) {

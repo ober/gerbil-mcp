@@ -1,0 +1,9 @@
+[
+  {
+    "id": "test-fix-xyz",
+    "pattern": "test error xyz",
+    "type": "Test Error",
+    "fix": "This is a test fix",
+    "code_example": "(+ 1 2)"
+  }
+]

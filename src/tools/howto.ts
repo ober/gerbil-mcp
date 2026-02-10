@@ -443,6 +443,176 @@ export const RECIPES: Recipe[] = [
 
 const MAX_RESULTS = 5;
 
+// ── Synonym expansion table ─────────────────────────────────────
+// Maps common alternatives to their canonical forms for better recipe discovery.
+const SYNONYM_MAP: Record<string, string[]> = {
+  iterate: ['traverse', 'loop', 'for', 'each', 'walk'],
+  traverse: ['iterate', 'loop', 'for', 'walk'],
+  loop: ['iterate', 'for', 'each', 'traverse'],
+  hash: ['hashtable', 'hash-table', 'dict', 'dictionary', 'map', 'hashmap'],
+  dict: ['hash', 'hashtable', 'hash-table', 'dictionary', 'map'],
+  map: ['hash', 'dict', 'transform', 'collect'],
+  string: ['text', 'str'],
+  text: ['string', 'str'],
+  list: ['sequence', 'array', 'collection'],
+  sequence: ['list', 'array', 'collection'],
+  error: ['exception', 'catch', 'throw', 'raise', 'handle'],
+  exception: ['error', 'catch', 'throw', 'raise'],
+  catch: ['error', 'exception', 'handle', 'try'],
+  handle: ['error', 'exception', 'catch', 'try'],
+  file: ['path', 'directory', 'io', 'fs'],
+  path: ['file', 'directory', 'fs'],
+  directory: ['file', 'path', 'dir', 'folder'],
+  read: ['parse', 'load', 'input', 'get'],
+  parse: ['read', 'load', 'deserialize', 'decode'],
+  write: ['save', 'output', 'put', 'dump'],
+  save: ['write', 'output', 'persist', 'store'],
+  json: ['parse', 'serialize', 'deserialize'],
+  http: ['web', 'request', 'api', 'fetch', 'network', 'url'],
+  web: ['http', 'request', 'api', 'network'],
+  request: ['http', 'web', 'api', 'fetch'],
+  fetch: ['http', 'get', 'request', 'download'],
+  thread: ['concurrent', 'parallel', 'spawn', 'async'],
+  concurrent: ['thread', 'parallel', 'spawn', 'async'],
+  async: ['thread', 'concurrent', 'parallel', 'spawn'],
+  channel: ['message', 'queue', 'pipe', 'stream'],
+  sort: ['order', 'rank', 'arrange'],
+  filter: ['select', 'where', 'remove', 'keep'],
+  reduce: ['fold', 'accumulate', 'aggregate'],
+  fold: ['reduce', 'accumulate', 'aggregate'],
+  collect: ['gather', 'map', 'transform', 'list'],
+  test: ['check', 'assert', 'verify', 'unit', 'spec'],
+  struct: ['record', 'type', 'data', 'class', 'object'],
+  class: ['struct', 'record', 'type', 'object'],
+  regex: ['regexp', 'pattern', 'match', 'search'],
+  regexp: ['regex', 'pattern', 'match'],
+  import: ['require', 'load', 'module', 'use'],
+  module: ['import', 'package', 'library', 'lib'],
+  database: ['db', 'sql', 'sqlite', 'postgres'],
+  db: ['database', 'sql', 'sqlite', 'postgres'],
+  actor: ['message', 'spawn', 'supervisor', 'process'],
+  format: ['printf', 'sprintf', 'template', 'interpolate'],
+  convert: ['transform', 'translate', 'cast', 'coerce'],
+  create: ['make', 'new', 'build', 'construct', 'init'],
+  delete: ['remove', 'drop', 'destroy', 'dispose'],
+  update: ['modify', 'change', 'set', 'mutate', 'put'],
+  find: ['search', 'lookup', 'locate', 'get', 'query'],
+  search: ['find', 'lookup', 'locate', 'query'],
+  split: ['tokenize', 'separate', 'break', 'divide'],
+  join: ['concat', 'merge', 'combine', 'append'],
+  merge: ['join', 'combine', 'concat'],
+  keys: ['key', 'properties', 'fields', 'names'],
+  values: ['value', 'entries', 'items'],
+  bytes: ['binary', 'u8vector', 'byte', 'raw'],
+  binary: ['bytes', 'u8vector', 'raw'],
+  // ── Data structure aliases ──────────────────────────────────────
+  alist: ['association', 'assoc', 'agetq', 'asetq', 'pairs'],
+  association: ['alist', 'assoc', 'pairs'],
+  pair: ['cons', 'tuple', 'dotted'],
+  cons: ['pair', 'tuple'],
+  vector: ['array', 'vec'],
+  array: ['vector', 'list', 'sequence'],
+  // ── List operation aliases ──────────────────────────────────────
+  flatten: ['nest', 'unnest', 'deep'],
+  unique: ['deduplicate', 'distinct', 'dedup', 'duplicates'],
+  deduplicate: ['unique', 'distinct', 'dedup'],
+  append: ['push', 'add', 'extend'],
+  prepend: ['unshift', 'cons', 'push-front'],
+  reverse: ['invert', 'flip', 'backwards'],
+  take: ['head', 'first', 'prefix', 'slice'],
+  drop: ['tail', 'rest', 'skip', 'slice'],
+  chunk: ['partition', 'batch', 'group', 'split'],
+  group: ['cluster', 'categorize', 'classify', 'chunk'],
+  // ── Function composition ────────────────────────────────────────
+  compose: ['pipe', 'chain', 'combine'],
+  pipe: ['compose', 'chain', 'pipeline', 'thread'],
+  // ── Concurrency ─────────────────────────────────────────────────
+  mutex: ['lock', 'semaphore', 'synchronize'],
+  lock: ['mutex', 'semaphore', 'critical'],
+  timeout: ['delay', 'sleep', 'wait', 'timer'],
+  delay: ['timeout', 'sleep', 'wait'],
+  signal: ['event', 'notify', 'trigger'],
+  // ── I/O and ports ───────────────────────────────────────────────
+  port: ['stream', 'socket', 'io'],
+  stream: ['port', 'socket', 'channel'],
+  // ── Serialization ───────────────────────────────────────────────
+  serialize: ['marshal', 'encode', 'dump', 'write'],
+  deserialize: ['unmarshal', 'decode', 'load', 'read'],
+  encode: ['serialize', 'marshal', 'convert'],
+  decode: ['deserialize', 'unmarshal', 'parse'],
+  // ── Collection operations ───────────────────────────────────────
+  copy: ['clone', 'dup', 'duplicate'],
+  clear: ['reset', 'empty', 'wipe'],
+  count: ['length', 'size', 'cardinality'],
+  length: ['count', 'size'],
+  size: ['count', 'length'],
+  // ── Macro / syntax ──────────────────────────────────────────────
+  macro: ['syntax', 'defrule', 'defsyntax', 'sugar'],
+  syntax: ['macro', 'defrule', 'rule'],
+  callback: ['handler', 'hook', 'listener'],
+  handler: ['callback', 'hook', 'listener'],
+  // ── Predicate aliases ──────────────────────────────────────────
+  predicate: ['test', 'check', 'query'],
+  check: ['test', 'verify', 'assert', 'validate'],
+};
+
+/**
+ * Expand a search word with synonyms.
+ * Returns the original word plus all synonyms.
+ */
+function expandSynonyms(word: string): string[] {
+  const result = [word];
+  const synonyms = SYNONYM_MAP[word];
+  if (synonyms) {
+    result.push(...synonyms);
+  }
+  // Also check if any synonym map entry contains this word as a value
+  for (const [key, values] of Object.entries(SYNONYM_MAP)) {
+    if (values.includes(word) && !result.includes(key)) {
+      result.push(key);
+    }
+  }
+  return [...new Set(result)];
+}
+
+/**
+ * Simple fuzzy matching: check if two strings are within edit distance 1
+ * (single character insertion, deletion, or substitution).
+ */
+function fuzzyMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length < 3 || b.length < 3) return false; // skip very short words
+
+  // Check if one is a prefix of the other (partial match)
+  if (a.length >= 3 && b.startsWith(a)) return true;
+  if (b.length >= 3 && a.startsWith(b)) return true;
+
+  // Levenshtein distance = 1
+  let diffs = 0;
+  if (a.length === b.length) {
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) diffs++;
+      if (diffs > 1) return false;
+    }
+    return diffs === 1;
+  }
+
+  // Different lengths (insertion/deletion)
+  const longer = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
+  let j = 0;
+  for (let i = 0; i < longer.length; i++) {
+    if (j < shorter.length && longer[i] === shorter[j]) {
+      j++;
+    } else {
+      diffs++;
+      if (diffs > 1) return false;
+    }
+  }
+  return true;
+}
+
 // ── Gerbil version detection (cached) ────────────────────────────
 let cachedGerbilVersion: string | null | undefined = undefined; // undefined = not yet checked
 
@@ -584,22 +754,42 @@ export function registerHowtoTool(server: McpServer): void {
         recipes = recipes.filter((r) => versionMatches(r, explicitVersion));
       }
 
-      // Score each recipe
+      // Score each recipe (with synonym expansion and fuzzy matching)
       const scored = recipes.map((recipe) => {
         let score = 0;
         for (const word of words) {
-          // Tags: weight 5
-          for (const tag of recipe.tags) {
-            if (tag.includes(word) || word.includes(tag)) score += 5;
+          // Expand word with synonyms
+          const expanded = expandSynonyms(word);
+
+          for (const searchTerm of expanded) {
+            // Weight: direct match = full weight, synonym match = half weight
+            const weight = searchTerm === word ? 1.0 : 0.5;
+
+            // Tags: weight 5
+            for (const tag of recipe.tags) {
+              if (tag.includes(searchTerm) || searchTerm.includes(tag)) {
+                score += 5 * weight;
+              } else if (fuzzyMatch(tag, searchTerm)) {
+                score += 3 * weight; // fuzzy match gets lower weight
+              }
+            }
+            // Title: weight 3
+            if (recipe.title.toLowerCase().includes(searchTerm)) {
+              score += 3 * weight;
+            }
+            // ID: weight 2
+            if (recipe.id.includes(searchTerm)) {
+              score += 2 * weight;
+            }
+            // Notes: weight 1
+            if (recipe.notes?.toLowerCase().includes(searchTerm)) {
+              score += 1 * weight;
+            }
+            // Code: weight 1
+            if (recipe.code.toLowerCase().includes(searchTerm)) {
+              score += 1 * weight;
+            }
           }
-          // Title: weight 3
-          if (recipe.title.toLowerCase().includes(word)) score += 3;
-          // ID: weight 2
-          if (recipe.id.includes(word)) score += 2;
-          // Notes: weight 1
-          if (recipe.notes?.toLowerCase().includes(word)) score += 1;
-          // Code: weight 1
-          if (recipe.code.toLowerCase().includes(word)) score += 1;
         }
         // Deprioritize deprecated recipes
         if (recipe.deprecated) {
