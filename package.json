@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "copy-resources": "cp -r src/resources dist/resources",
+    "build": "tsc && npm run copy-resources",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "test": "vitest run",

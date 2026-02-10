@@ -4561,6 +4561,42 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Reference resources ─────────────────────────────────────
+
+  describe('Reference resources', () => {
+    const REFERENCE_URIS = [
+      'gerbil://reference/idioms',
+      'gerbil://reference/pattern-matching',
+      'gerbil://reference/actors',
+      'gerbil://reference/stdlib-map',
+      'gerbil://reference/gambit-interop',
+    ];
+
+    it('listResources includes all 5 reference URIs', async () => {
+      const { resources } = await client.listResources();
+      const uris = resources.map(r => r.uri);
+      for (const refUri of REFERENCE_URIS) {
+        expect(uris).toContain(refUri);
+      }
+    });
+
+    for (const refUri of REFERENCE_URIS) {
+      const shortName = refUri.replace('gerbil://reference/', '');
+      it(`${shortName} returns markdown content`, async () => {
+        const result = await client.readResource(refUri);
+        expect(result.contents.length).toBeGreaterThan(0);
+        expect(result.contents[0].mimeType).toBe('text/markdown');
+        expect(result.contents[0].text!.length).toBeGreaterThan(100);
+        expect(result.contents[0].text).toContain('#');
+      });
+    }
+
+    it('unknown reference URI returns error', async () => {
+      await expect(client.readResource('gerbil://reference/nonexistent'))
+        .rejects.toThrow(/not found/i);
+    });
+  });
+
   // ── Smart complete tool ──────────────────────────────────────
 
   describe('Smart complete tool', () => {

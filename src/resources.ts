@@ -86,4 +86,89 @@ export function registerResources(server: McpServer): void {
       };
     },
   );
+
+  // Static reference documentation resources
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const resourcesDir = join(thisDir, 'resources');
+
+  const REFERENCE_RESOURCES: Array<{
+    name: string;
+    uri: string;
+    description: string;
+    filename: string;
+  }> = [
+    {
+      name: 'Gerbil Idiom Cheat Sheet',
+      uri: 'gerbil://reference/idioms',
+      description:
+        'Core syntax differences from standard Scheme: def vs define, bracket lists, ' +
+        'hash tables, keyword args, defstruct/defclass, using, chain, iteration, ' +
+        'pattern matching, import/export, error handling, and common gotchas.',
+      filename: 'gerbil-idioms.md',
+    },
+    {
+      name: 'Gerbil Pattern Matching Reference',
+      uri: 'gerbil://reference/pattern-matching',
+      description:
+        'Complete guide to match syntax: literals, binding, wildcards, list/cons ' +
+        'destructuring, struct patterns, predicates (?), and/or/not patterns, ' +
+        'quasiquote, ellipsis, match lambda (<>), match*, when-let, if-let.',
+      filename: 'gerbil-pattern-matching.md',
+    },
+    {
+      name: 'Gerbil Actor System Reference',
+      uri: 'gerbil://reference/actors',
+      description:
+        'Actor-oriented programming: spawn, message passing (<-, -->, ->>, !!), ' +
+        'stateful loops, request/reply, supervisor patterns, worker pools, ' +
+        'actor servers, ensembles, remote handles, and Gambit threading primitives.',
+      filename: 'gerbil-actors.md',
+    },
+    {
+      name: 'Gerbil Standard Library Map',
+      uri: 'gerbil://reference/stdlib-map',
+      description:
+        'Complete standard library overview organized by domain: text processing, ' +
+        'networking, concurrency/actors, data structures, iteration, I/O, OS/system, ' +
+        'database, crypto, syntax/macros, logging, testing, serialization, FFI, SRFIs.',
+      filename: 'gerbil-stdlib-map.md',
+    },
+    {
+      name: 'Gerbil-Gambit Interop Guide',
+      uri: 'gerbil://reference/gambit-interop',
+      description:
+        'When and how to use Gambit primitives from Gerbil: ## prefix, threading ' +
+        'model comparison, I/O layers, C FFI (begin-foreign, c-lambda, extern), ' +
+        'declare blocks for optimization, reader extensions, and common mistakes.',
+      filename: 'gerbil-gambit-interop.md',
+    },
+  ];
+
+  for (const res of REFERENCE_RESOURCES) {
+    const filePath = join(resourcesDir, res.filename);
+
+    server.registerResource(
+      res.name,
+      res.uri,
+      {
+        description: res.description,
+        mimeType: 'text/markdown',
+      },
+      async () => {
+        let content: string;
+        try {
+          content = readFileSync(filePath, 'utf-8');
+        } catch (err) {
+          content = `Error reading resource file ${res.filename}: ${err}`;
+        }
+        return {
+          contents: [{
+            uri: res.uri,
+            mimeType: 'text/markdown',
+            text: content,
+          }],
+        };
+      },
+    );
+  }
 }

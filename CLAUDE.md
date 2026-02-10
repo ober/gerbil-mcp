@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 344 tests must pass before considering any change complete. The test suite covers:
+All 351 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -127,6 +127,7 @@ All 344 tests must pass before considering any change complete. The test suite c
 - Describe tool (hash table, list, number, string, boolean, procedure description, error handling)
 - New prompts (write-gerbil-module, debug-gerbil-error, port-to-gerbil)
 - Cookbook resources (gerbil://cookbooks index, gerbil://cookbooks/{id} detail, unknown id handling)
+- Reference resources (gerbil://reference/* for idioms, pattern-matching, actors, stdlib-map, gambit-interop; listResources inclusion, markdown content verification, unknown URI error handling)
 - Smart complete tool (prefix-based symbol completion, module-scoped completion)
 - Explain error tool (arity mismatch classification, unbound identifier classification, unknown error fallback, cookbook recipe lookup)
 - Diff modules tool (added/removed/shared export comparison, same-module comparison)
