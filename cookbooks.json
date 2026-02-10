@@ -8941,5 +8941,207 @@
     ],
     "code": ";; DANGEROUS — shell injection via format string interpolation:\n;; (run-process/batch [\"/bin/sh\" \"-c\" (format \"cmd -o ~a ~a\" file user-input)])\n;; If user-input contains \"; rm -rf /\" this executes arbitrary commands.\n\n;; SAFE — pass arguments as a list, no shell involved:\n(run-process/batch [\"qrencode\" \"-s\" \"5\" \"-o\" output-file uri])\n(run-process/batch [\"feh\" \"--auto-zoom\" \"--fullscreen\" output-file])",
     "notes": "Never use (format ...) to build a command string passed to /bin/sh -c. Instead, pass each argument as a separate list element to run-process or run-process/batch. This avoids shell metacharacter interpretation entirely. The same applies to open-process with [path: \\\"/bin/sh\\\" arguments: [\\\"-c\\\" ...]]."
+  },
+  {
+    "id": "std-hash-let-hash-macro-v019",
+    "title": "let-hash macro for convenient hash table access with dot notation",
+    "tags": [
+      "hash",
+      "let-hash",
+      "sugar",
+      "v0.19",
+      "hash-ref",
+      "hash-get",
+      "dot-notation",
+      ":std/hash"
+    ],
+    "imports": [
+      ":std/hash"
+    ],
+    "code": "(import :std/hash)\n\n(let-hash (hash ('name \"Alice\") ('age 30))\n  (displayln .name)        ; prints \"Alice\" (hash-ref, strong)\n  (displayln .?missing)    ; prints #f (hash-get, weak)\n  (displayln .$\"name\")     ; string key weak accessor\n  (let (x 'name)\n    (displayln ..x)))      ; escape to refer to outer binding",
+    "notes": "The let-hash macro from :std/hash (NEW in v0.19, moved from :std/sugar) provides convenient dot-syntax for hash access. Prefix with . for hash-ref (strong, error on missing), .? for hash-get (weak, returns #f), .$ for string keys (weak), and .. to escape and refer to outer bindings. This is a cleaner location than the v0.18 :std/sugar placement.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-hash-utilities-v019",
+    "title": "Hash utility functions in :std/hash",
+    "tags": [
+      "hash",
+      "hash-empty",
+      "hash-ref",
+      "hash-ensure-ref",
+      "equal-hash",
+      "invert-hash",
+      "v0.19",
+      ":std/hash",
+      "utilities"
+    ],
+    "imports": [
+      ":std/hash"
+    ],
+    "code": "(import :std/hash)\n\n;; Check if hash is empty\n(hash-empty? (hash))  ; => #t\n\n;; Get with procedural default\n(hash-ref/default h 'key (lambda () (compute-default)))\n\n;; Get or set default (modifying)\n(hash-ensure-ref h 'key (lambda () (expensive-init)))\n\n;; Deep equality for hashes\n(equal-hash? (hash ('a 1)) (hash ('a 1)))  ; => #t\n\n;; Invert hash (swap keys/values)\n(invert-hash-into! from-hash to-hash)\n\n;; Sorted list from hash\n(hash->list/sort h string<?)",
+    "notes": "NEW module in v0.19. :std/hash provides a curated subset of hash utilities (moved from :std/misc/hash). The full suite remains in :std/misc/hash. Procedural defaults (lambdas) avoid premature evaluation, useful for expensive computations or side effects. hash-ensure-ref modifies the hash in place if key is missing.",
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-sync-wg-location-v019",
+    "title": "Wait Groups moved to :std/sync/wg in v0.19",
+    "tags": [
+      "wg",
+      "workgroup",
+      "concurrency",
+      "parallel",
+      "threads",
+      "v0.19",
+      "wait-group",
+      ":std/sync/wg",
+      "location-change"
+    ],
+    "imports": [
+      ":std/sync/wg"
+    ],
+    "code": "(import :std/sync/wg)\n\n(def wg (make-wg 4))  ; 4 worker threads\n\n;; Dispatch tasks\n(for (item items)\n  (wg-add! wg (lambda () (process item))))\n\n;; Wait for completion\n(wg-wait! wg)  ; blocks until all tasks done, propagates exceptions",
+    "notes": "BREAKING CHANGE in v0.19: wait groups moved from :std/misc/wg to :std/sync/wg. Use make-wg to create a pool, wg-add! to dispatch thunks, wg-wait! to block until completion. wg-wait! propagates exceptions from workers. The API is unchanged, only the import location changed.",
+    "related": [
+      "misc-wg-workgroup",
+      "workgroup-thread-pool"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-string-misc-location-v019",
+    "title": "String prefix/suffix operations moved to :std/string/misc in v0.19",
+    "tags": [
+      "string",
+      "trim",
+      "prefix",
+      "suffix",
+      "eol",
+      "split",
+      "v0.19",
+      ":std/string/misc",
+      "location-change",
+      "string-trim-prefix"
+    ],
+    "imports": [
+      ":std/string/misc"
+    ],
+    "code": "(import :std/string/misc)\n\n;; Trim prefix\n(string-trim-prefix \"foo\" \"foobar\")  ; => \"bar\"\n(string-trim-prefix \"baz\" \"foobar\")  ; => \"foobar\" (unchanged)\n\n;; Split on prefix (returns 2 values)\n(let-values (((trimmed prefix-found) (string-split-prefix \"foo\" \"foobar\")))\n  (displayln trimmed)  ; \"bar\"\n  (displayln prefix-found))  ; \"foo\"\n\n;; Trim suffix\n(string-trim-suffix \".txt\" \"readme.txt\")  ; => \"readme\"\n\n;; Trim end-of-line (CR/LF/CRLF)\n(string-trim-eol \"hello\\r\\n\")  ; => \"hello\"\n(string-trim-eol \"hello\\n\")    ; => \"hello\"",
+    "notes": "BREAKING CHANGE in v0.19: string utilities moved from :std/misc/string to :std/string/misc. string-split-* functions return two values: trimmed string and the found delimiter (or empty string if not found). Use let-values to capture both. string-trim-eol handles all common line endings (CR, LF, CRLF).",
+    "related": [
+      "string-utilities-misc"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-text-pregexp-location-v019",
+    "title": "Pregexp moved to :std/text/pregexp in v0.19",
+    "tags": [
+      "pregexp",
+      "regex",
+      "regexp",
+      "text",
+      "v0.19",
+      ":std/text/pregexp",
+      "location-change"
+    ],
+    "imports": [
+      ":std/text/pregexp"
+    ],
+    "code": "(import :std/text/pregexp)\n\n(pregexp-match \"([0-9]+)\" \"age: 42\")  ; => (\"42\" \"42\")\n(pregexp-replace \"foo\" \"foo bar foo\" \"baz\")  ; => \"baz bar foo\" (first only)\n(pregexp-replace* \"foo\" \"foo bar foo\" \"baz\")  ; => \"baz bar baz\" (all)\n(pregexp-split \",\" \"a,b,c\")  ; => (\"a\" \"b\" \"c\")",
+    "notes": "BREAKING CHANGE in v0.19: pregexp moved from :std/pregexp to :std/text/pregexp. API unchanged. Provides Perl-compatible regular expressions. Use pregexp-replace for first match only, pregexp-replace* for all matches. pregexp-match returns list of (full-match capture-group-1 capture-group-2 ...).",
+    "related": [
+      "string-regex"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "getopt-api-removal-v019",
+    "title": "getopt API removal in v0.19: call-with-processed-command-line and ->getopt-spec removed",
+    "tags": [
+      "getopt",
+      "cli",
+      "breaking-change",
+      "v0.19",
+      "removed-api",
+      ":std/cli/getopt",
+      "call-with-getopt-parse"
+    ],
+    "imports": [
+      ":std/cli/getopt"
+    ],
+    "code": "(import :std/cli/getopt)\n\n;; REMOVED in v0.19:\n;; - call-with-processed-command-line\n;; - ->getopt-spec\n\n;; Use instead:\n(call-with-getopt-parse\n  (getopt\n    (flag \"-v\" \"--verbose\" help: \"verbose output\")\n    (option \"-o\" \"--output\" help: \"output file\" default: \"out.txt\"))\n  (command-line)\n  (lambda (opt rest)\n    (when (hash-get opt 'verbose)\n      (displayln \"Verbose mode enabled\"))\n    (displayln \"Output: \" (hash-ref opt 'output))))",
+    "notes": "BREAKING CHANGE in v0.19: call-with-processed-command-line and ->getopt-spec removed from :std/cli/getopt. Use call-with-getopt-parse instead. The getopt module also switched to cleaner imports (no more only-in) and uses displayln instead of fprintf internally. call-with-getopt-parse is still available and is the recommended API.",
+    "related": [
+      "getopt-cli-parsing",
+      "getopt-subcommand-handler-two-args"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "walist-assoc-arg-order-fix-v019",
+    "title": "walist assoc argument order fixed in v0.19 to match SRFI-1",
+    "tags": [
+      "walist",
+      "assoc",
+      "argument-order",
+      "breaking-change",
+      "v0.19",
+      "fix",
+      ":std/list/walist",
+      "srfi-1"
+    ],
+    "imports": [
+      ":std/list/walist"
+    ],
+    "code": "(import :std/list/walist)\n\n;; v0.18 (WRONG - had reversed args):\n;; (___walist-assoc w 'key)  ; incorrect order\n\n;; v0.19 (CORRECT - matches SRFI-1):\n(let ((w (make-walist '((a . 1) (b . 2)))))\n  (walist-assoc w 'a))  ; => (a . 1)\n\n;; Wraps assoc/assq/assv with correct argument order:\n;; (assoc key alist) not (assoc alist key)",
+    "notes": "BREAKING CHANGE in v0.19: walist assoc functions fixed to use correct SRFI-1 argument order: (assoc key alist) not (assoc alist key). This was a bug in v0.18. Also changed equal: #t to transparent: #t in ConcreteAList defstruct. If you have v0.18 code calling walist-assoc, the arguments may need to be swapped when migrating to v0.19.",
+    "related": [
+      "alist-association-list-operations"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "test-unit-macros-added-v019",
+    "title": "test/unit macros added in v0.19: test-case, check, and check-* assertions",
+    "tags": [
+      "test",
+      "unit-test",
+      "check",
+      "test-case",
+      "v0.19",
+      "testing",
+      ":std/test",
+      "assertions",
+      "check-equal"
+    ],
+    "imports": [
+      ":std/test"
+    ],
+    "code": "(import :std/test)\n\n(deftest-suite my-tests \"My Test Suite\"\n  (test-case \"addition works\"\n    (check (+ 1 2) => 3)\n    (check-equal? (+ 2 2) 4))\n  \n  (test-case \"predicates\"\n    (check (even? 4) ? even?)\n    (check-predicate 4 even?))\n  \n  (test-case \"exceptions\"\n    (check-exception (error \"oops\") error-exception?))\n  \n  (test-case \"output\"\n    (check-output (displayln \"hello\") \"hello\\n\")))",
+    "notes": "NEW in v0.19: :std/test/unit now exports test-suite, test-case, check, and various check-* macros. check supports => for equality, ? for predicates, and :: for custom equality functions. Also provides check-eq?, check-equal?, check-eqv?, check-exception, check-output, check-not-eq?, check-not-equal?, check-not-eqv?, check-not, check-predicate, check-not-predicate. These macros make test code more readable than raw assert! calls.",
+    "related": [
+      "test-basics"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "mop-descriptor-field-order-fix-v019",
+    "title": "MOP class descriptor field order fixed in v0.19 (internal change)",
+    "tags": [
+      "mop",
+      "class-descriptor",
+      "internal",
+      "v0.19",
+      "fix",
+      "runtime",
+      "type-descriptor",
+      "flags",
+      "super"
+    ],
+    "imports": [],
+    "code": ";; v0.18 descriptor layout (WRONG - internal inconsistency):\n;; (id name super flags fields ...)\n\n;; v0.19 descriptor layout (CORRECT):\n;; (id name flags super fields ...)\n\n;; This was an internal inconsistency fix.\n;; User code using type-descriptor-* accessors is unaffected:\n(import :std/generic)\n\n(defclass Animal (name)\n  id: gerbil/core#Animal)\n\n;; These accessors work correctly in both v0.18 and v0.19:\n(type-descriptor-name Animal::t)   ; => Animal\n(type-descriptor-fields Animal::t) ; => (name)\n(type-descriptor-super Animal::t)  ; => #f (or parent type)",
+    "notes": "INTERNAL FIX in v0.19 for runtime/mop: class descriptor field order corrected - flags and super were swapped to match actual memory layout. This is an internal fix; code using type-descriptor-* functions is unaffected. Only code that directly accesses descriptor vectors as tuples would be affected. The change ensures consistency between the declared layout and actual runtime representation.",
+    "gerbil_version": "v0.19"
   }
 ]
