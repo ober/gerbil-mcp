@@ -56,5 +56,24 @@
     "example_scenario": "In gerbil-crypto, blst_p1_affine_serialize writes 96 bytes (uncompressed G1) but the Scheme wrapper allocates a 48-byte u8vector. blst_p2_affine_serialize writes 192 bytes but gets a 96-byte buffer. These buffer overflows existed undetected because there were no BLS tests. Manual review required reading both the C header (blst.h) and the FFI shim to catch the mismatch. A dedicated tool could flag this instantly.",
     "estimated_token_reduction": "~3000 tokens per FFI module audit — eliminates manual cross-referencing of C API docs, c-declare shims, and Scheme buffer allocations across 3+ files",
     "votes": 0
+  },
+  {
+    "id": "run-tests-clean-stale-artifacts",
+    "title": "gerbil_run_tests should detect/clean stale compiled artifacts that conflict with source loading",
+    "description": "When using gerbil_run_tests with file_path mode and GERBIL_LOADPATH pointing to source, stale compiled artifacts in .gerbil/lib/ or ~/.gerbil/lib/ can shadow the source files. This is especially problematic when a module exports `main` (for exe builds) — the compiled artifact's `(declare ...)` forms cause the test runner to invoke `main` instead of loading the test suite. The tool should either: (1) detect stale artifacts and warn, (2) offer a `clean` parameter to remove them before running, or (3) automatically check with gerbil_stale_static logic before test execution.",
+    "impact": "medium",
+    "tags": [
+      "test",
+      "stale",
+      "artifacts",
+      "clean",
+      "compiled",
+      "loadpath",
+      "main"
+    ],
+    "use_case": "When running tests on a project that also builds executables. The exe module exports `main` and gets compiled with `(declare ...)` forms. Running gerbil_run_tests after a build picks up the compiled artifact, which triggers `main` invocation instead of test loading.",
+    "example_scenario": "Project has es-proxy.ss (exports main for exe) and es-proxy-test.ss. After `gerbil build`, running gerbil_run_tests on es-proxy-test.ss with loadpath=[project-dir] fails with 'Missing argument remote-host' because it loads compiled es-proxy instead of source. Workaround: manually rm -rf .gerbil/lib/es-proxy ~/.gerbil/lib/es-proxy before testing. The Makefile does this, but gerbil_run_tests doesn't.",
+    "estimated_token_reduction": "~500 tokens per failed test attempt — eliminates a round-trip of failure diagnosis + manual cleanup + retry",
+    "votes": 0
   }
 ]

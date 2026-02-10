@@ -9143,5 +9143,150 @@
     "code": ";; v0.18 descriptor layout (WRONG - internal inconsistency):\n;; (id name super flags fields ...)\n\n;; v0.19 descriptor layout (CORRECT):\n;; (id name flags super fields ...)\n\n;; This was an internal inconsistency fix.\n;; User code using type-descriptor-* accessors is unaffected:\n(import :std/generic)\n\n(defclass Animal (name)\n  id: gerbil/core#Animal)\n\n;; These accessors work correctly in both v0.18 and v0.19:\n(type-descriptor-name Animal::t)   ; => Animal\n(type-descriptor-fields Animal::t) ; => (name)\n(type-descriptor-super Animal::t)  ; => #f (or parent type)",
     "notes": "INTERNAL FIX in v0.19 for runtime/mop: class descriptor field order corrected - flags and super were swapped to match actual memory layout. This is an internal fix; code using type-descriptor-* functions is unaffected. Only code that directly accesses descriptor vectors as tuples would be affected. The change ensures consistency between the declared layout and actual runtime representation.",
     "gerbil_version": "v0.19"
+  },
+  {
+    "id": "hash-macro-keys-are-literal-symbols",
+    "title": "hash macro keys are literal (not evaluated) — use hash-put! for dynamic keys",
+    "tags": [
+      "hash",
+      "macro",
+      "key",
+      "literal",
+      "symbol",
+      "dynamic",
+      "hash-put!",
+      "variable",
+      "evaluate"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: The (hash ...) macro treats keys as LITERAL SYMBOLS, not\n;; expressions to evaluate. Variable names become symbol keys.\n;;\n;; WRONG — thinks 'k is the key, not the VALUE of k:\n;; (let ((k \"mykey\"))\n;;   (hash (k \"value\")))\n;; => creates hash with key 'k (symbol), NOT \"mykey\" (string)\n;;\n;; Proof:\n(let ((k \"mykey\"))\n  (let ((h (hash (k \"value\"))))\n    (hash-get h 'k)        ;; => \"value\"\n    (hash-get h \"mykey\")))  ;; => #f  ← NOT what you wanted!\n\n;; CORRECT — use hash-put! or make-hash-table for dynamic keys:\n(let ((k \"mykey\"))\n  (let ((h (make-hash-table)))\n    (hash-put! h k \"value\")\n    (hash-get h \"mykey\")))  ;; => \"value\"\n\n;; This matters when building JSON responses with dynamic keys,\n;; e.g. from parsed input where action-type is a string variable:\n;; WRONG: (hash (action-type inner-hash))  ; key is symbol 'action-type\n;; CORRECT:\n;; (let ((h (make-hash-table)))\n;;   (hash-put! h action-type inner-hash)\n;;   h)",
+    "notes": "The hash macro is syntactic sugar that quotes its keys. This is a common trap when building hash tables with computed keys, especially in JSON response construction. Use (hash (\"literal-key\" value)) for known keys and hash-put! for runtime-computed keys.",
+    "related": [
+      "hash-table-predicate-not-hash",
+      "write-json-arity-one-parameterize"
+    ]
+  },
+  {
+    "id": "table-predicate-not-hash-table-for-json",
+    "title": "table? does NOT match hash tables from read-json — use hash-table? instead",
+    "tags": [
+      "table?",
+      "hash-table?",
+      "json",
+      "read-json",
+      "predicate",
+      "type-check",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": "(import :std/text/json)\n\n;; GOTCHA: (table? obj) returns #f for hash tables created by read-json\n;; or the (hash ...) macro. Use (hash-table? obj) instead.\n\n;; The (hash ...) constructor creates a HashTable:\n(hash-table? (hash (\"a\" 1)))  ;; => #t\n(table? (hash (\"a\" 1)))       ;; => #f  ← WRONG!\n\n;; read-json also creates HashTable objects:\n(let ((json (call-with-input-string \"{\\\"a\\\":1}\" read-json)))\n  (hash-table? json)  ;; => #t\n  (table? json))      ;; => #f  ← WRONG!\n\n;; CORRECT pattern for checking parsed JSON:\n(let ((json (call-with-input-string \"{\\\"a\\\":1}\" read-json)))\n  (when (hash-table? json)\n    (hash-get json \"a\")))  ;; => 1",
+    "notes": "table? checks for Gambit's native table type, which is different from Gerbil's HashTable. Always use hash-table? when checking if a value is a hash table (whether from hash macro, make-hash-table, or read-json). This commonly bites in JSON parsing code where you check the type before accessing fields.",
+    "related": [
+      "hash-table-predicate-not-hash",
+      "write-json-arity-one-parameterize",
+      "json-parse"
+    ]
+  },
+  {
+    "id": "httpd-client-address-u8vector-pair",
+    "title": "http-request-client returns (u8vector . port) pair, not a string",
+    "tags": [
+      "httpd",
+      "http-request-client",
+      "client",
+      "address",
+      "ip",
+      "u8vector",
+      "pair",
+      "port",
+      "peer"
+    ],
+    "imports": [
+      ":std/net/httpd",
+      ":std/format"
+    ],
+    "code": "(import :std/net/httpd :std/format)\n\n;; http-request-client returns the peer address as a PAIR:\n;;   (u8vector . port-number)\n;; NOT a string like \"127.0.0.1:8080\"\n\n;; Example handler that extracts client IP:\n(def (extract-client-ip req)\n  (let ((addr (http-request-client req)))\n    (cond\n     ((not addr) \"unknown\")\n     ((pair? addr)\n      (let ((ip (car addr)))\n        (if (u8vector? ip)\n          (format \"~a.~a.~a.~a\"\n                  (u8vector-ref ip 0) (u8vector-ref ip 1)\n                  (u8vector-ref ip 2) (u8vector-ref ip 3))\n          (object->string ip))))\n     ((string? addr) addr)\n     (else (object->string addr)))))\n\n;; Usage in handler:\n;; (def (my-handler req res)\n;;   (let ((client-ip (extract-client-ip req)))\n;;     (displayln \"Request from: \" client-ip)))",
+    "notes": "The raw value from http-request-client looks like (#u8(127 0 0 1) . 37642) when printed. The car is a u8vector of 4 bytes for IPv4, and the cdr is the source port number. This is different from many HTTP frameworks that return a string. Handle gracefully with type checks since the format may vary.",
+    "related": [
+      "http-request-method-returns-symbol"
+    ]
+  },
+  {
+    "id": "httpd-start-server-address-formats",
+    "title": "start-http-server! address formats for plain TCP vs SSL",
+    "tags": [
+      "httpd",
+      "start-http-server!",
+      "ssl",
+      "tls",
+      "address",
+      "tcp",
+      "server",
+      "listen",
+      "cert"
+    ],
+    "imports": [
+      ":std/net/httpd"
+    ],
+    "code": "(import :std/net/httpd)\n\n;; start-http-server! takes keyword args and variadic addresses:\n;; (start-http-server! mux: mux-obj \"addr:port\" ...)\n\n;; Plain TCP:\n(def mux (make-default-http-mux (lambda (req res)\n           (http-response-write res 200 '() \"ok\"))))\n(def srv (start-http-server! mux: mux \"127.0.0.1:8080\"))\n\n;; SSL with cert/key file paths:\n;; (start-http-server! mux: mux\n;;   [ssl: \"0.0.0.0:8443\" \"/path/to/cert.pem\" \"/path/to/key.pem\"])\n\n;; SSL with pre-built context:\n;; (import :std/net/ssl)\n;; (def ctx (make-server-ssl-context \"/path/to/cert.pem\" \"/path/to/key.pem\"))\n;; (start-http-server! mux: mux [ssl: \"0.0.0.0:8443\" ctx])\n\n;; Multiple listeners (both plain and SSL):\n;; (start-http-server! mux: mux\n;;   \"0.0.0.0:8080\"\n;;   [ssl: \"0.0.0.0:8443\" \"/path/to/cert.pem\" \"/path/to/key.pem\"])\n\n;; stop:\n(stop-http-server! srv)",
+    "notes": "The address format is \\\"host:port\\\" as a string for plain TCP. For SSL, wrap in a list: [ssl: addr cert-path key-path] or [ssl: addr ssl-context]. The mux: keyword defaults to (make-default-http-mux). Returns an actor thread — use thread-join! to block or stop-http-server! to terminate. make-default-http-mux takes a single handler function as its argument — this is the catch-all default handler for all unmatched paths.",
+    "related": [
+      "ssl-tls-connections",
+      "http-request-method-returns-symbol"
+    ]
+  },
+  {
+    "id": "concurrent-load-test-spawn-with-catch",
+    "title": "Concurrent load test with spawn, with-catch, and atomic counters",
+    "tags": [
+      "stress",
+      "test",
+      "concurrent",
+      "spawn",
+      "with-catch",
+      "atomic",
+      "counter",
+      "load",
+      "thread"
+    ],
+    "imports": [
+      ":std/test",
+      ":std/net/request",
+      ":std/sugar"
+    ],
+    "code": ";; Thread-safe counter using mutex\n(defstruct atomic-counter (value mutex)\n  transparent: #t)\n(def (new-atomic-counter (v 0))\n  (make-atomic-counter v (make-mutex)))\n(def (atomic-counter-increment! c)\n  (mutex-lock! (atomic-counter-mutex c))\n  (set! (atomic-counter-value c) (+ (atomic-counter-value c) 1))\n  (mutex-unlock! (atomic-counter-mutex c)))\n(def (atomic-counter-get c)\n  (atomic-counter-value c))\n\n;; Spawn N concurrent clients with error tracking\n(let* ((num-clients 50)\n       (duration-seconds 10)\n       (completed (new-atomic-counter 0))\n       (errors (new-atomic-counter 0))\n       (start-time (exact->inexact (time->seconds (##current-time)))))\n  ;; Spawn clients\n  (let ((threads\n         (map (lambda (id)\n                (spawn\n                 (lambda ()\n                   (let loop ()\n                     (let ((elapsed (- (exact->inexact (time->seconds (##current-time)))\n                                       start-time)))\n                       (when (< elapsed duration-seconds)\n                         (with-catch\n                          (lambda (e) (atomic-counter-increment! errors))\n                          (lambda ()\n                            ;; Do work here\n                            (let (resp (http-get \"http://127.0.0.1:8080/health\"))\n                              (request-close resp))\n                            (atomic-counter-increment! completed)))\n                         (loop)))))))\n              (iota num-clients))))\n    ;; Wait for all to finish\n    (for-each thread-join! threads)\n    (displayln \"Completed: \" (atomic-counter-get completed))\n    (displayln \"Errors: \" (atomic-counter-get errors))))",
+    "notes": "Use `##current-time` (not `current-time`) when SRFI-19 is imported to avoid shadow conflict. The `with-catch` inside each spawned thread prevents one request failure from killing the client. `atomic-counter` uses a mutex for thread-safe increment/read. `iota` from standard prelude generates the client ID list. Each client loops until the duration elapses.",
+    "related": [
+      "spawn-thread",
+      "error-handling",
+      "memory-snapshot-profiling"
+    ]
+  },
+  {
+    "id": "memory-leak-detection-sustained-load",
+    "title": "Detect memory leaks during sustained load via periodic heap snapshots",
+    "tags": [
+      "memory",
+      "leak",
+      "detection",
+      "heap",
+      "gc",
+      "process-statistics",
+      "stress",
+      "test",
+      "monitoring"
+    ],
+    "imports": [
+      ":std/format"
+    ],
+    "code": ";; Periodic heap monitoring during a sustained load test\n;; Captures baseline, takes snapshots, checks stabilization\n(##gc)\n(thread-sleep! 0.1)\n(let ((baseline-heap (f64vector-ref (##process-statistics) 0))\n      (snapshots '()))\n  ;; ... run load in other threads ...\n  ;; Periodically sample heap (e.g. every 5 seconds):\n  (let monitor-loop ()\n    (thread-sleep! 5)\n    (##gc)\n    (let* ((stats (##process-statistics))\n           (heap (f64vector-ref stats 0))\n           (growth (- heap baseline-heap)))\n      (set! snapshots (append snapshots (list heap)))\n      (displayln (format \"  Heap: ~a, Growth: ~a\" heap growth)))\n    ;; Continue while test runs...\n    (monitor-loop))\n\n  ;; After load completes, check for stabilization:\n  (##gc)\n  (thread-sleep! 0.1)\n  (let* ((final-heap (f64vector-ref (##process-statistics) 0))\n         (final-growth (- final-heap baseline-heap)))\n    (when (>= (length snapshots) 4)\n      (let* ((mid-heap (list-ref snapshots (quotient (length snapshots) 2)))\n             (mid-growth (- mid-heap baseline-heap))\n             (stabilized (<= final-growth (+ (* mid-growth 2.0) 2.0))))\n        (unless stabilized\n          (error \"Memory may be leaking\" final-growth))))))",
+    "notes": "##process-statistics returns an f64vector; index 0 is heap size in bytes. Always call (##gc) before sampling to get accurate numbers. The stabilization check compares final growth to midpoint growth — if final is more than 2x midpoint + slack, memory may be leaking unboundedly. Use ##current-time (not current-time) for elapsed time when SRFI-19 is imported.",
+    "related": [
+      "memory-snapshot-profiling",
+      "force-gc-gambit",
+      "concurrent-load-test-spawn-with-catch"
+    ]
   }
 ]
