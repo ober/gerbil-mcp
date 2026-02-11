@@ -298,5 +298,24 @@
       "bash",
       "command"
     ]
+  },
+  {
+    "id": "c-shim-static-string-buffer-thread-safety",
+    "title": "Static string return buffer in C shim is not thread-safe",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "static\\s+char\\s+\\w+\\[.*\\]\\s*;",
+    "message": "Static char buffer used for returning strings from C to Scheme is shared across all threads. If multiple OS threads call FFI functions that use this buffer concurrently, data races can corrupt returned strings. This is safe for single-threaded Qt event loop usage but dangerous in multi-threaded actor/channel programs.",
+    "remediation": "Use thread_local storage (C11: _Thread_local, C++11: thread_local) for the return buffer, or allocate per-call with malloc and document ownership. Example: static thread_local char s_return_buf[4096];",
+    "related_recipe": "ffi-c-shim-static-return-buffer",
+    "tags": [
+      "static",
+      "buffer",
+      "thread-safety",
+      "string",
+      "return",
+      "data-race",
+      "c-shim"
+    ]
   }
 ]

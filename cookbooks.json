@@ -9677,5 +9677,378 @@
     "related": [
       "read-file-string"
     ]
+  },
+  {
+    "id": "termbox-next-ctrl-key-detection",
+    "title": "Detect Ctrl keys in termbox_next (no TB_MOD_CTRL)",
+    "tags": [
+      "termbox",
+      "ctrl",
+      "key",
+      "event",
+      "keyboard",
+      "modifier",
+      "termbox_next"
+    ],
+    "imports": [],
+    "code": ";; termbox_next has NO TB_MOD_CTRL modifier flag.\n;; Ctrl+A arrives as: key=0x01, ch=0, mod=0\n;; Ctrl+Z arrives as: key=0x1A, ch=0, mod=0\n;; Must detect by key code range, NOT modifier flags.\n\n;; Map key codes 0x01-0x1A to \"C-a\" through \"C-z\"\n(def (ctrl-key->string key)\n  (cond\n    ((= key 0) \"C-@\")           ; C-@ / C-SPC (key=0, ch=0)\n    ((<= 1 key #x1A)            ; C-a through C-z\n     (string-append \"C-\" (string (integer->char (+ key 96)))))\n    ((= key #x1B) \"ESC\")        ; Escape\n    ((= key #x1C) \"C-\\\\\\\\\")    ; C-backslash\n    ((= key #x1D) \"C-]\")       ; C-]\n    ((= key #x1E) \"C-^\")       ; C-^\n    ((= key #x1F) \"C-_\")       ; C-_ (also C-/)\n    (else #f)))\n\n;; Example: Converting a tui-event to an Emacs-style key string\n;; (let ((key (tui-event-key ev))\n;;       (ch  (tui-event-ch ev))\n;;       (mod (tui-event-mod ev)))\n;;   (cond\n;;     ((= mod TB_MOD_ALT)  ; Alt/Meta modifier\n;;      (string-append \"M-\" (if (> ch 31) (string (integer->char ch)) ...)))\n;;     ((ctrl-key->string key) => values)  ; Ctrl key range\n;;     ((> ch 31) (string (integer->char ch)))  ; Printable char\n;;     (else \"unknown\")))",
+    "notes": "termbox_next (bundled in scintilla-termbox) differs from termbox2: it has TB_MOD_MOTION (0x02) instead of TB_MOD_CTRL. Ctrl keys are encoded directly in the key field as ASCII control codes. C-@ is special: key=0, ch=0, mod=0 — must check before the 0x01-0x1A range. TB_MOD_ALT (0x01) IS available for Alt/Meta detection."
+  },
+  {
+    "id": "defstruct-factory-naming-conflict",
+    "title": "Avoid defstruct naming conflicts with custom constructors",
+    "tags": [
+      "defstruct",
+      "constructor",
+      "factory",
+      "naming",
+      "conflict",
+      "make",
+      "rebind"
+    ],
+    "imports": [],
+    "code": ";; defstruct auto-generates make-NAME, NAME-field, NAME-field-set!\n;; DO NOT define a custom function named make-NAME — it will rebind\n;; the auto-generated constructor and cause \"Bad binding\" errors.\n\n;; BAD: conflicts with auto-generated make-app-state\n;; (defstruct app-state (frame echo running))\n;; (def (make-app-state frame)   ;; ERROR: rebinds the constructor!\n;;   (make-app-state frame (make-echo) #t))\n\n;; GOOD: use a different name for the factory function\n(defstruct app-state (frame echo running) transparent: #t)\n\n(def (new-app-state frame)\n  (make-app-state frame (make-initial-echo) #t))\n\n;; Convention: use \"new-X\" for custom factories when defstruct\n;; already generates \"make-X\" with positional args.",
+    "notes": "This is a common pitfall when defstruct generates make-NAME and you want a factory with different/fewer parameters. The defstruct macro generates the constructor first, then your def rebinds it, causing confusing errors. Use new-X or create-X naming convention instead. Same applies to defclass with constructor: :init!."
+  },
+  {
+    "id": "scintilla-multi-buffer-docpointer",
+    "title": "Scintilla multi-buffer management with document pointers",
+    "tags": [
+      "scintilla",
+      "buffer",
+      "document",
+      "pointer",
+      "multi-buffer",
+      "switch",
+      "ref-count"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; Scintilla uses reference-counted document pointers for multi-buffer editing.\n;; Each editor widget displays one document at a time via SCI_SETDOCPOINTER.\n\n;; Create a new empty document (ref count = 1, caller owns)\n(def (buffer-create-new! ed)\n  (let ((doc (editor-send-message ed SCI_CREATEDOCUMENT 0 0)))\n    doc))  ; save this pointer\n\n;; Capture the initial document from an editor (add ref so we co-own it)\n(def (buffer-capture-current! ed)\n  (let ((doc (editor-send-message ed SCI_GETDOCPOINTER 0 0)))\n    (editor-send-message ed SCI_ADDREFDOCUMENT 0 doc)\n    doc))\n\n;; Switch an editor to display a different document\n(def (buffer-switch! ed new-doc)\n  (editor-send-message ed SCI_SETDOCPOINTER 0 new-doc))\n  ;; SCI_SETDOCPOINTER automatically adjusts ref counts:\n  ;; - decrements ref on old doc\n  ;; - increments ref on new doc\n\n;; Release a document when killing a buffer\n(def (buffer-release! ed doc)\n  (editor-send-message ed SCI_RELEASEDOCUMENT 0 doc))\n  ;; When ref count reaches 0, Scintilla frees the document\n\n;; Typical lifecycle:\n;; 1. (def doc (buffer-create-new! ed))     ; ref=1\n;; 2. (buffer-switch! ed doc)               ; ref=2 (editor holds ref)\n;; 3. (buffer-switch! ed other-doc)         ; ref=1 (editor released)\n;; 4. (buffer-release! ed doc)              ; ref=0 → freed",
+    "notes": "SCI_CREATEDOCUMENT returns a document pointer with ref=1 (caller owns). SCI_SETDOCPOINTER adds a ref for the editor and releases the old doc. SCI_ADDREFDOCUMENT is needed when capturing an existing doc pointer (e.g. the initial scratch buffer) to prevent premature deallocation. Always pair create/capture with release when killing buffers. Constants: SCI_CREATEDOCUMENT=2375, SCI_SETDOCPOINTER=2358, SCI_GETDOCPOINTER=2357, SCI_ADDREFDOCUMENT=2376, SCI_RELEASEDOCUMENT=2377."
+  },
+  {
+    "id": "emacs-keymap-state-machine",
+    "title": "Emacs-style keymap with prefix key state machine",
+    "tags": [
+      "keymap",
+      "emacs",
+      "prefix",
+      "key",
+      "binding",
+      "state-machine",
+      "multi-key"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; Keymaps as hash tables: key-string -> command-symbol or sub-keymap\n(def (make-keymap) (make-hash-table))\n\n(def (keymap-bind! km key-str val)\n  (hash-put! km key-str val))\n\n(def (keymap-lookup km key-str)\n  (hash-get km key-str))\n\n;; State machine for multi-key sequences (e.g. C-x C-s)\n(defstruct key-state (keymap prefix-keys) transparent: #t)\n\n;; Feed a key event, returns (values action data new-state)\n;; action: 'command | 'prefix | 'self-insert | 'undefined\n(def (key-state-feed! state key-str root-keymap)\n  (let* ((km (key-state-keymap state))\n         (prefix (key-state-prefix-keys state))\n         (binding (keymap-lookup km key-str)))\n    (cond\n      ;; Found a sub-keymap -> enter prefix mode\n      ((hash-table? binding)\n       (values 'prefix key-str\n               (make-key-state binding (append prefix (list key-str)))))\n      ;; Found a command -> execute and reset\n      (binding\n       (values 'command binding\n               (make-key-state root-keymap [])))\n      ;; No binding and no prefix -> self-insert or undefined\n      ((null? prefix)\n       (values 'self-insert key-str\n               (make-key-state root-keymap [])))\n      ;; No binding after prefix -> undefined, reset\n      (else\n       (let ((full-key (string-join (append prefix (list key-str)) \" \")))\n         (values 'undefined full-key\n                 (make-key-state root-keymap [])))))))\n\n;; Usage:\n;; (def km (make-keymap))\n;; (def cx-map (make-keymap))\n;; (keymap-bind! cx-map \"C-s\" 'save-buffer)\n;; (keymap-bind! km \"C-x\" cx-map)    ; C-x is a prefix key\n;; (keymap-bind! km \"C-f\" 'forward-char)\n;;\n;; (def state (make-key-state km []))\n;; (key-state-feed! state \"C-f\" km)  => (values 'command 'forward-char ...)\n;; (key-state-feed! state \"C-x\" km)  => (values 'prefix \"C-x\" ...)\n;; then feed \"C-s\" to new-state     => (values 'command 'save-buffer ...)",
+    "notes": "This pattern implements Emacs-style multi-key bindings (C-x C-s, C-c C-c, etc.) using nested hash tables. The key-state struct tracks which keymap we're currently in and what prefix keys have been pressed. After a command or undefined result, state resets to the root keymap. The string-join for undefined keys requires :std/srfi/13 if used."
+  },
+  {
+    "id": "qt-editor-cursor-move-selection",
+    "title": "Qt QPlainTextEdit cursor movement and selection via move-cursor",
+    "tags": [
+      "qt",
+      "cursor",
+      "move",
+      "selection",
+      "QPlainTextEdit",
+      "QTextCursor",
+      "editor"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Move cursor without selection\n(qt-plain-text-edit-move-cursor! editor QT_CURSOR_END_OF_BLOCK)\n\n;; Move cursor WITH selection (extends selection)\n(qt-plain-text-edit-move-cursor! editor QT_CURSOR_END_OF_BLOCK mode: QT_KEEP_ANCHOR)\n\n;; Key constants:\n;; QT_CURSOR_START, QT_CURSOR_END - document start/end\n;; QT_CURSOR_START_OF_BLOCK, QT_CURSOR_END_OF_BLOCK - line start/end\n;; QT_CURSOR_PREVIOUS_CHAR, QT_CURSOR_NEXT_CHAR - char movement\n;; QT_CURSOR_PREVIOUS_WORD, QT_CURSOR_NEXT_WORD - word movement\n;; QT_CURSOR_UP, QT_CURSOR_DOWN - line movement\n;; QT_MOVE_ANCHOR (default) = move without selecting\n;; QT_KEEP_ANCHOR = extend selection",
+    "notes": "qt-plain-text-edit-move-cursor! takes keyword arg mode: which defaults to QT_MOVE_ANCHOR. Use QT_KEEP_ANCHOR to extend selection while moving. QT_CURSOR_START_OF_BLOCK/END_OF_BLOCK correspond to line start/end in QPlainTextEdit (blocks = lines). The cursor constants map to QTextCursor::MoveOperation enum values."
+  },
+  {
+    "id": "qt-multi-buffer-qtextdocument",
+    "title": "Qt multi-buffer via QTextDocument create/swap on QPlainTextEdit",
+    "tags": [
+      "qt",
+      "buffer",
+      "QTextDocument",
+      "multi-buffer",
+      "document",
+      "editor",
+      "swap"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Create a new document WITH QPlainTextDocumentLayout (required for QPlainTextEdit)\n(def doc (qt-plain-text-document-create))\n\n;; Attach document to an editor widget\n(qt-plain-text-edit-set-document! editor doc)\n\n;; Check/set modified flag\n(qt-text-document-modified? doc)  ;; => #t or #f\n(qt-text-document-set-modified! doc #f)\n\n;; Switch between buffers by swapping documents\n(qt-plain-text-edit-set-document! editor other-doc)\n\n;; Destroy when done (frees the QTextDocument)\n(qt-text-document-destroy! doc)",
+    "notes": "IMPORTANT: Use qt-plain-text-document-create (NOT qt-text-document-create) for documents that will be attached to QPlainTextEdit. The plain variant sets QPlainTextDocumentLayout which QPlainTextEdit requires. Using qt-text-document-create causes 'Document set does not support QPlainTextDocumentLayout' error. Each document maintains its own undo/redo stack and text content. Remember to destroy documents when killing buffers to avoid memory leaks.",
+    "related": [
+      "qt-plain-text-document-layout-required"
+    ]
+  },
+  {
+    "id": "gxc-build-spec-qt-ffi-module",
+    "title": "Build spec for Qt FFI modules: use gxc: with cc-options and ld-options",
+    "tags": [
+      "build",
+      "gxc",
+      "qt",
+      "ffi",
+      "cc-options",
+      "ld-options",
+      "build-script",
+      "defbuild-script"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; In build.ss: define Qt FFI compile/link flags\n(def qt-base (path-expand \"mine/gerbil-qt\" (getenv \"HOME\")))\n(def qt-vendor-dir (path-expand \"vendor\" qt-base))\n\n(def qt-cc-opts\n  (string-append\n   \"-I\" qt-vendor-dir \" \"\n   (cppflags \"Qt6Widgets\" \"\")))\n\n(def qt-ld-opts\n  (string-append\n   \"-L\" qt-vendor-dir \" -lqt_shim \"\n   \"-Wl,-rpath,\" qt-vendor-dir \" \"\n   (ldflags \"Qt6Widgets\" \"-lQt6Widgets\") \" \"\n   \"-lstdc++\"))\n\n;; In defbuild-script: use gxc: for library modules, exe: for executable\n(defbuild-script\n  `(;; Library modules need gxc: for FFI compile/link\n    (gxc: \"qt/keymap\"   \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)\n    (gxc: \"qt/buffer\"   \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)\n    ;; Exe target\n    (exe: \"qt/main\" bin: \"gerbil-emacs-qt\"\n          \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)))",
+    "notes": "For modules that import FFI packages (like gerbil-qt), each module in the build spec needs gxc: with cc-options and ld-options so the Gambit C compiler can find headers and link libraries. The cppflags/ldflags helpers from :std/make query pkg-config. Use -Wl,-rpath for runtime shared library resolution. The exe: target also needs the same flags for final linking."
+  },
+  {
+    "id": "qt-key-event-to-emacs-string",
+    "title": "Convert Qt key events to Emacs-style key strings (C-x, M-f, etc.)",
+    "tags": [
+      "qt",
+      "key",
+      "event",
+      "emacs",
+      "modifier",
+      "keyboard",
+      "keymap",
+      "convert"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Convert Qt key code + modifiers + text to Emacs key notation\n(def (qt-key-event->string code mods text)\n  (let ((ctrl? (not (zero? (bitwise-and mods QT_MOD_CTRL))))\n        (alt?  (not (zero? (bitwise-and mods QT_MOD_ALT)))))\n    (cond\n      ;; Named special keys\n      ((= code QT_KEY_RETURN) (if ctrl? \"C-<return>\" \"<return>\"))\n      ((= code QT_KEY_TAB) (if ctrl? \"C-<tab>\" \"<tab>\"))\n      ((= code QT_KEY_BACKSPACE) (if alt? \"M-<backspace>\" \"<backspace>\"))\n      ((= code QT_KEY_ESCAPE) \"<escape>\")\n      ((= code QT_KEY_UP)    (if alt? \"M-<up>\" \"<up>\"))\n      ((= code QT_KEY_DOWN)  (if alt? \"M-<down>\" \"<down>\"))\n      ((= code QT_KEY_LEFT)  (if alt? \"M-<left>\" \"<left>\"))\n      ((= code QT_KEY_RIGHT) (if alt? \"M-<right>\" \"<right>\"))\n      ((= code QT_KEY_HOME)  \"<home>\")\n      ((= code QT_KEY_END)   \"<end>\")\n      ((= code QT_KEY_DELETE) \"<delete>\")\n      ;; Ctrl+letter: Qt gives uppercase key codes (QT_KEY_A=65)\n      ((and ctrl? (>= code QT_KEY_A) (<= code QT_KEY_Z))\n       (string-append \"C-\" (string (integer->char (+ (- code QT_KEY_A) 97)))))\n      ;; Alt+printable\n      ((and alt? (= (string-length text) 1))\n       (string-append \"M-\" text))\n      ;; Regular printable character\n      ((= (string-length text) 1) text)\n      ;; Fallback\n      (else #f))))",
+    "notes": "Qt key codes for letters are uppercase ASCII (QT_KEY_A=65, QT_KEY_Z=90). Convert to lowercase for Emacs notation. Qt modifiers are bitmasks: QT_MOD_CTRL, QT_MOD_ALT, QT_MOD_SHIFT. The `text` parameter from qt-last-key-text gives the printable character. For non-printable keys (arrows, function keys), text is empty. This is the Qt equivalent of the TUI key-event->string that uses termbox event fields."
+  },
+  {
+    "id": "ffi-c-shim-static-return-buffer",
+    "title": "C shim pattern: static buffer for returning strings to Scheme via FFI",
+    "tags": [
+      "ffi",
+      "c-shim",
+      "static",
+      "buffer",
+      "string",
+      "return",
+      "char-string",
+      "qt"
+    ],
+    "imports": [],
+    "code": "// In C/C++ shim file — static thread-local buffer for returning strings:\nstatic char s_return_buf[4096];\n\n// Pattern for functions returning Qt/C++ strings to Scheme:\nextern \"C\" const char* qt_plain_text_edit_selected_text(void* e) {\n    auto* pte = static_cast<QPlainTextEdit*>(e);\n    QByteArray ba = pte->textCursor().selectedText().toUtf8();\n    strncpy(s_return_buf, ba.constData(), sizeof(s_return_buf) - 1);\n    s_return_buf[sizeof(s_return_buf) - 1] = '\\0';\n    return s_return_buf;\n}\n\n// In libqt.ss FFI binding:\n;; (define-c-lambda __qt-plain-text-edit-selected-text (qt_plain_text_edit_t)\n;;   char-string \"qt_plain_text_edit_selected_text\")\n;;\n;; Gambit copies the char-string into a Scheme string automatically.\n;; The static buffer is reused on next call — Scheme side has its own copy.",
+    "notes": "The static buffer pattern is used extensively in gerbil-qt's qt_shim.cpp for returning C++ strings (QString, QByteArray) to Scheme. Gambit's `char-string` return type copies the C string into a GC-managed Scheme string, so the static buffer can be safely reused. WARNING: Not thread-safe if multiple OS threads call FFI concurrently. For thread safety, use thread_local storage. Buffer size should be large enough for expected strings (4096 is typical for UI text)."
+  },
+  {
+    "id": "defstruct-dont-redefine-auto-accessor",
+    "title": "defstruct auto-generates accessors — don't redefine them with def",
+    "tags": [
+      "defstruct",
+      "accessor",
+      "auto-generated",
+      "rebind",
+      "error",
+      "duplicate",
+      "windows"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; WRONG — causes \"rebind\" conflict:\n(defstruct qt-frame (splitter windows current-idx) transparent: #t)\n;; defstruct auto-generates: qt-frame-windows, qt-frame-splitter, etc.\n\n;; This FAILS because qt-frame-windows already exists:\n(def (qt-frame-windows fr)\n  (qt-frame-windows fr))  ;; redundant!\n\n;; ALSO WRONG in exports — exporting both struct-out and manual accessor:\n(export (struct-out qt-frame)\n        qt-frame-windows)  ;; already included in struct-out!\n\n;; CORRECT — just use the auto-generated accessor directly:\n(defstruct qt-frame (splitter windows current-idx) transparent: #t)\n;; qt-frame-windows is already available, no need to redefine\n;; Just export (struct-out qt-frame) — includes all accessors",
+    "notes": "defstruct generates: make-NAME, NAME?, NAME-field, NAME-field-set! for each field. If you also define `(def (NAME-field ...) ...)`, you get a rebind conflict at compile time. Common mistake when copying a struct module pattern and adding 'convenience' wrappers that are identical to the auto-generated accessors. Solution: use the auto-generated accessors directly. If you need different behavior, use a differently-named function.",
+    "related": [
+      "defstruct-factory-naming-conflict",
+      "defstruct-accessor-collision-pattern"
+    ]
+  },
+  {
+    "id": "qt-plain-text-document-layout-required",
+    "title": "QPlainTextEdit requires QPlainTextDocumentLayout — use qt-plain-text-document-create",
+    "tags": [
+      "qt",
+      "QPlainTextEdit",
+      "QPlainTextDocumentLayout",
+      "QTextDocument",
+      "setDocument",
+      "layout",
+      "multi-buffer"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; WRONG — causes \"Document set does not support QPlainTextDocumentLayout\":\n;; (def doc (qt-text-document-create))\n;; (qt-plain-text-edit-set-document! editor doc)  ;; ERROR!\n\n;; CORRECT — use qt-plain-text-document-create for QPlainTextEdit:\n(def doc (qt-plain-text-document-create))\n(qt-plain-text-edit-set-document! editor doc)  ;; OK!\n\n;; qt-plain-text-document-create creates a QTextDocument with\n;; QPlainTextDocumentLayout already set. Use qt-text-document-create\n;; only for QTextEdit (rich text) or standalone document manipulation.",
+    "notes": "QPlainTextEdit::setDocument() requires the document to have QPlainTextDocumentLayout. A bare QTextDocument() uses the default QAbstractTextDocumentLayout which is incompatible. This manifests as a Qt warning 'QPlainTextEdit::setDocument: Document set does not support QPlainTextDocumentLayout' and the editor may not render properly. Always use qt-plain-text-document-create when creating documents for multi-buffer QPlainTextEdit editing.",
+    "related": [
+      "qt-multi-buffer-qtextdocument"
+    ]
+  },
+  {
+    "id": "qt-consuming-key-handler-emacs",
+    "title": "Qt consuming key handler: intercept ALL keys before widget processes them",
+    "tags": [
+      "qt",
+      "key",
+      "handler",
+      "consuming",
+      "event-filter",
+      "intercept",
+      "QPlainTextEdit",
+      "emacs"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; For Emacs-style editors: install consuming key handler ON THE EDITOR,\n;; not the main window. The consuming variant prevents the widget from\n;; processing keys itself (no native Ctrl+X=Cut, etc.)\n\n;; WRONG — handler on main window never fires (editor has focus):\n;; (qt-on-key-press! main-window handler)\n\n;; WRONG — non-consuming handler lets editor process keys too:\n;; (qt-on-key-press! editor handler)\n\n;; CORRECT — consuming handler on the editor:\n(qt-on-key-press-consuming! editor\n  (lambda ()\n    (let ((code (qt-last-key-code))\n          (mods (qt-last-key-modifiers))\n          (text (qt-last-key-text)))\n      ;; Handle all keys here — editor widget won't see them\n      (cond\n        ((self-insert? code mods text)\n         (qt-plain-text-edit-insert-text! editor text))\n        (else\n         (dispatch-command code mods text))))))",
+    "notes": "In Qt, event filters only see events for the widget they're installed on. A filter on QMainWindow does NOT see key events for child QPlainTextEdit widgets (the focused widget gets them directly). qt-on-key-press! installs a non-consuming filter (returns false, widget still processes the key). qt-on-key-press-consuming! returns true, preventing the widget from handling the key. For Emacs-style editing, you MUST use the consuming variant on each editor widget, and handle all text insertion programmatically via qt-plain-text-edit-insert-text!. When splitting windows, install the handler on each new editor.",
+    "related": [
+      "qt-key-event-to-emacs-string",
+      "qt-editor-cursor-move-selection"
+    ]
+  },
+  {
+    "id": "file-exists-vs-directory-guard",
+    "title": "file-exists? returns #t for directories — guard with file-info-type",
+    "tags": [
+      "file",
+      "exists",
+      "directory",
+      "file-info",
+      "type",
+      "guard",
+      "regular",
+      "read"
+    ],
+    "imports": [],
+    "code": ";; WRONG — file-exists? is #t for directories, call-with-input-file will fail:\n;; (when (file-exists? path)\n;;   (call-with-input-file path (lambda (port) (read-line port #f))))\n\n;; CORRECT — also check it's not a directory:\n(when (and (file-exists? path)\n           (not (eq? 'directory\n                     (file-info-type (file-info path)))))\n  (call-with-input-file path (lambda (port) (read-line port #f))))\n\n;; Or check for regular file specifically:\n(when (and (file-exists? path)\n           (eq? 'regular (file-info-type (file-info path))))\n  (call-with-input-file path (lambda (port) (read-line port #f))))",
+    "notes": "In Gambit/Gerbil, file-exists? returns #t for directories, symbolic links, and other non-regular files. If you pass a directory path to call-with-input-file, you get 'Unknown error' at runtime. Always use file-info-type to distinguish. file-info-type returns: 'regular, 'directory, 'symbolic-link, 'character-special, 'block-special, 'fifo, 'socket, or 'unknown."
+  },
+  {
+    "id": "file-info-mode-permission-string",
+    "title": "Convert file-info-mode to rwxrwxrwx permission string",
+    "tags": [
+      "file-info",
+      "mode",
+      "permission",
+      "rwx",
+      "stat",
+      "unix",
+      "bitwise"
+    ],
+    "imports": [],
+    "code": ";; Convert Gambit file-info-mode bits to Unix-style permission string\n(def (mode->permission-string mode)\n  (let ((p (bitwise-and mode #o777)))\n    (string\n      (if (not (zero? (bitwise-and p #o400))) #\\r #\\-)\n      (if (not (zero? (bitwise-and p #o200))) #\\w #\\-)\n      (if (not (zero? (bitwise-and p #o100))) #\\x #\\-)\n      (if (not (zero? (bitwise-and p #o040))) #\\r #\\-)\n      (if (not (zero? (bitwise-and p #o020))) #\\w #\\-)\n      (if (not (zero? (bitwise-and p #o010))) #\\x #\\-)\n      (if (not (zero? (bitwise-and p #o004))) #\\r #\\-)\n      (if (not (zero? (bitwise-and p #o002))) #\\w #\\-)\n      (if (not (zero? (bitwise-and p #o001))) #\\x #\\-))))\n\n;; Usage:\n(let* ((info (file-info \"/tmp\"))\n       (mode (file-info-mode info))\n       (type (file-info-type info)))\n  (string-append\n    (case type ((directory) \"d\") ((symbolic-link) \"l\") (else \"-\"))\n    (mode->permission-string mode)))\n;; => \"drwxrwxrwt\" (for /tmp)",
+    "notes": "file-info-mode returns the full st_mode value. Use bitwise-and with #o777 to extract just the permission bits. file-info-type returns a symbol: 'regular, 'directory, 'symbolic-link, 'fifo, 'socket, 'block-device, 'character-device. All builtins — no imports needed.",
+    "related": [
+      "file-exists-vs-directory-guard",
+      "directory-files-list-entries"
+    ]
+  },
+  {
+    "id": "scintilla-editor-move-resize-multi-pane",
+    "title": "Position Scintilla editors side-by-side with editor-move and editor-resize",
+    "tags": [
+      "scintilla",
+      "editor",
+      "move",
+      "resize",
+      "layout",
+      "multi-window",
+      "side-by-side",
+      "pane"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla"
+    ],
+    "code": ";; Position two Scintilla editors side by side in a terminal\n;; editor-move sets (x, y) position, editor-resize sets (width, height)\n(let* ((total-w 80) (total-h 24)\n       (divider 1)       ;; 1-column divider between panes\n       (echo-h 1)        ;; echo area at bottom\n       (win-h (- total-h echo-h))\n       (edit-h (- win-h 1))  ;; 1 row for modeline per window\n       (w1 (quotient (- total-w divider) 2))\n       (w2 (- total-w divider w1))\n       (ed1 (create-scintilla-editor width: w1 height: edit-h))\n       (ed2 (create-scintilla-editor width: w2 height: edit-h)))\n  ;; Left pane at x=0\n  (editor-move ed1 0 0)\n  (editor-resize ed1 w1 edit-h)\n  ;; Right pane at x=w1+divider\n  (editor-move ed2 (+ w1 divider) 0)\n  (editor-resize ed2 w2 edit-h))",
+    "notes": "editor-move takes (editor x y) where x,y are terminal cell coordinates. editor-resize takes (editor width height). Scintilla's Refresh() draws at the position set by editor-move. For vertical dividers between panes, draw them manually with tui-change-cell! in the gap column. editor-move x position is crucial — without it, both editors render at column 0.",
+    "related": [
+      "scintilla-multi-buffer-docpointer"
+    ]
+  },
+  {
+    "id": "open-process-interactive-repl",
+    "title": "Interactive subprocess with non-blocking read (e.g. gxi REPL)",
+    "tags": [
+      "open-process",
+      "subprocess",
+      "repl",
+      "gxi",
+      "non-blocking",
+      "char-ready",
+      "interactive",
+      "pipe"
+    ],
+    "imports": [],
+    "code": ";; Spawn an interactive subprocess (e.g. gxi) with bidirectional I/O\n;; and non-blocking output reading via char-ready?\n\n(def (start-subprocess!)\n  (open-process\n    (list path: \"gxi\"\n          arguments: '()\n          stdin-redirection: #t\n          stdout-redirection: #t\n          stderr-redirection: #t\n          pseudo-terminal: #f)))\n\n(def (send-input! proc input)\n  (display input proc)\n  (newline proc)\n  (force-output proc))\n\n(def (read-available proc)\n  \"Non-blocking read of all available output. Returns string or #f.\"\n  (if (char-ready? proc)\n    (let ((out (open-output-string)))\n      (let loop ()\n        (when (char-ready? proc)\n          (let ((ch (read-char proc)))\n            (unless (eof-object? ch)\n              (write-char ch out)\n              (loop)))))\n      (let ((s (get-output-string out)))\n        (if (string-empty? s) #f s)))\n    #f))\n\n(def (stop-subprocess! proc)\n  (with-catch void (lambda () (close-output-port proc)))\n  (with-catch void (lambda () (process-status proc))))\n\n;; Usage:\n(let ((proc (start-subprocess!)))\n  (send-input! proc \"(+ 1 2)\")\n  (thread-sleep! 0.5)\n  (let ((output (read-available proc)))\n    (display output))  ;; prints \"3\\n\" (or similar gxi output)\n  (stop-subprocess! proc))",
+    "notes": "Key points: (1) char-ready? is non-blocking — returns #t if data is available. (2) string-empty? is a Gambit built-in, no import needed. (3) force-output is required after display — writes are buffered. (4) pseudo-terminal: #f avoids terminal control sequences in output. (5) The process port is bidirectional — display writes to stdin, read-char reads from stdout. (6) stderr-redirection: #t merges stderr into the same port.",
+    "related": [
+      "open-process-stdin-write-read",
+      "open-process-environment"
+    ]
+  },
+  {
+    "id": "qt-filter-bare-modifier-keys",
+    "title": "Filter bare modifier key presses in Qt key handler",
+    "tags": [
+      "qt",
+      "key",
+      "modifier",
+      "shift",
+      "ctrl",
+      "alt",
+      "filter",
+      "ignore",
+      "bare"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Qt sends key events for bare modifier keys (Shift, Ctrl, Alt, etc.)\n;; These have key codes 0x01000020 through 0x01000026:\n;;   0x01000020 = Qt::Key_Shift\n;;   0x01000021 = Qt::Key_Control\n;;   0x01000022 = Qt::Key_Meta\n;;   0x01000023 = Qt::Key_Alt\n;;   0x01000024 = Qt::Key_CapsLock\n;;   0x01000025 = Qt::Key_NumLock\n;;   0x01000026 = Qt::Key_ScrollLock\n;;\n;; Filter them out early in your key-event->string converter:\n\n(def (qt-key-event->string code mods text)\n  \"Returns #f for bare modifier keys, Emacs key string otherwise.\"\n  (if (and (>= code #x01000020) (<= code #x01000026))\n    #f  ;; Bare modifier key — caller should ignore\n    ;; ... normal key conversion logic ...\n    (cond\n      ((= code QT_KEY_ESCAPE) \"ESC\")\n      ;; etc.\n      (else (string-append \"<key-\" (number->string code) \">\")))))\n\n;; In the key state machine, handle #f:\n(def (qt-key-state-feed! state code mods text)\n  (let ((key-str (qt-key-event->string code mods text)))\n    (if (not key-str)\n      (values 'ignore #f state)  ;; Don't change state for bare modifiers\n      ;; ... normal keymap lookup and dispatch ...\n      (values 'undefined key-str state))))\n\n;; In the event loop, handle 'ignore action:\n;; (case action\n;;   ((ignore) (void))  ;; do nothing\n;;   ((command) ...)\n;;   ...)",
+    "notes": "Without this filter, pressing Shift alone produces errors like '<key-16777248> is undefined' in the echo area. The key codes are Qt::Key_Shift=0x01000020 through Qt::Key_ScrollLock=0x01000026. gerbil-qt does NOT export named constants for these modifier key codes — use hex literals. Return #f (not an empty string) so the caller can distinguish 'no key' from 'empty key string'.",
+    "related": [
+      "qt-key-event-to-emacs-string",
+      "qt-consuming-key-handler-emacs"
+    ]
+  },
+  {
+    "id": "gerbil-def-rebind-conflict-same-module",
+    "title": "Avoid def rebind conflict from duplicate definitions in same module",
+    "tags": [
+      "def",
+      "rebind",
+      "conflict",
+      "duplicate",
+      "definition",
+      "module",
+      "error",
+      "bad-binding"
+    ],
+    "imports": [],
+    "code": ";; ERROR: \"Bad binding; rebind conflict\" at expand\n;; This happens when you define the same name twice in one .ss file:\n;;\n;; (def (my-func x) (+ x 1))\n;; ;; ... hundreds of lines later ...\n;; (def (my-func x) (* x 2))   ;; BOOM: rebind conflict\n;;\n;; Unlike R7RS Scheme, Gerbil does NOT allow top-level redefinition\n;; in the same module. Each (def ...) creates a module binding, and\n;; a second def with the same name conflicts.\n;;\n;; DETECTION: Use shell to find duplicates in large files:\n;; grep -oP \"^\\(def \\(\\K[a-z0-9!?-]+\" myfile.ss | sort | uniq -d\n;;\n;; FIX: Remove one of the duplicate definitions.\n;; For large modules, check before adding new defs:\n;; grep -c \"def (my-new-func \" myfile.ss  ;; should be 0",
+    "notes": "This is different from the defstruct rebind conflict (where defstruct auto-generates names that clash with your def). This is simply having two (def (same-name ...)) in the same file. Common in large files (1000+ lines) where definitions are added incrementally. The error message shows both bindings with the same key but different module-binding IDs. Also applies to defmethod, defrule, etc. — any form that creates a module-level binding. The duplicate registration of the same name via register-command! does NOT cause this error — only duplicate def forms do."
+  },
+  {
+    "id": "qt-syntax-highlighter-ffi",
+    "title": "Qt QSyntaxHighlighter via FFI: create, add rules, destroy",
+    "tags": [
+      "qt",
+      "syntax",
+      "highlighter",
+      "highlighting",
+      "regex",
+      "ffi",
+      "qsyntaxhighlighter",
+      "editor"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Create a highlighter attached to a QTextDocument\n(def h (qt-syntax-highlighter-create doc))\n\n;; Add keyword highlighting (space-separated words → \\b(w1|w2|...)\\b regex)\n(qt-syntax-highlighter-add-keywords! h \"def if let when\" #xcc #x99 #xcc #t #f)\n\n;; Add regex pattern rule (r g b bold? italic?)\n(qt-syntax-highlighter-add-rule! h \";.*$\" #x99 #x99 #x99 #f #t)\n\n;; Add multi-line rule (start-regex end-regex r g b bold? italic?)\n(qt-syntax-highlighter-add-multiline-rule! h \"#\\\\|\" \"\\\\|#\" #x99 #x99 #x99 #f #t)\n\n;; Clear all rules\n(qt-syntax-highlighter-clear-rules! h)\n\n;; Force re-highlight\n(qt-syntax-highlighter-rehighlight! h)\n\n;; Destroy when done\n(qt-syntax-highlighter-destroy! h)",
+    "notes": "The highlighter is a C++ ConfigurableHighlighter subclassing QSyntaxHighlighter. All regex matching runs in C++ for performance (no Gerbil callbacks on the hot path). Keywords are escaped and joined with | into a single \\b(...)\\b regex. Multi-line rules use Qt block state tracking. The highlighter is owned by the QTextDocument parent — destroy it before destroying the document.",
+    "related": [
+      "qt-with-qt-app-syntax"
+    ]
   }
 ]

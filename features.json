@@ -15,7 +15,7 @@
     "use_case": "When building FFI projects that bundle C libraries as single-header files (stb_image.h, termbox2.h, miniaudio.h, etc.) rather than depending on system packages.",
     "example_scenario": "Project has termbox2.h in the project root, libtermbox.ss includes it via #include \\\"termbox2.h\\\", and build.ss passes -I with the project directory. gerbil_build_and_report fails with 'missing C system header: termbox2.h' instead of running the actual build.",
     "estimated_token_reduction": "~200 tokens per occurrence — eliminates needing to fall back to `make build` via bash and interpreting raw compiler output",
-    "votes": 2
+    "votes": 3
   },
   {
     "id": "verify-ffi-module-support",
@@ -33,7 +33,7 @@
     "use_case": "When verifying high-level wrapper modules that import from raw FFI modules (e.g. termbox.ss importing from libtermbox.ss which uses begin-ffi).",
     "example_scenario": "termbox.ss imports :gerbil-termbox/libtermbox (a begin-ffi module). gerbil_verify reports 'Incomplete form, EOF reached' even though the file compiles cleanly and passes all tests. The verify result is misleading and wastes time investigating a non-issue.",
     "estimated_token_reduction": "~300 tokens per occurrence — eliminates investigating false errors, re-checking with check_syntax, and explaining away the false positive",
-    "votes": 1
+    "votes": 3
   },
   {
     "id": "edit-tool-replace-all-whitespace-aware",
@@ -69,6 +69,60 @@
     "use_case": "When building FFI modules that link multiple vendor static libraries. A missing library in ld-options causes an undefined symbol error only at runtime (when the .so is loaded), not at compile time. This tool would catch it immediately after writing the build.ss.",
     "example_scenario": "ffi.ss calls CreateLexer() in its c-declare block. build.ss links scintilla.a and termbox.a but forgets liblexilla.a. The build succeeds (compilation doesn't check dynamic symbols), but tests fail with 'undefined symbol: CreateLexer' when the .so is loaded. Running this tool on ffi.ss + build.ss would immediately report 'CreateLexer: not found in scintilla.a or termbox.a — found in vendor/lexilla/bin/liblexilla.a'.",
     "estimated_token_reduction": "~800 tokens per occurrence — eliminates a full build-test-debug cycle (build_and_report + run_tests + read error + investigate + fix + rebuild)",
+    "votes": 0
+  },
+  {
+    "id": "howto-parallel-call-stability",
+    "title": "Fix gerbil_howto errors when called in parallel with sibling tools",
+    "description": "The gerbil_howto tool frequently fails with \"Spread syntax requires ...iterable[Symbol.iterator] to be a function\" when called in parallel with other MCP tool calls (sibling calls). This forces sequential usage patterns and causes \"Sibling tool call errored\" cascade failures for subsequent parallel calls. The root cause appears to be a race condition or shared state in the cookbook loading/search logic. The tool should be robust against concurrent invocations.",
+    "impact": "high",
+    "tags": [
+      "howto",
+      "parallel",
+      "error",
+      "stability",
+      "cookbook",
+      "concurrent"
+    ],
+    "use_case": "Every session where multiple gerbil_howto searches are needed before writing code — which is most sessions, since the CLAUDE.md mandates checking the cookbook first.",
+    "example_scenario": "Before implementing gerbil-emacs modules, I needed to search for 4 different patterns: termbox ctrl keys, defstruct naming, scintilla doc pointers, and keymap patterns. Making 4 parallel gerbil_howto calls: only the first succeeds, the second errors with 'Spread syntax requires ...iterable[Symbol.iterator]', and the third and fourth cascade-fail with 'Sibling tool call errored'. Had to retry them sequentially, wasting ~3 tool call round-trips.",
+    "estimated_token_reduction": "~400 tokens per occurrence — eliminates retry round-trips and cascade error handling, approximately 2-3 times per session",
+    "votes": 0
+  },
+  {
+    "id": "multi-project-build-chain",
+    "title": "Build chain tool for multi-project dependencies",
+    "description": "A tool that builds a chain of dependent Gerbil projects in dependency order. Given a target project, it reads gerbil.pkg depend: entries and GERBIL_LOADPATH from the Makefile to identify upstream projects, checks if they need rebuilding (source newer than artifacts), and builds them in order. Currently when working with projects like gerbil-emacs that depend on gerbil-scintilla and gerbil-qt, you must manually run make build in each dependency before building the main project. This tool would automate that.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "multi-project",
+      "dependency",
+      "loadpath",
+      "chain"
+    ],
+    "use_case": "When working on a project that depends on locally-built Gerbil packages (via GERBIL_LOADPATH), and upstream source files may have changed since the last build.",
+    "example_scenario": "gerbil-emacs depends on gerbil-scintilla and gerbil-qt. After modifying gerbil-qt's qt_shim.cpp and qt.ss, you need to: (1) cd gerbil-qt && make build, (2) cd gerbil-emacs && make build. Forgetting step 1 gives confusing 'unbound identifier' errors. A multi-project build tool would detect that gerbil-qt sources are newer than its .gerbil artifacts and rebuild it first.",
+    "estimated_token_reduction": "~300 tokens per occurrence — eliminates manual upstream build commands and debugging stale dependency errors",
+    "votes": 1
+  },
+  {
+    "id": "duplicate-definition-check",
+    "title": "Pre-build duplicate definition checker for Gerbil source files",
+    "description": "A tool that scans a Gerbil .ss file for duplicate top-level `def`, `defmethod`, `defrule`, etc. definitions before building. Uses the Gerbil reader (or fast regex) to extract all top-level binding names and reports any that appear more than once, with line numbers. This catches 'Bad binding; rebind conflict' errors before the slow gxc compilation step. Could be integrated into gerbil_verify or offered as a standalone gerbil_check_duplicates tool. Should handle all binding forms: def, defmethod, defrule, defsyntax, def-once, etc.",
+    "impact": "high",
+    "tags": [
+      "duplicate",
+      "definition",
+      "rebind",
+      "conflict",
+      "lint",
+      "pre-build",
+      "check"
+    ],
+    "use_case": "When incrementally adding many definitions to a large file (e.g., 400+ command definitions in editor-extra.ss), it's easy to accidentally add a function name that already exists elsewhere in the file. The build fails with a cryptic 'Bad binding; rebind conflict' error that only shows the conflicting name, not the line numbers of both definitions. Finding the duplicate requires a manual grep.",
+    "example_scenario": "Adding 30 new command stubs to a 3700-line editor-extra.ss file. 10 of the 30 names already existed from earlier batches, causing repeated build failures. Each failure required: gerbil_make (60s build), read error, grep for duplicate, remove it, rebuild. With a pre-build duplicate check, all 10 conflicts would be found in one fast pass before any compilation.",
+    "estimated_token_reduction": "~2000 tokens per large batch addition — eliminates 5-10 build-fail-grep-fix cycles at ~200 tokens each",
     "votes": 0
   }
 ]
