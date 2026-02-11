@@ -1,1 +1,74 @@
-[]
+[
+  {
+    "id": "build-and-report-bundled-header-support",
+    "title": "gerbil_build_and_report should not reject bundled C headers",
+    "description": "When a project bundles a C header file (e.g. termbox2.h as a single-header library), gerbil_build_and_report detects it as a 'missing C system header' and refuses to build. The tool should distinguish between system headers (#include <foo.h>) and local headers (#include \\\"foo.h\\\") — local headers bundled in the project directory are not missing. The tool should only flag system headers that can't be found via pkg-config or standard include paths.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "build_and_report",
+      "header",
+      "bundled",
+      "single-header",
+      "false-positive"
+    ],
+    "use_case": "When building FFI projects that bundle C libraries as single-header files (stb_image.h, termbox2.h, miniaudio.h, etc.) rather than depending on system packages.",
+    "example_scenario": "Project has termbox2.h in the project root, libtermbox.ss includes it via #include \\\"termbox2.h\\\", and build.ss passes -I with the project directory. gerbil_build_and_report fails with 'missing C system header: termbox2.h' instead of running the actual build.",
+    "estimated_token_reduction": "~200 tokens per occurrence — eliminates needing to fall back to `make build` via bash and interpreting raw compiler output",
+    "votes": 2
+  },
+  {
+    "id": "verify-ffi-module-support",
+    "title": "gerbil_verify should handle files importing begin-ffi modules without false EOF errors",
+    "description": "gerbil_verify reports a false '[ERROR] [syntax] Incomplete form, EOF reached' on files that import from FFI modules compiled with begin-ffi. The file compiles fine with gerbil build and all tests pass. The verify tool's syntax checker likely cannot resolve the begin-ffi module exports in its isolated environment, causing a spurious EOF error. It should either skip the syntax phase for files with FFI dependencies or use the project's compiled artifacts for resolution.",
+    "impact": "medium",
+    "tags": [
+      "verify",
+      "ffi",
+      "begin-ffi",
+      "syntax",
+      "false-positive",
+      "EOF"
+    ],
+    "use_case": "When verifying high-level wrapper modules that import from raw FFI modules (e.g. termbox.ss importing from libtermbox.ss which uses begin-ffi).",
+    "example_scenario": "termbox.ss imports :gerbil-termbox/libtermbox (a begin-ffi module). gerbil_verify reports 'Incomplete form, EOF reached' even though the file compiles cleanly and passes all tests. The verify result is misleading and wastes time investigating a non-issue.",
+    "estimated_token_reduction": "~300 tokens per occurrence — eliminates investigating false errors, re-checking with check_syntax, and explaining away the false positive",
+    "votes": 1
+  },
+  {
+    "id": "edit-tool-replace-all-whitespace-aware",
+    "title": "Claude Code Edit tool replace_all should preserve token boundaries",
+    "description": "When using the Edit tool with replace_all: true, replacing a pattern like '(make-buffer ' with '(new-buffer' strips the trailing space, causing tokens to merge with the next character. For example '(make-buffer 10 5)' becomes '(new-buffer10 5)' instead of '(new-buffer 10 5)'. This is a Claude Code tool issue, not a gerbil-mcp issue, but it repeatedly causes compilation errors when doing bulk renames in Gerbil code. A gerbil-mcp rename_symbol tool with word-boundary safety exists but doesn't help for local-only renames within a single file during initial authoring.",
+    "impact": "medium",
+    "tags": [
+      "rename",
+      "replace",
+      "edit",
+      "whitespace",
+      "token",
+      "boundary"
+    ],
+    "use_case": "When renaming a symbol in a single file (e.g. make-buffer to new-buffer) using Edit tool replace_all, especially when the old pattern includes trailing whitespace.",
+    "example_scenario": "Renaming make-buffer to new-buffer across a test file. Edit replace_all with old='(make-buffer ' new='(new-buffer' turns '(make-buffer 10 5)' into '(new-buffer10 5)' — an unbound identifier error. Had to fix each occurrence manually.",
+    "estimated_token_reduction": "~400 tokens per occurrence — eliminates debugging the merged-token error, reading the file to find mangled names, and doing 3+ individual fix-up edits",
+    "votes": 0
+  },
+  {
+    "id": "ffi-link-symbol-check",
+    "title": "Check that FFI c-declare references resolve against linked static libraries",
+    "description": "A tool that cross-references C function calls in c-declare blocks against the symbols exported by the .a files listed in ld-options. Uses `nm` to extract symbols from static archives and checks that every C function referenced in the shim code (via direct calls or ___return wrappers) has a matching symbol in at least one linked library. Reports undefined symbols with the library that likely provides them, helping catch missing library links before a full build-test cycle.",
+    "impact": "medium",
+    "tags": [
+      "ffi",
+      "linker",
+      "undefined-symbol",
+      "static-library",
+      "nm",
+      "c-declare"
+    ],
+    "use_case": "When building FFI modules that link multiple vendor static libraries. A missing library in ld-options causes an undefined symbol error only at runtime (when the .so is loaded), not at compile time. This tool would catch it immediately after writing the build.ss.",
+    "example_scenario": "ffi.ss calls CreateLexer() in its c-declare block. build.ss links scintilla.a and termbox.a but forgets liblexilla.a. The build succeeds (compilation doesn't check dynamic symbols), but tests fail with 'undefined symbol: CreateLexer' when the .so is loaded. Running this tool on ffi.ss + build.ss would immediately report 'CreateLexer: not found in scintilla.a or termbox.a — found in vendor/lexilla/bin/liblexilla.a'.",
+    "estimated_token_reduction": "~800 tokens per occurrence — eliminates a full build-test-debug cycle (build_and_report + run_tests + read error + investigate + fix + rebuild)",
+    "votes": 0
+  }
+]
