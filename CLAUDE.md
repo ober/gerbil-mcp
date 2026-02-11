@@ -181,8 +181,9 @@ After ANY code change (new tool, modified tool, bug fix, enhancement, infrastruc
 
 1. **`CLAUDE.md.gerbil-example`** — Add or update tool entries under the appropriate section. This is the template users copy into their projects for Claude Code. Every tool must be documented here with a description matching its actual behavior.
 2. **`copilot-instructions.md.gerbil-example`** — Mirror the same tool entries. This is the GitHub Copilot version. It has identical tool listings but omits Claude-specific sections (skills, hooks, PreCompact).
-3. **`CLAUDE.md`** (this file) — Update the test count, test coverage list, and any affected sections (e.g., "Adding a New Tool" checklist, "Common Patterns").
-4. **`src/index.ts` INSTRUCTIONS string** — If a tool was added or its description changed, update the INSTRUCTIONS string that gets sent to MCP clients.
+3. **`README.md`** — Ensure the "Configure" sections for Claude, Gemini, and Copilot are up to date.
+4. **`CLAUDE.md`** (this file) — Update the test count, test coverage list, and any affected sections (e.g., "Adding a New Tool" checklist, "Common Patterns").
+5. **`src/index.ts` INSTRUCTIONS string** — If a tool was added or its description changed, update the INSTRUCTIONS string that gets sent to MCP clients.
 
 **Both `*.gerbil-example` files MUST stay in sync with the actual tools.** If you add a tool to one, add it to the other. If you change a tool's behavior, update both. These are the primary way users discover what tools are available.
 

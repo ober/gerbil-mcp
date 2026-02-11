@@ -54,6 +54,24 @@ By default Claude Code asks for confirmation each time an MCP tool is called. Si
 }
 ```
 
+### Gemini CLI
+
+Add the MCP server using the CLI (user scope — recommended):
+
+```sh
+gemini mcp add gerbil node /absolute/path/to/gerbil-mcp/dist/index.js \
+  -e GERBIL_MCP_GXI_PATH=/opt/gerbil/bin/gxi \
+  --scope user --trust
+```
+
+The `--trust` flag auto-approves all tool calls from this server, which is recommended for the Gerbil introspection tools to provide a seamless experience.
+
+You can also use the Makefile to automate this:
+
+```sh
+make update
+```
+
 ### GitHub Copilot (VS Code)
 
 Add a `.vscode/mcp.json` file to your project:
