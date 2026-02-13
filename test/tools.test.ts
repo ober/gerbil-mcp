@@ -1201,6 +1201,26 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.text).toContain('main');
     });
 
+    it('gerbil_rename_symbol supports single-file mode', async () => {
+      const result = await client.callTool('gerbil_rename_symbol', {
+        old_name: 'helper',
+        new_name: 'utility',
+        file_path: join(TEST_DIR, 'sample.ss'),
+        dry_run: true,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('helper');
+    });
+
+    it('gerbil_rename_symbol requires directory or file_path', async () => {
+      const result = await client.callTool('gerbil_rename_symbol', {
+        old_name: 'foo',
+        new_name: 'bar',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Either');
+    });
+
     it('gerbil_project_info shows project metadata', async () => {
       const result = await client.callTool('gerbil_project_info', {
         project_path: TEST_DIR,

@@ -182,7 +182,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To get structured diagnostics: use gerbil_diagnostics for file/project compilation diagnostics with file, line, column, severity.
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.
 - To search project symbols: use gerbil_workspace_symbols to find definitions matching a query across all project files.
-- To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default).
+- To rename a symbol: use gerbil_rename_symbol for project-wide rename with dry-run safety (default). Supports single-file mode via file_path parameter for local renames with word-boundary safety.
 - To map project exports: use gerbil_project_map for a complete view of all modules with their exports, definitions by kind, and import dependencies.
 - To check delimiter balance: use gerbil_check_balance for fast paren/bracket/brace balance checking without spawning a subprocess.
 - To list top-level forms: use gerbil_read_forms to read a file with the actual Gerbil reader and see each form's line range and summary.

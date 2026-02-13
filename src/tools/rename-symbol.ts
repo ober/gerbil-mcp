@@ -41,7 +41,12 @@ export function registerRenameSymbolTool(server: McpServer): void {
         new_name: z.string().describe('New symbol name'),
         directory: z
           .string()
-          .describe('Project directory to search (absolute path)'),
+          .optional()
+          .describe('Project directory to search (absolute path). Required unless file_path is provided.'),
+        file_path: z
+          .string()
+          .optional()
+          .describe('Single file to rename in (absolute path). Alternative to directory for local renames.'),
         dry_run: z
           .boolean()
           .optional()
@@ -50,8 +55,18 @@ export function registerRenameSymbolTool(server: McpServer): void {
           ),
       },
     },
-    async ({ old_name, new_name, directory, dry_run }) => {
+    async ({ old_name, new_name, directory, file_path, dry_run }) => {
       const isDryRun = dry_run !== false;
+
+      if (!directory && !file_path) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'Either "directory" or "file_path" must be provided.',
+          }],
+          isError: true,
+        };
+      }
 
       if (old_name === new_name) {
         return {
@@ -64,13 +79,17 @@ export function registerRenameSymbolTool(server: McpServer): void {
         };
       }
 
-      const files = await scanSchemeFiles(directory);
+      // Single-file mode or directory mode
+      const files = file_path
+        ? [file_path]
+        : await scanSchemeFiles(directory!);
+      const baseDir = directory || (file_path ? join(file_path, '..') : '.');
       if (files.length === 0) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `No .ss files found in ${directory}.`,
+              text: `No .ss files found in ${baseDir}.`,
             },
           ],
         };
@@ -89,7 +108,7 @@ export function registerRenameSymbolTool(server: McpServer): void {
           const occurrences = findSymbolOccurrences(content, old_name);
           for (const occ of occurrences) {
             allChanges.push({
-              file: relative(directory, file),
+              file: relative(baseDir, file),
               line: occ.line,
               column: occ.column,
               lineText: occ.lineText,
@@ -105,7 +124,7 @@ export function registerRenameSymbolTool(server: McpServer): void {
           content: [
             {
               type: 'text' as const,
-              text: `No occurrences of "${old_name}" found in ${directory}.`,
+              text: `No occurrences of "${old_name}" found in ${file_path || directory}.`,
             },
           ],
         };
@@ -157,7 +176,7 @@ export function registerRenameSymbolTool(server: McpServer): void {
           const replaced = replaceSymbolInContent(content, old_name, new_name);
           if (replaced !== content) {
             await writeFile(fullPath, replaced, 'utf-8');
-            filesModified.add(relative(directory, fullPath));
+            filesModified.add(relative(baseDir, fullPath));
           }
         } catch {
           /* skip unreadable files */

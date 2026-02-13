@@ -115,7 +115,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Refactoring and Code Generation
 
-- **`gerbil_rename_symbol`**: Rename a symbol across all `.ss` files in a project with word-boundary safety. Dry-run by default.
+- **`gerbil_rename_symbol`**: Rename a symbol across all `.ss` files in a project directory or in a single file. Uses word-boundary detection to avoid partial matches. Dry-run by default. Use `file_path` for single-file local renames.
 - **`gerbil_generate_module_stub`**: Generate a module skeleton matching another module's exported signatures.
 - **`gerbil_generate_module`**: Create new modules by applying word-boundary-aware substitutions to a template file. Useful for mechanical variations of an existing module pattern.
 - **`gerbil_scaffold_test`**: Generate a `:std/test` skeleton from a module's exports.
