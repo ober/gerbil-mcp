@@ -10050,5 +10050,27 @@
     "related": [
       "qt-with-qt-app-syntax"
     ]
+  },
+  {
+    "id": "process-statistics-elapsed-timing",
+    "title": "Measure elapsed wall/CPU/GC time between two points using ##process-statistics",
+    "tags": [
+      "process-statistics",
+      "profiler",
+      "timing",
+      "elapsed",
+      "wall-time",
+      "cpu-time",
+      "gc-time",
+      "benchmark",
+      "gambit"
+    ],
+    "imports": [],
+    "code": ";; ##process-statistics returns an f64vector with 20 fields.\n;; For elapsed timing, snapshot before and after, then subtract.\n;;\n;; Key fields for timing:\n;;   [0] = user CPU time (seconds)\n;;   [1] = system CPU time (seconds)\n;;   [2] = real/wall time (seconds)\n;;   [3] = GC user CPU time\n;;   [4] = GC system CPU time\n;;   [5] = GC real time (seconds)\n;;   [6] = number of GCs (count, not time!)\n\n(let ((start (##process-statistics)))\n  ;; ... do work here ...\n  (thread-sleep! 0.5)  ; simulated work\n  (let* ((end-stats (##process-statistics))\n         (wall (- (f64vector-ref end-stats 2) (f64vector-ref start 2)))\n         (user (- (f64vector-ref end-stats 0) (f64vector-ref start 0)))\n         (sys  (- (f64vector-ref end-stats 1) (f64vector-ref start 1)))\n         (gc   (- (f64vector-ref end-stats 5) (f64vector-ref start 5)))\n         (gcs  (inexact->exact (- (f64vector-ref end-stats 6) (f64vector-ref start 6)))))\n    (displayln \"Wall time: \" wall \"s\")\n    (displayln \"User CPU:  \" user \"s\")\n    (displayln \"System:    \" sys \"s\")\n    (displayln \"GC time:   \" gc \"s\")\n    (displayln \"GC count:  \" gcs)))",
+    "notes": "IMPORTANT: Field 2 is real/wall time, NOT field 14. Field 6 is GC count (an integer), not GC time — use field 5 for GC real time. See process-statistics-field-layout for the full field map and memory/leak detection (field 17).",
+    "related": [
+      "process-statistics-field-layout",
+      "profiling-optimization-workflow"
+    ]
   }
 ]
