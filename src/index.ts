@@ -115,6 +115,7 @@ import { registerProjectTemplateTool } from './tools/project-template.js';
 import { registerErrorFixLookupTool, registerErrorFixAddTool } from './tools/error-fix.js';
 import { registerCheckDuplicatesTool } from './tools/check-duplicates.js';
 import { registerBuildChainTool } from './tools/build-chain.js';
+import { registerFFILinkCheckTool } from './tools/ffi-link-check.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -215,6 +216,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To add security patterns: use gerbil_security_pattern_add to contribute new detection rules.
 - To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages need rebuilding.
 - To check FFI type safety: use gerbil_ffi_type_check to detect type mismatches in c-lambda declarations.
+- To check FFI link symbols: use gerbil_ffi_link_check to cross-reference C function calls in c-declare blocks against symbols in linked .a static libraries via nm. Catches missing library links before build-test cycle.
 - To audit FFI null safety: use gerbil_ffi_null_safety to find c-lambda pointer dereferences without null checks.
 - To audit FFI buffer sizes: use gerbil_ffi_buffer_size_audit to detect buffer overflows in FFI bindings.
 - To audit method dispatch: use gerbil_method_dispatch_audit to find {method obj} calls that may fail at runtime.
@@ -399,6 +401,7 @@ registerErrorFixLookupTool(server);
 registerErrorFixAddTool(server);
 registerCheckDuplicatesTool(server);
 registerBuildChainTool(server);
+registerFFILinkCheckTool(server);
 
 registerPrompts(server);
 registerResources(server);

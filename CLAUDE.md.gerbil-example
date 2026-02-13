@@ -48,6 +48,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_ffi_type_check`**: Detect FFI type mismatches between `c-lambda`/`define-c-lambda` declarations and call sites. Flags known incompatible combinations like u8vector passed to `(pointer void)`, string passed to int. Static analysis, no subprocess.
 - **`gerbil_ffi_null_safety`**: Static analysis of `.scm` FFI files to find `c-lambda` declarations that dereference pointer arguments without null checks. Cross-references with `.ss` wrapper files to check for guards.
 - **`gerbil_ffi_buffer_size_audit`**: Cross-reference C function output buffer sizes with Scheme-side `make-u8vector` allocations. Detects potential buffer overflow mismatches.
+- **`gerbil_ffi_link_check`**: Cross-reference C function calls in `c-declare` blocks against symbols exported by linked static libraries (`.a` files) via `nm`. Catches missing library links (undefined symbol errors) before a full build-test cycle. Reads library paths from `build.ss` `ld-options` or accepts explicit paths.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 
 ### For Multi-Step Exploration

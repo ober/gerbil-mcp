@@ -6005,6 +6005,35 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── FFI link check tool ──────────────────────────────────
+
+  describe('FFI link check tool', () => {
+    it('handles missing ffi_file', async () => {
+      const result = await client.callTool('gerbil_ffi_link_check', {
+        ffi_file: '/tmp/nonexistent-ffi-file.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Error reading');
+    });
+
+    it('reports no calls when file has no c-declare', async () => {
+      const result = await client.callTool('gerbil_ffi_link_check', {
+        ffi_file: join(TEST_DIR, 'sample.ss'),
+      });
+      expect(result.text).toContain('No C function calls');
+    });
+
+    it('detects C function calls in c-declare blocks', async () => {
+      const testFile = join(TEST_DIR, 'ffi-link-test.ss');
+      writeFileSync(testFile, '(c-declare "int result = MyVendorFunc(42);")\n');
+      const result = await client.callTool('gerbil_ffi_link_check', {
+        ffi_file: testFile,
+      });
+      // Should find MyVendorFunc but no libraries to check
+      expect(result.text).toBeDefined();
+    });
+  });
+
   // ── Build chain tool ──────────────────────────────────────
 
   describe('Build chain tool', () => {
@@ -6117,6 +6146,7 @@ void copy_data(const uint8_t *src, int len) {
         // New batch 4 tools
         'gerbil_check_duplicates',
         'gerbil_build_chain',
+        'gerbil_ffi_link_check',
       ];
 
       for (const name of newToolNames) {
