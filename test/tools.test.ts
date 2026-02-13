@@ -5996,6 +5996,48 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Check duplicates tool ──────────────────────────────────
+
+  describe('Check duplicates tool', () => {
+    it('detects duplicate definitions', async () => {
+      const result = await client.callTool('gerbil_check_duplicates', {
+        code: '(def (foo x) (+ x 1))\n(def (bar y) (* y 2))\n(def (foo z) (- z 1))',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('foo');
+      expect(result.text).toContain('duplicate');
+    });
+
+    it('reports clean file with no duplicates', async () => {
+      const result = await client.callTool('gerbil_check_duplicates', {
+        code: '(def (foo x) (+ x 1))\n(def (bar y) (* y 2))',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('No duplicate');
+    });
+
+    it('detects duplicate defmethod definitions', async () => {
+      const result = await client.callTool('gerbil_check_duplicates', {
+        code: '(defmethod {render widget}\n  (display "render"))\n(defmethod {render panel}\n  (display "render2"))',
+      });
+      // defmethod render appears twice — flagged as duplicate
+      expect(result.text).toContain('render');
+    });
+  });
+
+  // ── Verify tool duplicate detection ──────────────────────────
+
+  describe('Verify tool duplicate detection', () => {
+    it('gerbil_verify detects duplicates in lint phase', async () => {
+      const result = await client.callTool('gerbil_verify', {
+        code: '(def (foo x) (+ x 1))\n(def (foo y) (* y 2))',
+        skip_arity: true,
+      });
+      expect(result.text).toContain('Duplicate definition');
+      expect(result.text).toContain('foo');
+    });
+  });
+
   // ── Tool annotations for all tools (including new batch) ───
 
   describe('New tool annotations', () => {
@@ -6030,6 +6072,8 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_project_template',
         'gerbil_error_fix_lookup',
         'gerbil_error_fix_add',
+        // New batch 4 tools
+        'gerbil_check_duplicates',
       ];
 
       for (const name of newToolNames) {

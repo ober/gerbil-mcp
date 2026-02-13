@@ -231,8 +231,22 @@ function runLintChecks(source: string, filePath: string): VerifyIssue[] {
 
   // Track imports and definitions
   const importedModules: string[] = [];
-  const definitions = new Set<string>();
-  const usedSymbols = new Set<string>();
+
+  // Check for duplicate definitions using the shared parser
+  const analysis = parseDefinitions(source);
+  const defSeen = new Map<string, number>();
+  for (const def of analysis.definitions) {
+    if (defSeen.has(def.name)) {
+      issues.push({
+        phase: 'lint',
+        severity: 'warning',
+        line: def.line,
+        message: `Duplicate definition: "${def.name}" already defined at line ${defSeen.get(def.name)}`,
+      });
+    } else {
+      defSeen.set(def.name, def.line);
+    }
+  }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

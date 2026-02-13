@@ -90,7 +90,8 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_interface_compliance_check`**: Verify that struct/class types implement all required interface methods by cross-referencing type definitions with interface declarations.
 - **`gerbil_concurrent_plan_validate`**: Validate DAG-based execution plans (step dependencies). Detects circular dependencies, missing steps, and unreachable steps.
 - **`gerbil_project_health_check`**: Composite project audit that runs lint, dead code detection, dependency cycle checking, and export consistency in a single call.
-- **`gerbil_verify`**: Combined verification tool that runs syntax check, compile check (gxc -S), lint, and arity check in a single pass. Returns a unified issue list with phase, severity, and line numbers. Saves multiple tool calls when validating code.
+- **`gerbil_check_duplicates`**: Fast pre-build check for duplicate top-level definitions (def, defmethod, defrule, defsyntax, defstruct, etc.). Reports line numbers for both original and duplicate. Catches "Bad binding; rebind conflict" errors before the slow compilation step. No subprocess needed.
+- **`gerbil_verify`**: Combined verification tool that runs syntax check, compile check (gxc -S), lint, arity check, and duplicate definition detection in a single pass. Returns a unified issue list with phase, severity, and line numbers. Saves multiple tool calls when validating code.
 
 ### For Security Auditing
 

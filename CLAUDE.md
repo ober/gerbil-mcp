@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 426 tests must pass before considering any change complete. The test suite covers:
+All 430 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -173,6 +173,7 @@ All 426 tests must pass before considering any change complete. The test suite c
 - Cookbook synonym expansion (~75 synonym groups for fuzzy matching)
 - Source-informed function behavior cards (~50 built-in cards from Gerbil source analysis)
 - Source-informed translation rules (~40 rules from Gerbil source analysis)
+- Check duplicates tool (duplicate definition detection, clean file handling, defmethod duplicates)
 
 
 ### MANDATORY: Update Documentation After Every Change
