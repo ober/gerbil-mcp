@@ -1,8 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { readFile, stat, access, constants, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
@@ -38,10 +39,11 @@ function hasExeCMissing(output: string): boolean {
 }
 
 /**
- * Extract missing C header names from build output.
+ * Extract missing C system header names from build output.
  * Returns array of header file names (e.g. ["yaml.h", "fuse.h"]).
+ * Filters out headers that exist in the project directory (bundled/local headers).
  */
-function extractMissingHeaders(output: string): string[] {
+function extractMissingHeaders(output: string, projectPath: string): string[] {
   const headers: string[] = [];
   const seen = new Set<string>();
   // Match patterns like: fatal error: yaml.h: No such file or directory
@@ -56,6 +58,12 @@ function extractMissingHeaders(output: string): string[] {
       const header = match[1];
       if (!seen.has(header)) {
         seen.add(header);
+        // Skip headers that exist in the project directory (bundled/single-header libs)
+        const headerBasename = basename(header);
+        if (existsSync(join(projectPath, header)) ||
+            existsSync(join(projectPath, headerBasename))) {
+          continue; // bundled header, not a missing system header
+        }
         headers.push(header);
       }
     }
@@ -221,8 +229,8 @@ export function registerBuildAndReportTool(server: McpServer): void {
         // If retry also failed, fall through to normal error reporting
       }
 
-      // Check for missing C system headers
-      const missingHeaders = extractMissingHeaders(combinedForRetry);
+      // Check for missing C system headers (skip bundled/local headers)
+      const missingHeaders = extractMissingHeaders(combinedForRetry, project_path);
       if (missingHeaders.length > 0) {
         const sections: string[] = [
           `Build failed: missing C system header(s)`,
