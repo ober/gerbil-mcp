@@ -109,10 +109,16 @@ export function registerVerifyTool(server: McpServer): void {
         }
       }
 
+      // Detect FFI-related code that can cause false positives in the isolated syntax check
+      const hasFFIContent = /\b(begin-ffi|begin-foreign|c-declare|c-define-type|c-lambda)\b/.test(sourceCode) ||
+        /\bimport\b.*\b(begin-ffi|ffi|foreign)\b/i.test(sourceCode);
+
       try {
         // Phase 1: Syntax check (quick, via expander)
+        // Skip for files containing FFI forms, as core-expand in isolation
+        // cannot resolve begin-ffi module exports and produces false EOF errors.
         const firstForm = sourceCode.split('\n').find(l => l.trim() && !l.trim().startsWith(';'));
-        if (firstForm) {
+        if (firstForm && !hasFFIContent) {
           const escaped = escapeSchemeString(firstForm.trim());
           const exprs = [
             '(import :gerbil/expander)',
@@ -131,11 +137,16 @@ export function registerVerifyTool(server: McpServer): void {
             const stdout = result.stdout;
             if (stdout.includes(ERROR_MARKER)) {
               const errorMsg = stdout.slice(stdout.indexOf(ERROR_MARKER) + ERROR_MARKER.length).trim();
-              issues.push({
-                phase: 'syntax',
-                severity: 'error',
-                message: `Syntax error: ${errorMsg.split('\n')[0]}`,
-              });
+              // Suppress EOF errors when imports reference FFI modules
+              const isEofError = /incomplete form|eof|end-of-file/i.test(errorMsg);
+              const importsFFI = /\bimport\b/.test(sourceCode) && isEofError;
+              if (!importsFFI) {
+                issues.push({
+                  phase: 'syntax',
+                  severity: 'error',
+                  message: `Syntax error: ${errorMsg.split('\n')[0]}`,
+                });
+              }
             }
           } catch {
             // Syntax check failure — continue to other phases

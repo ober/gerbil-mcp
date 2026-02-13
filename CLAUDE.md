@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 430 tests must pass before considering any change complete. The test suite covers:
+All 432 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -161,6 +161,7 @@ All 430 tests must pass before considering any change complete. The test suite c
 - Run tests clean_stale parameter (stale artifact cleanup before test runs)
 - New tool annotations (readOnlyHint/idempotentHint on all 20 new tools)
 - Combined verify tool (syntax + compile + lint + arity in one pass, valid code, invalid code, missing params)
+- Verify FFI false-positive suppression (FFI code syntax skip, EOF suppression with imports)
 - Stdlib source reader (valid module resolution, nonexistent module handling)
 - Howto run recipe (valid recipe execution, nonexistent recipe handling)
 - Function behavior card (built-in cards for ~50 functions, unknown function dynamic probing, custom cases, sort with module import, when/unless edge cases, hash-merge)

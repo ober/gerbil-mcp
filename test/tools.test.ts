@@ -5655,6 +5655,27 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.isError).toBe(true);
       expect(result.text).toContain('Either');
     });
+
+    it('skips syntax check for FFI code to avoid false EOF errors', async () => {
+      const result = await client.callTool('gerbil_verify', {
+        code: '(import :gerbil/gambit)\n(begin-foreign\n  (c-declare "int foo(void) { return 42; }"))\n',
+        skip_arity: true,
+      });
+      // Should not report a false EOF syntax error
+      const text = result.text;
+      expect(text).not.toContain('Incomplete form');
+      expect(text).not.toContain('EOF');
+    });
+
+    it('suppresses EOF syntax errors when file has imports', async () => {
+      // Code that imports and has a syntax error from isolated expansion
+      const result = await client.callTool('gerbil_verify', {
+        code: '(import :std/text/json)\n(def (process x) (read-json x))',
+        skip_arity: true,
+      });
+      // Should not have false EOF errors from the syntax check
+      expect(result.text).not.toMatch(/\[ERROR\] \[syntax\].*EOF/i);
+    });
   });
 
   // ── Stdlib source reader ────────────────────────────────────
