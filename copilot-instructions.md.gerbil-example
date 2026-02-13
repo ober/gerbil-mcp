@@ -111,6 +111,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_check_balance`**: Fast paren/bracket/brace balance checking without spawning a subprocess. Handles `#!` reader directives and suggests cross-checking with `gerbil_read_forms` on errors.
 - **`gerbil_read_forms`**: Read a file with the actual Gerbil reader and see each form's line range and summary.
 - **`gerbil_version`**: Check Gerbil/Gambit versions, installation path, and system type.
+- **`gerbil_preflight_check`**: Diagnostic tool that verifies MCP server prerequisites and Gerbil environment health. Checks gxi/gxc/gerbil availability, Gerbil version, `GERBIL_HOME`/`GERBIL_PATH`, basic eval functionality, and optionally checks a TypeScript MCP server project (dist/, node_modules). Use when tools are not working or to verify the environment.
 
 ### For Refactoring and Code Generation
 

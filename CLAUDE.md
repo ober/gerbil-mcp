@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 440 tests must pass before considering any change complete. The test suite covers:
+All 442 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -178,6 +178,7 @@ All 440 tests must pass before considering any change complete. The test suite c
 - Build chain tool (gerbil.pkg requirement, dry_run mode)
 - FFI link check tool (missing file handling, no c-declare detection, c-declare call extraction)
 - Batch syntax check tool (multiple snippets, invalid syntax detection, empty array handling)
+- Preflight check tool (environment checks, MCP server project checks)
 
 
 ### MANDATORY: Update Documentation After Every Change

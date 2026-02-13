@@ -6005,6 +6005,23 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Preflight check tool ──────────────────────────────────
+
+  describe('Preflight check tool', () => {
+    it('runs environment checks', async () => {
+      const result = await client.callTool('gerbil_preflight_check', {});
+      expect(result.text).toContain('Preflight Check');
+      expect(result.text).toContain('gxi');
+    });
+
+    it('checks MCP server project when path provided', async () => {
+      const result = await client.callTool('gerbil_preflight_check', {
+        server_path: '/tmp/nonexistent-mcp-server',
+      });
+      expect(result.text).toContain('package.json');
+    });
+  });
+
   // ── Batch syntax check tool ──────────────────────────────
 
   describe('Batch syntax check tool', () => {
@@ -6183,6 +6200,7 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_build_chain',
         'gerbil_ffi_link_check',
         'gerbil_batch_syntax_check',
+        'gerbil_preflight_check',
       ];
 
       for (const name of newToolNames) {

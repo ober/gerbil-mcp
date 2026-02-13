@@ -117,6 +117,7 @@ import { registerCheckDuplicatesTool } from './tools/check-duplicates.js';
 import { registerBuildChainTool } from './tools/build-chain.js';
 import { registerFFILinkCheckTool } from './tools/ffi-link-check.js';
 import { registerBatchSyntaxCheckTool } from './tools/batch-syntax-check.js';
+import { registerPreflightCheckTool } from './tools/preflight-check.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -174,6 +175,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To benchmark expressions: use gerbil_benchmark to measure wall-clock time, CPU time, GC stats, and memory allocation.
 - To understand error types: use gerbil_error_hierarchy to see the full exception/error class hierarchy tree.
 - To check environment: use gerbil_version to see Gerbil/Gambit versions, home directory, and system info.
+- To diagnose MCP issues: use gerbil_preflight_check to verify server prerequisites (gxi/gxc availability, Gerbil version, GERBIL_HOME/PATH, dist/ folder, basic eval). Use when tools are not working.
 - To create a new project: use gerbil_scaffold to generate a project template with gerbil.pkg and build.ss.
 - To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages.
 - To find symbol usages: use gerbil_find_callers to search a directory for files that reference a given symbol.
@@ -404,6 +406,7 @@ registerCheckDuplicatesTool(server);
 registerBuildChainTool(server);
 registerFFILinkCheckTool(server);
 registerBatchSyntaxCheckTool(server);
+registerPreflightCheckTool(server);
 
 registerPrompts(server);
 registerResources(server);
