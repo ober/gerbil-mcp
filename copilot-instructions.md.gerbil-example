@@ -13,6 +13,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_module_exports`**: Check what a module actually exports before using it. Never guess function names. Handles modules with Gambit `(declare ...)` forms by falling back to compiled `.scm` artifacts.
 - **`gerbil_function_signature`**: Check procedure arities and keyword arguments before calling functions. Prevents wrong-number-of-arguments errors. Falls back to scanning compiled `.scm` artifacts for `keyword-dispatch` patterns when source is unavailable. Shows positional vs keyword args for keyword-dispatch functions.
 - **`gerbil_check_syntax`**: Validate syntax of any code you write before presenting it.
+- **`gerbil_batch_syntax_check`**: Check multiple Gerbil code snippets for syntax validity in a single call. Accepts an array of `{id, code}` objects and returns per-snippet pass/fail results. Much more efficient than individual `gerbil_check_syntax` calls when verifying many functions at once.
 - **`gerbil_compile_check`**: Run the full compiler (`gxc -S`) to catch unbound identifiers and type issues beyond syntax. Combines stdout/stderr for complete error output.
 - **`gerbil_doc`**: Look up any symbol for type, arity, qualified name, and related symbols.
 

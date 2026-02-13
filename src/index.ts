@@ -116,6 +116,7 @@ import { registerErrorFixLookupTool, registerErrorFixAddTool } from './tools/err
 import { registerCheckDuplicatesTool } from './tools/check-duplicates.js';
 import { registerBuildChainTool } from './tools/build-chain.js';
 import { registerFFILinkCheckTool } from './tools/ffi-link-check.js';
+import { registerBatchSyntaxCheckTool } from './tools/batch-syntax-check.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -126,7 +127,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - BEFORE writing ANY Gerbil code: FIRST use gerbil_howto to search the cookbook for relevant patterns. The cookbook contains 394+ verified, working examples with correct imports, arities, and keyword conventions — accumulated from real debugging sessions. Many bugs (wrong arity, missing parent arg, keyword vs positional) are already documented here. Search with the widget/module/task name (e.g. "dialog create", "layout parent", "hash iterate", "json parse"). Skipping this step has repeatedly caused bugs that were already solved in the cookbook.
 - BEFORE finalizing Gerbil code involving FFI, shell commands, file I/O, or C shims: run gerbil_security_scan on the file or project. It checks for known vulnerability patterns (shell injection, FFI type mismatches, resource leaks, unsafe C patterns) and reports findings with severity and remediation. Skipping this step risks shipping code with known vulnerability patterns.
 - BEFORE writing Gerbil code: use gerbil_module_exports to check what a module actually exports, rather than guessing function names or signatures. Use loadpath or project_path to resolve project-local dependency modules.
-- BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid.
+- BEFORE suggesting Gerbil code: use gerbil_check_syntax to verify your code is syntactically valid. Use gerbil_batch_syntax_check to verify multiple snippets in one call.
 - BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors. Use loadpath or project_path for dependency modules.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
@@ -402,6 +403,7 @@ registerErrorFixAddTool(server);
 registerCheckDuplicatesTool(server);
 registerBuildChainTool(server);
 registerFFILinkCheckTool(server);
+registerBatchSyntaxCheckTool(server);
 
 registerPrompts(server);
 registerResources(server);

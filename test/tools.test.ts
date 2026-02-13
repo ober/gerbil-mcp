@@ -6005,6 +6005,41 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Batch syntax check tool ──────────────────────────────
+
+  describe('Batch syntax check tool', () => {
+    it('checks multiple snippets in one call', async () => {
+      const result = await client.callTool('gerbil_batch_syntax_check', {
+        snippets: [
+          { id: 'add', code: '(def (add a b) (+ a b))' },
+          { id: 'mul', code: '(def (mul a b) (* a b))' },
+        ],
+      });
+      expect(result.text).toContain('2 passed');
+      expect(result.text).toContain('[PASS] add');
+      expect(result.text).toContain('[PASS] mul');
+    });
+
+    it('detects invalid syntax in batch', async () => {
+      const result = await client.callTool('gerbil_batch_syntax_check', {
+        snippets: [
+          { id: 'good', code: '(def (f x) x)' },
+          { id: 'bad', code: '(def (g x) (+ x' },
+        ],
+      });
+      expect(result.text).toContain('[PASS] good');
+      expect(result.text).toContain('[FAIL] bad');
+    });
+
+    it('handles empty snippets array', async () => {
+      const result = await client.callTool('gerbil_batch_syntax_check', {
+        snippets: [],
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('No snippets');
+    });
+  });
+
   // ── FFI link check tool ──────────────────────────────────
 
   describe('FFI link check tool', () => {
@@ -6147,6 +6182,7 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_check_duplicates',
         'gerbil_build_chain',
         'gerbil_ffi_link_check',
+        'gerbil_batch_syntax_check',
       ];
 
       for (const name of newToolNames) {
