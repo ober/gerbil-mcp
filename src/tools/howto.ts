@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -11,15 +11,41 @@ const __dirname = dirname(__filename);
 /** Path to the repo-local cookbook that accumulates recipes across sessions. */
 export const REPO_COOKBOOK_PATH = resolve(__dirname, '..', '..', 'cookbooks.json');
 
+/**
+ * Cached cookbook entries keyed by file path.
+ * Each entry stores the parsed recipes and the file's mtime for invalidation.
+ * This prevents re-reading and re-parsing the same file on every parallel call.
+ */
+const cookbookCache = new Map<string, { mtimeMs: number; recipes: Recipe[] }>();
+
 export function loadCookbook(path: string): Recipe[] {
   try {
+    const st = statSync(path);
+    const cached = cookbookCache.get(path);
+    if (cached && cached.mtimeMs === st.mtimeMs) {
+      return cached.recipes;
+    }
     const raw = readFileSync(path, 'utf-8');
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) {
+      // Defensive: ensure every entry has an iterable tags array
+      const recipes = (parsed as Recipe[]).map(r => ({
+        ...r,
+        tags: Array.isArray(r.tags) ? r.tags : [],
+        imports: Array.isArray(r.imports) ? r.imports : [],
+      }));
+      cookbookCache.set(path, { mtimeMs: st.mtimeMs, recipes });
+      return recipes;
+    }
   } catch {
     // Missing or invalid file — skip silently
   }
   return [];
+}
+
+/** Invalidate the cookbook cache for a specific path (used after howto_add writes). */
+export function invalidateCookbookCache(path: string): void {
+  cookbookCache.delete(path);
 }
 
 export interface Recipe {
@@ -733,16 +759,16 @@ export function registerHowtoTool(server: McpServer): void {
         };
       }
 
-      // Always merge repo cookbook, then optionally an extra cookbook_path
-      let recipes: Recipe[] = [...RECIPES];
+      // Always merge repo cookbook, then optionally an extra cookbook_path.
+      // Use concat instead of push(...spread) for robustness under parallel calls.
+      let recipes: Recipe[] = RECIPES.slice();
       const sources = [REPO_COOKBOOK_PATH];
       if (cookbook_path) sources.push(cookbook_path);
       for (const src of sources) {
         const external = loadCookbook(src);
         if (external.length > 0) {
           const externalIds = new Set(external.map((r) => r.id));
-          recipes = recipes.filter((r) => !externalIds.has(r.id));
-          recipes.push(...external);
+          recipes = recipes.filter((r) => !externalIds.has(r.id)).concat(external);
         }
       }
 

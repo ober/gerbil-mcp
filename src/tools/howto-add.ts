@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { Recipe } from './howto.js';
-import { REPO_COOKBOOK_PATH } from './howto.js';
+import { REPO_COOKBOOK_PATH, invalidateCookbookCache } from './howto.js';
 
 export function registerHowtoAddTool(server: McpServer): void {
   server.registerTool(
@@ -135,6 +135,8 @@ export function registerHowtoAddTool(server: McpServer): void {
       try {
         mkdirSync(dirname(cookbook_path), { recursive: true });
         writeFileSync(cookbook_path, JSON.stringify(recipes, null, 2) + '\n');
+        // Invalidate the cookbook cache so subsequent reads pick up the new data
+        invalidateCookbookCache(cookbook_path);
       } catch (e: unknown) {
         return {
           content: [
