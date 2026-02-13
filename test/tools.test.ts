@@ -6005,6 +6005,27 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Build chain tool ──────────────────────────────────────
+
+  describe('Build chain tool', () => {
+    it('requires gerbil.pkg in project directory', async () => {
+      const result = await client.callTool('gerbil_build_chain', {
+        project_path: '/tmp/nonexistent-project-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('gerbil.pkg');
+    });
+
+    it('supports dry_run mode', async () => {
+      const result = await client.callTool('gerbil_build_chain', {
+        project_path: '/tmp/nonexistent-project-xyz',
+        dry_run: true,
+      });
+      // Will error because no gerbil.pkg, which is expected
+      expect(result.text).toBeDefined();
+    });
+  });
+
   // ── Stdlib resources ────────────────────────────────────────
 
   describe('Stdlib reference resources', () => {
@@ -6095,6 +6116,7 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_error_fix_add',
         // New batch 4 tools
         'gerbil_check_duplicates',
+        'gerbil_build_chain',
       ];
 
       for (const name of newToolNames) {

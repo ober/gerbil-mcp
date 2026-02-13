@@ -114,6 +114,7 @@ import { registerTranslateSchemeTool } from './tools/translate-scheme.js';
 import { registerProjectTemplateTool } from './tools/project-template.js';
 import { registerErrorFixLookupTool, registerErrorFixAddTool } from './tools/error-fix.js';
 import { registerCheckDuplicatesTool } from './tools/check-duplicates.js';
+import { registerBuildChainTool } from './tools/build-chain.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -235,6 +236,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To scaffold graceful shutdown: use gerbil_graceful_shutdown_scaffold for signal handling and cleanup patterns.
 - To verify code in one pass: use gerbil_verify to run syntax check, compile check, lint, and arity check in a single call. Replaces sequential check_syntax → compile_check → lint → check_arity workflow. Now includes duplicate definition detection.
 - To check for duplicate definitions: use gerbil_check_duplicates for fast pre-build scanning of duplicate top-level defs (def, defmethod, defrule, etc.). Reports line numbers for both original and duplicate. Catches "Bad binding; rebind conflict" before compilation.
+- To build multi-project dependencies: use gerbil_build_chain to build a chain of dependent Gerbil projects in dependency order. Reads gerbil.pkg depend: and GERBIL_LOADPATH from Makefile to find upstream projects, checks if they need rebuilding, and builds them before the target. Use dry_run to preview.
 - To read stdlib source: use gerbil_stdlib_source to read the full source code of any standard library module by its module path.
 - To test a cookbook recipe: use gerbil_howto_run to compile-check and optionally execute a recipe in the current environment.
 - To probe function behavior: use gerbil_function_behavior to generate a behavior card showing return values for normal and edge cases (missing keys, empty lists, out of bounds, etc.).
@@ -396,6 +398,7 @@ registerProjectTemplateTool(server);
 registerErrorFixLookupTool(server);
 registerErrorFixAddTool(server);
 registerCheckDuplicatesTool(server);
+registerBuildChainTool(server);
 
 registerPrompts(server);
 registerResources(server);
