@@ -5666,13 +5666,15 @@
     "imports": [
       ":gerbil-qt/qt"
     ],
-    "code": ";; PATTERN: Attach a QCompleter to a QLineEdit for autocomplete suggestions.\n;; qt-completer-create takes 1 arg (parent widget).\n;; qt-completer-set-model-strings! takes (completer string-list).\n\n(import :gerbil-qt/qt)\n\n(let* ((search-box (qt-line-edit-create))\n       (completer (qt-completer-create search-box)))\n\n  ;; Configure matching mode\n  (qt-completer-set-case-sensitivity! completer QT_CASE_INSENSITIVE)\n  (qt-completer-set-filter-mode! completer QT_MATCH_CONTAINS)  ;; fuzzy\n\n  ;; Attach to line edit\n  (qt-line-edit-set-completer! search-box completer)\n\n  ;; Populate with suggestions\n  (qt-completer-set-model-strings! completer\n    '(\"general\" \"random\" \"engineering\" \"design\" \"marketing\"))\n\n  ;; Update suggestions dynamically (e.g., when data changes):\n  ;; (qt-completer-set-model-strings! completer new-list)\n  )\n\n;; Filter mode constants:\n;; QT_MATCH_STARTS_WITH — only match from the beginning (default)\n;; QT_MATCH_CONTAINS    — match anywhere in the string (fuzzy)\n;; QT_MATCH_ENDS_WITH   — match at the end\n\n;; Completion mode constants:\n;; QT_COMPLETER_POPUP            — dropdown popup (default)\n;; QT_COMPLETER_INLINE           — inline completion\n;; QT_COMPLETER_UNFILTERED_POPUP — show all items, highlight match\n\n;; Case sensitivity constants:\n;; QT_CASE_SENSITIVE\n;; QT_CASE_INSENSITIVE",
-    "notes": "qt-completer-create takes a parent widget (typically the line edit it will serve). Call qt-completer-set-model-strings! to update the suggestions list — can be called repeatedly as data changes. QT_MATCH_CONTAINS is best for search/filter UIs. The completer only works with QLineEdit (not QPlainTextEdit). For in-text autocomplete (@mentions, :emoji:), you'd need a custom popup approach.",
+    "code": ";; PATTERN: Attach a QCompleter to a QLineEdit for autocomplete suggestions.\n;; qt-completer-create takes a LIST OF STRINGS, NOT a parent widget.\n;; Use qt-completer-set-widget! to associate it with a line edit.\n\n(import :gerbil-qt/qt)\n\n(let* ((search-box (qt-line-edit-create))\n       (completer (qt-completer-create '(\"general\" \"random\" \"engineering\" \"design\" \"marketing\"))))\n\n  ;; Configure matching mode\n  (qt-completer-set-case-sensitivity! completer QT_CASE_INSENSITIVE)\n  (qt-completer-set-filter-mode! completer QT_MATCH_CONTAINS)  ;; fuzzy\n\n  ;; Associate completer with the line edit\n  (qt-completer-set-widget! completer search-box)\n  (qt-line-edit-set-completer! search-box completer)\n\n  ;; Update suggestions dynamically (e.g., when data changes):\n  ;; (qt-completer-set-model-strings! completer new-list)\n  )\n\n;; Filter mode constants:\n;; QT_MATCH_STARTS_WITH — only match from the beginning (default)\n;; QT_MATCH_CONTAINS    — match anywhere in the string (fuzzy)\n;; QT_MATCH_ENDS_WITH   — match at the end\n\n;; Completion mode constants:\n;; QT_COMPLETER_POPUP            — dropdown popup (default)\n;; QT_COMPLETER_INLINE           — inline completion\n;; QT_COMPLETER_UNFILTERED_POPUP — show all items, highlight match\n\n;; Case sensitivity constants:\n;; QT_CASE_SENSITIVE\n;; QT_CASE_INSENSITIVE",
+    "notes": "CRITICAL: qt-completer-create takes a LIST OF STRINGS as its single argument — NOT a parent widget. Passing a widget pointer causes 'STRINGS parameter not list' error. Use qt-completer-set-widget! to associate the completer with a QLineEdit after creation. The completer only works with QLineEdit (not QPlainTextEdit).",
     "related": [
       "qt-on-return-pressed-not-on-line-edit-return",
-      "qt-list-widget-item-data-user-role"
+      "qt-dialog-create-parent-keyword"
     ],
-    "gerbil_version": "v0.18.1-173"
+    "valid_for": [
+      "v0.18.1-173"
+    ]
   },
   {
     "id": "qt-group-box-checkbox-preferences-dialog",
@@ -9804,7 +9806,9 @@
       ":std/make"
     ],
     "code": ";; In build.ss: define Qt FFI compile/link flags\n(def qt-base (path-expand \"mine/gerbil-qt\" (getenv \"HOME\")))\n(def qt-vendor-dir (path-expand \"vendor\" qt-base))\n\n(def qt-cc-opts\n  (string-append\n   \"-I\" qt-vendor-dir \" \"\n   (cppflags \"Qt6Widgets\" \"\")))\n\n(def qt-ld-opts\n  (string-append\n   \"-L\" qt-vendor-dir \" -lqt_shim \"\n   \"-Wl,-rpath,\" qt-vendor-dir \" \"\n   (ldflags \"Qt6Widgets\" \"-lQt6Widgets\") \" \"\n   \"-lstdc++\"))\n\n;; In defbuild-script: use gxc: for library modules, exe: for executable\n(defbuild-script\n  `(;; Library modules need gxc: for FFI compile/link\n    (gxc: \"qt/keymap\"   \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)\n    (gxc: \"qt/buffer\"   \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)\n    ;; Exe target\n    (exe: \"qt/main\" bin: \"gerbil-emacs-qt\"\n          \"-cc-options\" ,qt-cc-opts \"-ld-options\" ,qt-ld-opts)))",
-    "notes": "For modules that import FFI packages (like gerbil-qt), each module in the build spec needs gxc: with cc-options and ld-options so the Gambit C compiler can find headers and link libraries. The cppflags/ldflags helpers from :std/make query pkg-config. Use -Wl,-rpath for runtime shared library resolution. The exe: target also needs the same flags for final linking."
+    "notes": "For modules that import FFI packages (like gerbil-qt), each module in the build spec needs gxc: with cc-options and ld-options so the Gambit C compiler can find headers and link libraries. The cppflags/ldflags helpers from :std/make query pkg-config. Use -Wl,-rpath for runtime shared library resolution. The exe: target also needs the same flags for final linking.",
+    "deprecated": true,
+    "superseded_by": "qt-exe-transitive-static-deps"
   },
   {
     "id": "qt-key-event-to-emacs-string",
@@ -10071,6 +10075,192 @@
     "related": [
       "process-statistics-field-layout",
       "profiling-optimization-workflow"
+    ]
+  },
+  {
+    "id": "pkg-config-path-silent-failure",
+    "title": "Set PKG_CONFIG_PATH in build.ss to avoid silent empty flags from cppflags/ldflags",
+    "tags": [
+      "pkg-config",
+      "build",
+      "PKG_CONFIG_PATH",
+      "cppflags",
+      "ldflags",
+      "silent-failure",
+      "Qt6",
+      "linking"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; PROBLEM: cppflags/ldflags from :std/make silently return the fallback\n;; string (often \"\") when pkg-config can't find the .pc file. This causes\n;; the binary to link with empty flags, producing a broken executable\n;; (e.g. `file` reports \"data\" instead of \"ELF\").\n;;\n;; ROOT CAUSE: PKG_CONFIG_PATH may not include the directory containing\n;; the .pc files (e.g. Qt6Widgets.pc on Ubuntu is in\n;; /usr/lib/x86_64-linux-gnu/pkgconfig).\n;;\n;; FIX: Set PKG_CONFIG_PATH at the top of build.ss before any cppflags/ldflags calls.\n\n(import :std/build-script :std/make)\n\n;; Ensure pkg-config can find .pc files (e.g. Qt6Widgets.pc)\n(let ((existing (or (getenv \"PKG_CONFIG_PATH\" #f) \"\")))\n  (unless (string-contains existing \"/usr/lib/x86_64-linux-gnu/pkgconfig\")\n    (setenv \"PKG_CONFIG_PATH\"\n      (if (string=? existing \"\")\n        \"/usr/lib/x86_64-linux-gnu/pkgconfig\"\n        (string-append existing \":/usr/lib/x86_64-linux-gnu/pkgconfig\")))))\n\n;; NOW cppflags/ldflags will find the .pc file and return real flags:\n(def my-cc-opts (cppflags \"Qt6Widgets\" \"\"))   ;; Returns \"-I/usr/include/...\"\n(def my-ld-opts (ldflags \"Qt6Widgets\" \"-lQt6Widgets\")) ;; Returns \"-L/usr/lib/... -lQt6Widgets\"\n\n;; DIAGNOSIS: To check if pkg-config finds your package:\n;;   pkg-config --cflags Qt6Widgets   # Should print flags, not error\n;;   pkg-config --list-all | grep Qt  # List available Qt packages",
+    "notes": "The cppflags/ldflags helpers use the fallback argument silently when pkg-config fails - there is NO warning or error. This makes it very hard to diagnose: the build appears to succeed but produces a broken binary. Always verify PKG_CONFIG_PATH is set before using these helpers. On Ubuntu/Debian, .pc files for system packages are typically in /usr/lib/x86_64-linux-gnu/pkgconfig.",
+    "related": [
+      "build-ffi-module-with-pkg-config",
+      "gxc-build-spec-qt-ffi-module"
+    ]
+  },
+  {
+    "id": "openssl-link-order-priority",
+    "title": "Put Homebrew OpenSSL -L path before pkg-config flags to avoid system OpenSSL shadowing",
+    "tags": [
+      "openssl",
+      "link-order",
+      "homebrew",
+      "linuxbrew",
+      "build",
+      "ld-options",
+      "shadowing",
+      "EVP_MD_CTX"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; PROBLEM: When Qt6 (or other) pkg-config adds -L/usr/lib/x86_64-linux-gnu,\n;; the linker finds system OpenSSL 3.0 instead of Homebrew OpenSSL 3.4+.\n;; This causes: \"undefined reference to `EVP_MD_CTX_get_size_ex'\"\n;;\n;; ROOT CAUSE: Linker uses FIRST matching -L path. If system -L comes before\n;; Homebrew -L, system libssl/libcrypto wins.\n;;\n;; FIX: Put Homebrew OpenSSL -L and -rpath BEFORE any pkg-config flags.\n\n(import :std/build-script :std/make)\n\n(def openssl-lib-dir \"/home/linuxbrew/.linuxbrew/opt/openssl@3/lib\")\n\n;; CORRECT: Homebrew OpenSSL path comes FIRST\n(def my-ld-opts\n  (string-append\n   \"-L\" openssl-lib-dir \" \"               ;; <-- MUST be before Qt flags\n   \"-Wl,-rpath,\" openssl-lib-dir \" \"      ;; runtime lookup too\n   (ldflags \"Qt6Widgets\" \"-lQt6Widgets\") \" \"  ;; Qt adds -L/usr/lib/...\n   \"-lstdc++ -lpthread\"))\n\n;; WRONG: Qt flags come first, system OpenSSL shadows Homebrew\n;; (def bad-ld-opts\n;;   (string-append\n;;    (ldflags \"Qt6Widgets\" \"-lQt6Widgets\") \" \"  ;; adds -L/usr/lib/...\n;;    \"-L\" openssl-lib-dir \" \"                    ;; TOO LATE — linker already found system libssl\n;;    \"-lstdc++\"))\n\n;; DIAGNOSIS:\n;;   nm -D /usr/lib/x86_64-linux-gnu/libcrypto.so.3 | grep EVP_MD_CTX_get_size_ex\n;;   nm -D /home/linuxbrew/.linuxbrew/opt/openssl@3/lib/libcrypto.so.3 | grep EVP_MD_CTX_get_size_ex",
+    "notes": "This affects any Gerbil project that (1) links against a library via pkg-config that adds -L/usr/lib/... and (2) also depends on a newer OpenSSL (Homebrew/Linuxbrew). The -L flag order in the final ld-options string determines which library the linker finds first. Always put your preferred library paths BEFORE any pkg-config-generated flags. Also add -Wl,-rpath for runtime.",
+    "related": [
+      "patchelf-openssl-rpath",
+      "build-ffi-module-with-pkg-config",
+      "rpath-via-gxc-ld-options"
+    ]
+  },
+  {
+    "id": "qt-exe-transitive-static-deps",
+    "title": "Qt exe must include transitive static library deps from imported modules",
+    "tags": [
+      "qt",
+      "build",
+      "transitive",
+      "static-library",
+      "linking",
+      "exe",
+      "scintilla",
+      "defbuild-script"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; PROBLEM: Qt exe imports a module (e.g. editor.ss) that transitively\n;; depends on another FFI library (e.g. scintilla). The Qt exe build\n;; fails with undefined symbols because it doesn't link the transitive deps.\n;;\n;; ROOT CAUSE: In Gerbil's build system, each module in defbuild-script\n;; compiles independently. When the exe links, it needs ALL static\n;; libraries that ANY transitive dependency uses.\n;;\n;; FIX: Include ALL static library paths in the exe's ld-options,\n;; AND include all header paths in cc-options.\n\n(import :std/build-script :std/make)\n\n;; Example: Qt exe depends on editor.ss which depends on scintilla\n(def sci-base (path-expand \"mine/gerbil-scintilla\" (getenv \"HOME\")))\n(def sci-dir (path-expand \"scintilla\" (path-expand \"vendor\" sci-base)))\n(def termbox-dir (path-expand \"termbox_next\"\n                   (path-expand \"termbox\" sci-dir)))\n(def lexilla-dir (path-expand \"lexilla\" (path-expand \"vendor\" sci-base)))\n\n;; Qt cc-options must ALSO include scintilla headers\n(def qt-cc-opts\n  (string-append\n   \"-I\" (path-expand \"vendor\" qt-base) \" \"\n   (cppflags \"Qt6Widgets\" \"\") \" \"\n   \"-I\" (path-expand \"include\" sci-dir) \" \"     ;; transitive header dep\n   \"-I\" (path-expand \"src\" sci-dir)))\n\n;; Qt ld-options must include scintilla/termbox/lexilla static libs\n(def qt-ld-opts\n  (string-append\n   \"-L\" qt-vendor \" -lqt_shim \"\n   (ldflags \"Qt6Widgets\" \"-lQt6Widgets\") \" \"\n   (path-expand \"bin/scintilla.a\" sci-dir) \" \"   ;; transitive link dep\n   (path-expand \"bin/liblexilla.a\" lexilla-dir) \" \"\n   (path-expand \"bin/termbox.a\" termbox-dir) \" \"\n   \"-lstdc++ -lpthread\"))",
+    "notes": "When module A imports module B which uses FFI library C, then an exe: target that compiles module A must include library C's .a files and headers. The build system does NOT automatically propagate these — you must manually add them to the exe's cc-options and ld-options. This commonly happens when TUI and Qt backends share a core module that depends on a C library.",
+    "related": [
+      "gxc-build-spec-qt-ffi-module",
+      "build-ffi-module-with-pkg-config",
+      "static-exe-with-deps"
+    ]
+  },
+  {
+    "id": "gerbil-test-file-path-not-module",
+    "title": "gerbil test requires file path (./foo-test.ss), not module name",
+    "tags": [
+      "test",
+      "gerbil",
+      "cli",
+      "file-path",
+      "module-name",
+      "run-tests",
+      "no-such-file"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Running gerbil test with a module name fails:\n;;   $ gerbil test emacs-test\n;;   *** ERROR -- No such file or directory (file-type \"emacs-test\")\n;;\n;; FIX: Use the file path with ./ prefix and .ss extension:\n;;   $ gerbil test ./emacs-test.ss          # single file\n;;   $ gerbil test ./...                    # recursive discovery\n;;   $ gerbil test .                        # current directory only\n;;\n;; The gerbil test command expects filesystem paths, not module paths.\n;; It uses file-type to check the path, which fails on bare names\n;; that look like module identifiers.\n;;\n;; MAKEFILE PATTERN:\n;; test: build\n;; \tGERBIL_LOADPATH=$(HOME)/.gerbil/lib gerbil test ./emacs-test.ss\n;;\n;; WITH MCP TOOLS: use gerbil_run_tests instead — it handles paths correctly.",
+    "notes": "Common mistake: writing `gerbil test emacs-test` by analogy with `gerbil build` module names. The test subcommand uses file discovery, not module resolution. Always use `./` prefix with `.ss` extension for single files, or `./...` for recursive. If using GERBIL_LOADPATH for dependencies, set it in the environment before the command.",
+    "related": [
+      "gerbil-test-cli-recursive"
+    ]
+  },
+  {
+    "id": "split-large-module-facade-pattern",
+    "title": "Split a large Gerbil module into sub-modules with facade pattern",
+    "tags": [
+      "split",
+      "module",
+      "facade",
+      "refactor",
+      "large-file",
+      "sub-module",
+      "export",
+      "import",
+      "build-order"
+    ],
+    "imports": [],
+    "code": ";; Pattern: Split a large module (e.g. editor.ss) into sub-modules\n;; while keeping the same public API.\n\n;; 1. Each sub-module exports all definitions:\n;;    editor-core.ss:\n;;      (export #t)\n;;      (import :std/sugar :mypackage/core ...)\n\n;; 2. Later sub-modules import earlier ones (chained imports):\n;;    editor-ui.ss:\n;;      (export #t)\n;;      (import :std/sugar :mypackage/core\n;;              :mypackage/editor-core)  ; ← import earlier sub-module\n\n;;    editor-text.ss:\n;;      (export #t)\n;;      (import :std/sugar :mypackage/core\n;;              :mypackage/editor-core\n;;              :mypackage/editor-ui)    ; ← import ALL earlier sub-modules\n\n;; 3. The facade re-imports everything and exports the public API:\n;;    editor.ss:\n;;      (export my-public-fn1 my-public-fn2 register-all!)\n;;      (import :mypackage/editor-core\n;;              :mypackage/editor-ui\n;;              :mypackage/editor-text)\n;;      (def (register-all!) ...)  ; uses cmd-* from all sub-modules\n\n;; 4. build.ss: sub-modules BEFORE facade\n;;    (defbuild-script\n;;      `(\"editor-core\" \"editor-ui\" \"editor-text\" \"editor\"))",
+    "notes": "Key gotchas: (1) (export #t) only exports the module's OWN definitions, not re-imported symbols — this prevents import conflicts when the facade imports multiple sub-modules that share common imports. (2) For cross-module function calls (e.g. cmd-newline in core calls cmd-dired-find-file in ui), you must either move the called function to the earlier module, or restructure to avoid the forward reference. (3) Shared state variables (def *my-var*) used across sub-modules should be in the earliest module (or a dedicated helpers module). (4) When extracting line ranges, double-check that import blocks don't have stray closing parens — a common mistake when prepending headers to extracted code.",
+    "related": [
+      "export-t-does-not-reexport-imports",
+      "reexport-convenience-module"
+    ]
+  },
+  {
+    "id": "chained-imports-avoid-circular-deps",
+    "title": "Use chained imports to avoid circular dependencies when splitting modules",
+    "tags": [
+      "circular",
+      "dependency",
+      "import",
+      "chained",
+      "split",
+      "module",
+      "forward-reference",
+      "unbound"
+    ],
+    "imports": [],
+    "code": ";; Problem: After splitting module A into A1, A2, A3, functions in A1\n;; call functions defined in A2 (forward references in the original file).\n;; This causes \"unbound identifier\" errors because A1 compiles first.\n;;\n;; Solution: Move the referenced function INTO A1 (the earlier module),\n;; or restructure so each module only calls functions from earlier modules.\n;;\n;; Pattern: Each module imports ALL modules that compile before it:\n;;   A1: (import :base-deps)           ; compiles first, no forward refs\n;;   A2: (import :base-deps :pkg/A1)   ; can call anything from A1\n;;   A3: (import :base-deps :pkg/A1 :pkg/A2)  ; can call from A1 and A2\n;;\n;; For shared state variables used across modules, define them in a\n;; helpers module that compiles before all others:\n;;   helpers.ss:\n;;     (export #t)\n;;     (def *shared-state* (make-hash-table))\n;;     (def (utility-fn ...) ...)\n;;\n;; All sub-modules import helpers:\n;;   A1: (import :base-deps :pkg/helpers)\n;;   A2: (import :base-deps :pkg/helpers :pkg/A1)",
+    "notes": "The chained import pattern adds some compilation overhead since later modules depend on all earlier ones, but it faithfully reproduces the semantics of the original single-file module where all definitions were mutually visible. This is the pragmatic approach for splitting large files that evolved organically.",
+    "related": [
+      "split-large-module-facade-pattern",
+      "break-circular-import-with-make-parameter",
+      "export-t-does-not-reexport-imports"
+    ]
+  },
+  {
+    "id": "scintilla-int-returns-truthy-zero",
+    "title": "Scintilla send-message returns int 0/1, not #f/#t — always compare with = for boolean Scintilla messages",
+    "tags": [
+      "scintilla",
+      "send-message",
+      "truthy",
+      "zero",
+      "SCI_GETLINEVISIBLE",
+      "boolean",
+      "gotcha",
+      "headless"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; WRONG: 0 is truthy in Scheme, so this always takes the \\\"visible\\\" branch\\n(let ((visible (send-message ed SCI_GETLINEVISIBLE line-num 0)))\\n  (if visible \\\"visible\\\" \\\"hidden\\\"))  ; BUG: 0 -> truthy -> \\\"visible\\\"\\n\\n;; CORRECT: compare with = 1 explicitly\\n(let ((visible (send-message ed SCI_GETLINEVISIBLE line-num 0)))\\n  (if (= visible 1) \\\"visible\\\" \\\"hidden\\\"))\\n\\n;; Same applies to all boolean-returning Scintilla messages:\\n;; SCI_GETLINEVISIBLE, SCI_GETMODIFY, SCI_GETREADONLY, etc.",
+    "notes": "Scintilla's send-message always returns integers (0 or 1) for boolean queries, never Scheme #f/#t. Since 0 is truthy in Scheme (only #f is falsy), using (if result ...) directly creates hard-to-find bugs. Always use (= result 1) or (= result 0) for explicit comparison.",
+    "related": [
+      "c-ffi-isatty-returns-int-not-bool"
+    ]
+  },
+  {
+    "id": "qt-dialog-with-completer-input",
+    "title": "Modal dialog with QLineEdit + QCompleter for completing-read style input",
+    "tags": [
+      "dialog",
+      "completer",
+      "line-edit",
+      "completing-read",
+      "modal",
+      "input",
+      "M-x"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Modal dialog with QLineEdit + QCompleter (Emacs completing-read style).\n;; Creates a dialog with a prompt label and a line edit with autocomplete.\n;; Returns the input string on accept, #f on cancel.\n\n(def (read-string-with-completion parent-window prompt completions)\n  (let* ((dlg (qt-dialog-create parent: parent-window))\n         (layout (qt-vbox-layout-create dlg))\n         (label (qt-label-create prompt))\n         (line-edit (qt-line-edit-create))\n         ;; qt-completer-create takes a LIST OF STRINGS, not a widget!\n         (completer (qt-completer-create completions)))\n    (qt-dialog-set-title! dlg \"gerbil-emacs\")\n    (qt-widget-set-minimum-width! dlg 400)\n    ;; Configure completer\n    (qt-completer-set-case-sensitivity! completer QT_CASE_INSENSITIVE)\n    (qt-completer-set-filter-mode! completer QT_MATCH_CONTAINS)\n    (qt-completer-set-max-visible-items! completer 15)\n    (qt-completer-set-widget! completer line-edit)\n    (qt-line-edit-set-completer! line-edit completer)\n    ;; Build layout\n    (qt-layout-add-widget! layout label)\n    (qt-layout-add-widget! layout line-edit)\n    ;; Enter accepts the dialog\n    (qt-on-return-pressed! line-edit (lambda () (qt-dialog-accept! dlg)))\n    ;; Run modal dialog\n    (let ((result (qt-dialog-exec! dlg)))\n      (let ((text (if (= result 1)\n                    (let ((t (qt-line-edit-text line-edit)))\n                      (if (string=? t \"\") #f t))\n                    #f)))\n        (qt-completer-destroy! completer)\n        text))))",
+    "notes": "Combines qt-dialog-create (parent: keyword), qt-vbox-layout-create, qt-completer-create (takes string list!), and qt-on-return-pressed! for a completing-read style dialog. qt-dialog-exec! returns 1 on accept, 0 on reject. Always destroy the completer after use. QT_MATCH_CONTAINS enables substring matching (typing 'buf' matches 'list-buffers').",
+    "related": [
+      "qt-completer-line-edit-search",
+      "qt-dialog-create-parent-keyword",
+      "qt-layout-requires-parent-widget"
+    ],
+    "valid_for": [
+      "v0.18.1-173"
     ]
   }
 ]

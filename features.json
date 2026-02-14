@@ -1,1 +1,39 @@
-[]
+[
+  {
+    "id": "build-linkage-diagnostic",
+    "title": "Diagnose silent linkage failures in defbuild-script exe targets",
+    "description": "A tool that analyzes a build.ss defbuild-script and checks whether exe: targets have all required link dependencies. It would: (1) trace imports from the exe's main module transitively, (2) identify which modules use FFI (begin-foreign, c-lambda, etc.), (3) check if the exe's ld-options include the static libraries those FFI modules need, (4) verify pkg-config packages are discoverable (PKG_CONFIG_PATH), (5) report missing transitive deps. This would catch the exact class of bug where a Qt exe silently produces a broken binary because it's missing scintilla/termbox static libs from transitive imports.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "linkage",
+      "diagnostic",
+      "transitive",
+      "ffi",
+      "exe",
+      "defbuild-script"
+    ],
+    "use_case": "When building a multi-backend project where exe targets transitively depend on FFI libraries through shared modules. Currently requires manual tracing of import chains to find missing -L/-l flags.",
+    "example_scenario": "gerbil-emacs Qt binary linked without scintilla/termbox/lexilla static libs because editor.ss (shared core) transitively imports them. The binary was produced as a 'data' file instead of ELF, with no error from the build system. Diagnosing this required manually running pkg-config, nm, and tracing imports — took ~30 minutes and many tool calls.",
+    "estimated_token_reduction": "~2000 tokens per diagnosis — eliminates 8-10 tool calls (module_deps, ffi_inspect, eval for pkg-config, nm lookups, file reads of build.ss)",
+    "votes": 0
+  },
+  {
+    "id": "cross-module-symbol-dependency-check",
+    "title": "Detect cross-module unbound symbol references before compilation",
+    "description": "A tool that takes a list of Gerbil source files and detects cross-file symbol dependencies — which symbols each file references that are defined in other files but not imported. This is critical when splitting a large module into sub-modules: the original file had all definitions in scope, but after splitting, forward references become unbound identifiers. The tool would: (1) extract all top-level definitions from each file, (2) extract all symbol references in each file, (3) resolve imports to see which symbols are available, (4) report unresolved symbols with the file that defines them. This replaces the current workflow of compile → fix error → compile → fix next error, which takes many round-trips.",
+    "impact": "high",
+    "tags": [
+      "cross-module",
+      "dependency",
+      "unbound",
+      "split",
+      "refactor",
+      "symbol"
+    ],
+    "use_case": "When splitting a large Gerbil module (e.g. 10,000+ lines) into multiple sub-modules. The split creates forward references that become unbound identifier errors, but you only discover them one at a time during compilation. With 10+ such errors, this wastes many build cycles.",
+    "example_scenario": "Splitting editor.ss (11,402 lines) into 7 sub-modules. After extraction, editor-core.ss references dired-open-directory! (in editor-ui.ss), cmd-repl-send (in editor-ui.ss), push-mark-ring! (in editor-text.ss), and *auto-pair-mode* (in editor-cmds-a.ss). Each was discovered via a separate compile-fail cycle. A pre-check would have identified all 4 in one pass.",
+    "estimated_token_reduction": "~3000 tokens per split operation — eliminates 4-8 compile-fix cycles (each ~400 tokens for build output + grep + edit)",
+    "votes": 0
+  }
+]
