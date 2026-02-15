@@ -10262,5 +10262,61 @@
     "valid_for": [
       "v0.18.1-173"
     ]
+  },
+  {
+    "id": "file-append-gambit-settings-list",
+    "title": "Append to file using Gambit settings list syntax",
+    "tags": [
+      "file",
+      "append",
+      "write",
+      "gambit",
+      "settings",
+      "output",
+      "call-with-output-file"
+    ],
+    "imports": [],
+    "code": ";; Append text to a file using Gambit's settings list syntax\n;; The [path: ... append: #t] form opens the file in append mode\n(def (append-text-to-file path text)\n  (call-with-output-file [path: path append: #t]\n    (lambda (p) (display text p))))\n\n;; Example: append a line to a log file\n(append-text-to-file \"/tmp/test.log\" \"New log entry\\n\")\n\n;; To overwrite instead, omit append: or use append: #f (default)\n(def (write-text-to-file path text)\n  (call-with-output-file path\n    (lambda (p) (display text p))))",
+    "notes": "Gambit's settings list syntax uses square brackets with keyword-value pairs. Other useful settings include truncate: #t (default when not appending), create: #t (default), and permissions: #o644. The [path: ...] form works with call-with-output-file, open-output-file, and with-output-to-file. Note: call-with-output-file with just a string path will create/truncate by default."
+  },
+  {
+    "id": "extract-words-named-let",
+    "title": "Extract words from text using named let (string-split alternative)",
+    "tags": [
+      "word",
+      "extract",
+      "split",
+      "string",
+      "named-let",
+      "alphabetic",
+      "tokenize",
+      "parse"
+    ],
+    "imports": [],
+    "code": ";; Extract alphabetic words from text using named let loops.\n;; Use this when you need word extraction with custom criteria,\n;; since string-split only accepts a char separator, NOT a predicate.\n(def (extract-words text)\n  (let extract ((i 0) (acc '()))\n    (let ((len (string-length text)))\n      (if (>= i len) (reverse acc)\n        (if (char-alphabetic? (string-ref text i))\n          ;; Found start of word, scan to end\n          (let word-end ((j (+ i 1)))\n            (if (and (< j len) (char-alphabetic? (string-ref text j)))\n              (word-end (+ j 1))\n              (extract j (cons (substring text i j) acc))))\n          ;; Skip non-alphabetic character\n          (extract (+ i 1) acc))))))\n\n;; Example:\n;; (extract-words \"Hello, world! This is a test-123.\")\n;; => (\"Hello\" \"world\" \"This\" \"is\" \"a\" \"test\")",
+    "notes": "Gerbil's string-split (from :std/misc/string) only accepts a character separator, NOT a predicate function like some other Scheme implementations. If you need to split on a predicate condition, use this named let pattern. SRFI-13's string-tokenize exists but has different semantics (uses char-set). For simple single-char splitting, string-split works fine: (string-split \\\"a,b,c\\\" #\\\\,).",
+    "related": [
+      "string-split-join"
+    ]
+  },
+  {
+    "id": "hash-based-dedup-filter",
+    "title": "Deduplicate a list using hash table with filter",
+    "tags": [
+      "deduplicate",
+      "unique",
+      "filter",
+      "hash",
+      "list",
+      "remove-duplicates",
+      "distinct"
+    ],
+    "imports": [],
+    "code": ";; Deduplicate a list preserving order, using hash table for O(n) performance.\n;; Works as a drop-in replacement for delete-duplicates when you need\n;; order preservation and O(n) complexity.\n(def (unique-strings lst)\n  (let ((seen (make-hash-table)))\n    (filter (lambda (item)\n              (and (not (hash-get seen item))\n                   (begin (hash-put! seen item #t) #t)))\n            lst)))\n\n;; With additional filtering (e.g., minimum length):\n(def (unique-words lst min-length)\n  (let ((seen (make-hash-table)))\n    (filter (lambda (w)\n              (and (> (string-length w) min-length)\n                   (not (hash-get seen w))\n                   (begin (hash-put! seen w #t) #t)))\n            lst)))\n\n;; Example:\n;; (unique-strings '(\"a\" \"b\" \"a\" \"c\" \"b\")) => (\"a\" \"b\" \"c\")\n;; (unique-words '(\"the\" \"a\" \"hello\" \"the\" \"world\") 2) => (\"hello\" \"the\" \"world\")",
+    "notes": "SRFI-1's delete-duplicates may not be imported in all contexts. This hash-based pattern is self-contained (no imports needed) and runs in O(n) vs O(n^2) for delete-duplicates. The side-effect in (begin (hash-put! ...) #t) inside filter is a common Scheme idiom for stateful filtering. Use hash-get (not hash-ref) which returns #f on missing keys.",
+    "related": [
+      "deduplicate-names-hash-counter",
+      "hash-table-basics"
+    ]
   }
 ]
