@@ -10318,5 +10318,214 @@
       "deduplicate-names-hash-counter",
       "hash-table-basics"
     ]
+  },
+  {
+    "id": "facade-cross-cutting-functions",
+    "title": "Move cross-cutting functions to the facade when splitting modules",
+    "tags": [
+      "facade",
+      "cross-cutting",
+      "forward-reference",
+      "split",
+      "module",
+      "refactor",
+      "state",
+      "cleanup"
+    ],
+    "imports": [],
+    "code": ";; When splitting a large module into chained sub-modules, some functions\n;; reference state variables from MANY different sub-modules. These\n;; cannot go in any single sub-module without creating forward references.\n;;\n;; Solution: Put them in the facade (last in chain, imports everything).\n;;\n;; Example: a \"kill-buffer\" function that cleans up state across modules:\n;;\n;; commands.ss (facade):\n;;   (import :pkg/commands-core    ;; *buffer-recent*\n;;           :pkg/commands-file    ;; *dired-entries*, *dired-marks*\n;;           :pkg/commands-shell   ;; *repl-state*, *shell-state*, *terminal-state*\n;;           :pkg/commands-config) ;; *snippet-active*\n;;\n;;   (def (cmd-kill-buffer-cmd app)\n;;     ;; This function touches state from file, shell, config modules\n;;     ;; so it MUST live in the facade\n;;     (hash-remove! *dired-entries* buf)    ;; from file module\n;;     (hash-remove! *repl-state* buf)       ;; from shell module\n;;     (hash-remove! *terminal-state* buf)   ;; from shell module\n;;     (qt-buffer-kill! buf))\n;;\n;; Any function in a sub-module that CALLS a facade function must ALSO\n;; move to the facade:\n;;\n;;   ;; cmd-kill-buffer-and-window calls cmd-kill-buffer-cmd\n;;   ;; → must also be in the facade\n;;   (def (cmd-kill-buffer-and-window app)\n;;     (cmd-kill-buffer-cmd app)  ;; facade function\n;;     (qt-frame-delete-window! fr))\n;;\n;; Alternatively, for simple delegations, just define them in the facade:\n;;   (def (cmd-find-file-literally app)\n;;     (cmd-find-file app))  ;; cmd-find-file is in facade",
+    "notes": "Pattern: identify functions that reference state variables from 3+ different sub-modules — those are cross-cutting and belong in the facade. Then transitively move any function that calls a facade function. Common cross-cutting functions: init/cleanup, quit/shutdown, open-file (applies settings from multiple modules). Keep the facade under 2000 lines by only putting truly cross-cutting code there.",
+    "related": [
+      "split-large-module-facade-pattern",
+      "chained-imports-avoid-circular-deps",
+      "export-t-does-not-reexport-imports"
+    ]
+  },
+  {
+    "id": "qt-buffer-list-column-parse",
+    "title": "Parse fixed-width column format in buffer list (Qt backend)",
+    "tags": [
+      "buffer-list",
+      "parse",
+      "column",
+      "fixed-width",
+      "substring",
+      "qt",
+      "select",
+      "string-trim"
+    ],
+    "imports": [
+      ":std/srfi/13"
+    ],
+    "code": ";; Qt cmd-list-buffers formats lines with space-padded columns:\\n;; \\\"  CM NNNNNNNNNNNNNNNNNNNNNNNNMMMMMMMMMMMMMPATH\\\"\\n;; Positions: 0-1=spaces, 2=cur-marker, 3=mod-flag, 4=space,\\n;;           5-28=padded-name(24ch), 29-41=padded-mode(13ch), 42+=path\\n;;\\n;; WRONG: looking for tab delimiters (tabs don't exist in this format)\\n;; (let* ((trimmed (string-trim line-text))\\n;;        (tab-pos (string-index trimmed #\\\\tab))\\n;;        (name (if tab-pos (substring trimmed 0 tab-pos) trimmed)))\\n;;\\n;; RIGHT: extract from fixed column positions\\n(let* ((name (if (>= (string-length line-text) 29)\\n                 (string-trim (substring line-text 5 29))\\n                 \\\"\\\")))\\n  ;; name is now the buffer name without padding\\n  ;; Skip header lines\\n  (when (and (> (string-length name) 0)\\n             (not (string=? name \\\"Buffer\\\"))\\n             (not (string=? name \\\"------\\\")))\\n    ;; ... look up buffer by name ...\\n    ))",
+    "notes": "The TUI backend (editor-ui.ss) uses tab-delimited format: \\\"  name\\\\t\\\\tpath\\\" — so tab parsing works there. But the Qt backend (qt/commands-core.ss) uses fixed-width space-padded columns. When parsing formatted buffer output, always match the producer's format. The name column is 24 chars starting at column 5. Also: always set buffer-list buffers to read-only after populating them (editor-set-read-only for TUI, qt-plain-text-edit-set-read-only! for Qt)."
+  },
+  {
+    "id": "gambit-exe-cc-options-not-propagated",
+    "title": "Gambit exe builder does NOT propagate per-module cc-options to dependency .c files",
+    "tags": [
+      "gambit",
+      "exe",
+      "cc-options",
+      "propagation",
+      "build",
+      "ifdef",
+      "c-declare",
+      "define",
+      "cpp",
+      "static-compilation",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; PROBLEM: When building an exe, Gambit compiles dependency .c files\n;; WITHOUT the cc-options from the dependency's own build.ss.\n;; Only the exe target's own cc-options are used.\n;;\n;; Example: gerbil-qt's build.ss compiles libqt.ss with:\n;;   (gxc: \"libqt\" \"-cc-options\" \"-DQT_SCINTILLA_AVAILABLE ...\")\n;;\n;; But when gerbil-emacs builds its exe:\n;;   (exe: \"qt/main\" bin: \"gerbil-emacs-qt\"\n;;         \"-cc-options\" ,qt-cc-opts  ;; <-- only THESE are used\n;;         \"-ld-options\" ,qt-ld-opts)\n;;\n;; Gambit recompiles gerbil-qt__libqt.c for static linking,\n;; but uses gerbil-emacs's cc-opts, NOT gerbil-qt's cc-opts.\n;; So #ifdef QT_SCINTILLA_AVAILABLE in the .c file evaluates to FALSE.\n\n;; SOLUTION: The downstream project (gerbil-emacs) must ALSO include\n;; the upstream defines in its own cc-options:\n(def have-qscintilla?\n  (or (with-catch (lambda (_) #f)\n        (lambda ()\n          (run-process [\"pkg-config\" \"--exists\" \"QScintilla\"] coprocess: void)\n          #t))\n      (let ((arch (with-catch (lambda (_) \"x86_64-linux-gnu\")\n                    (lambda () (run-process [\"gcc\" \"-dumpmachine\"]\n                                           coprocess: read-line)))))\n        (or (file-exists? (string-append \"/usr/include/\" arch \"/qt6/Qsci/qsciscintilla.h\"))\n            (file-exists? \"/usr/include/qt6/Qsci/qsciscintilla.h\")))))\n\n(def qsci-cppflags\n  (if have-qscintilla?\n    (with-catch (lambda (_) \"-DQT_SCINTILLA_AVAILABLE\")\n      (lambda () (string-append \"-DQT_SCINTILLA_AVAILABLE \"\n                                (run-process [\"pkg-config\" \"--cflags\" \"QScintilla\"]\n                                             coprocess: read-line))))\n    \"\"))\n\n;; Include in the exe's cc-options:\n(def qt-cc-opts\n  (string-append \"-I\" qt-vendor-dir \" \"\n                 (cppflags \"Qt6Widgets\" \"\") \" \"\n                 qsci-cppflags \" \"     ;; <-- CRITICAL: must mirror upstream\n                 cc-opts))",
+    "notes": "This is a fundamental Gambit limitation. When Gambit builds a static exe, it recompiles ALL dependency .c files (from ~/.gerbil/lib/static/) using only the exe target's cc-options. The original per-module cc-options from the dependency's build.ss are NOT preserved or propagated. This means any #ifdef guards in c-declare blocks of dependency modules will use the WRONG defines unless the downstream project explicitly includes them. The safest approach is to either: (1) avoid #ifdef in c-declare blocks entirely, or (2) duplicate the detection logic in every downstream build.ss that creates an exe.",
+    "related": [
+      "qt-exe-transitive-static-deps",
+      "build-ffi-module-with-pkg-config",
+      "openssl-link-order-priority"
+    ]
+  },
+  {
+    "id": "c-declare-ifdef-stubs-null-pointer-danger",
+    "title": "Never use #ifdef stubs returning NULL in c-declare — causes segfaults in cross-project exe builds",
+    "tags": [
+      "c-declare",
+      "ifdef",
+      "stubs",
+      "NULL",
+      "segfault",
+      "cross-project",
+      "ffi",
+      "conditional",
+      "compilation",
+      "exe"
+    ],
+    "imports": [],
+    "code": ";; BAD PATTERN — DO NOT DO THIS:\n;; In a library's c-declare block:\n;;\n;; (begin-foreign (c-declare #<<END\n;; #ifdef QT_SCINTILLA_AVAILABLE\n;; void* qt_scintilla_create(void* parent) {\n;;   return new QsciScintilla((QWidget*)parent);\n;; }\n;; #else\n;; /* Stub — returns NULL */\n;; static void* qt_scintilla_create(void* parent) { return (void*)0; }\n;; #endif\n;; END\n;; ))\n;;\n;; Problem: When a downstream exe is built, Gambit recompiles this .c\n;; WITHOUT the upstream's -DQT_SCINTILLA_AVAILABLE flag.\n;; The #else stub compiles instead → returns NULL → SEGFAULT.\n;;\n;; The `static` keyword makes it worse: the stub shadows the real\n;; function from the linked .so, so even with the library present,\n;; the NULL stub wins at link time.\n\n;; GOOD PATTERN — Just declare the function, let the linker resolve it:\n;;\n;; (begin-foreign (c-declare #<<END\n;; #include \"qt_shim.h\"  ;; declares qt_scintilla_create\n;; END\n;; ))\n;;\n;; (c-lambda (scheme-object) scheme-object\n;;   \"___return(qt_scintilla_create(___arg1));\")\n;;\n;; If the library isn't installed, the C COMPILER or LINKER will error\n;; at build time — which is the correct behavior. A build-time error\n;; is infinitely better than a runtime segfault.",
+    "notes": "Root cause: Gambit's exe builder doesn't propagate per-module cc-options (see recipe gambit-exe-cc-options-not-propagated). So #ifdef guards in c-declare evaluate with the WRONG defines. Static stubs are especially dangerous because they shadow the real function from the .so library. The fix is to never use #ifdef/#else stubs in c-declare — instead, let the linker fail if the library isn't available. For optional features, detect availability in build.ss and conditionally include the module.",
+    "related": [
+      "gambit-exe-cc-options-not-propagated"
+    ]
+  },
+  {
+    "id": "gerbil-clean-does-not-remove-c-o-files",
+    "title": "gerbil clean only removes .scm/.ssi — stale .c/.o files persist and shadow rebuilds",
+    "tags": [
+      "gerbil",
+      "clean",
+      "stale",
+      "c-file",
+      "o-file",
+      "static",
+      "build",
+      "artifacts",
+      "shadow",
+      "cache"
+    ],
+    "imports": [],
+    "code": ";; `gerbil clean` only removes .scm and .ssi files from .gerbil/lib/static/\n;; It does NOT remove .c and .o files!\n;;\n;; This means if a .c file was generated with wrong #ifdef defines,\n;; and you fix the issue and rebuild, the stale .c may still be used.\n;;\n;; To truly clean all artifacts:\n;; $ rm -rf .gerbil\n;; $ rm -rf ~/.gerbil/lib/static/YOUR_PROJECT__*.{c,o,scm,ssi}\n;;\n;; Or more targeted:\n;; $ find .gerbil/lib/static/ -name \"*.c\" -delete\n;; $ find .gerbil/lib/static/ -name \"*.o\" -delete\n;; $ find ~/.gerbil/lib/static/ -name \"gerbil-qt__*\" -delete  ;; for a dep\n;;\n;; For linked packages (gerbil pkg link), also clean global:\n;; $ rm -rf ~/.gerbil/lib/static/PACKAGE_NAME__*.{c,o,scm,ssi}\n;;\n;; After cleaning, rebuild with:\n;; $ HOME=/home/user GERBIL_LOADPATH=~/.gerbil/lib gerbil build",
+    "notes": "This is a common source of mystery bugs. You fix the source, rebuild, and the bug persists because the stale .c file (with the old buggy code) is still being used. The .scm → .c → .o pipeline means even after .scm is regenerated, the old .c/.o may be reused if the build system thinks they're up-to-date. Always `rm -rf .gerbil` when debugging persistent build issues.",
+    "related": [
+      "stale-global-static-files-segfault",
+      "pkg-link-stale-unbound-rebuild"
+    ]
+  },
+  {
+    "id": "qscintilla-optional-detection-build-ss",
+    "title": "Detect QScintilla availability in build.ss with pkg-config + header fallback",
+    "tags": [
+      "qscintilla",
+      "detection",
+      "build.ss",
+      "pkg-config",
+      "optional",
+      "dependency",
+      "header",
+      "cppflags",
+      "ldflags",
+      "conditional"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; Detect QScintilla availability — pkg-config first, header fallback\n(def have-qscintilla?\n  (or (with-catch (lambda (_) #f)\n        (lambda ()\n          (run-process [\"pkg-config\" \"--exists\" \"QScintilla\"] coprocess: void)\n          #t))\n      ;; Fallback: check for header files directly\n      (let ((arch (with-catch (lambda (_) \"x86_64-linux-gnu\")\n                    (lambda () (run-process [\"gcc\" \"-dumpmachine\"]\n                                           coprocess: read-line)))))\n        (or (file-exists? (string-append \"/usr/include/\" arch \"/qt6/Qsci/qsciscintilla.h\"))\n            (file-exists? \"/usr/include/qt6/Qsci/qsciscintilla.h\")\n            (file-exists? \"/usr/include/Qsci/qsciscintilla.h\")\n            (file-exists? (string-append \"/usr/include/\" arch \"/Qsci/qsciscintilla.h\"))))))\n\n;; Get compiler flags (with fallback)\n(def qsci-cppflags\n  (if have-qscintilla?\n    (with-catch (lambda (_) \"-DQT_SCINTILLA_AVAILABLE\")\n      (lambda () (string-append \"-DQT_SCINTILLA_AVAILABLE \"\n                                (run-process [\"pkg-config\" \"--cflags\" \"QScintilla\"]\n                                             coprocess: read-line))))\n    \"\"))\n\n;; Get linker flags (with fallback)\n(def qsci-ldflags\n  (if have-qscintilla?\n    (with-catch (lambda (_) \"-lqscintilla2_qt6\")\n      (lambda () (run-process [\"pkg-config\" \"--libs\" \"QScintilla\"]\n                              coprocess: read-line)))\n    \"\"))\n\n;; Include in build options:\n;; qt-cc-opts: (string-append ... \" \" qsci-cppflags \" \" ...)\n;; qt-ld-opts: (string-append ... \" \" qsci-ldflags \" \" ...)",
+    "notes": "QScintilla's pkg-config name is just \"QScintilla\" (capital Q and S). On Debian/Ubuntu, install with: sudo apt-get install -y libqscintilla2-qt6-dev. The pkg-config fallback is essential because some distros install headers but not .pc files. The -DQT_SCINTILLA_AVAILABLE define must be passed both when building the library AND when building the downstream exe (see recipe gambit-exe-cc-options-not-propagated).",
+    "related": [
+      "gambit-exe-cc-options-not-propagated",
+      "build-ffi-module-with-pkg-config",
+      "build-ss-setenv-pkg-config-path"
+    ]
+  },
+  {
+    "id": "scintilla-setilexer-correct-msg",
+    "title": "SCI_SETILEXER is message 4033, NOT 4030",
+    "tags": [
+      "scintilla",
+      "lexer",
+      "SCI_SETILEXER",
+      "syntax-highlighting",
+      "lexilla",
+      "CreateLexer",
+      "gotcha"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants",
+      ":gerbil-scintilla/lexer"
+    ],
+    "code": ";; SCI_SETILEXER = 4033 (correct)\n;; 4030 = SCI_NAMEOFSTYLE (WRONG — was a bug in gerbil-scintilla)\n;; Use editor-set-lexer-language which calls CreateLexer + SCI_SETILEXER:\n(let ((ed (create-scintilla-editor width: 80 height: 24)))\n  (editor-set-lexer-language ed \"python\")\n  (editor-set-keywords ed 0 \"def pass return if else for while class import from\")\n  (editor-set-text ed \"def hello():\\n    pass\\n\")\n  (editor-colourise ed 0 -1)\n  ;; Verify lexer activated (SCLEX_PYTHON = 2)\n  (editor-get-lexer ed)  ;; => 2\n  ;; Check style at keyword position (SCE_P_WORD = 5)\n  (send-message ed SCI_GETSTYLEAT 0 0))  ;; => 5",
+    "notes": "Fixed in gerbil-scintilla commit ec4b23c. The bug caused zero syntax highlighting for ALL languages because CreateLexer result was sent to SCI_NAMEOFSTYLE (4030) instead of SCI_SETILEXER (4033). Scintilla 5.x removed the old SCI_SETLEXER (4001) — only SCI_SETILEXER works.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "scintilla-readonly-per-document",
+    "title": "SCI_SETREADONLY is per-document, QsciScintilla::setReadOnly() is per-widget",
+    "tags": [
+      "scintilla",
+      "read-only",
+      "SCI_SETREADONLY",
+      "qscintilla",
+      "buffer-switch",
+      "gotcha",
+      "per-document"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; SCI_SETREADONLY (msg 2171) sets read-only on the DOCUMENT.\n;; When you switch documents with SCI_SETDOCPOINTER, each doc\n;; retains its own read-only state.\n(let ((ed (create-scintilla-editor width: 80 height: 24)))\n  ;; Set current doc read-only\n  (send-message ed SCI_SETREADONLY 1 0)\n  ;; Check: read-only is ON\n  (send-message ed SCI_GETREADONLY 0 0)  ;; => 1\n  ;; Clear read-only\n  (send-message ed SCI_SETREADONLY 0 0)\n  (send-message ed SCI_GETREADONLY 0 0))  ;; => 0\n\n;; WARNING for QScintilla (gerbil-qt):\n;; qt-scintilla-set-read-only! calls QsciScintilla::setReadOnly()\n;; which is a WIDGET-level property — it persists across buffer\n;; switches! Use SCI_SETREADONLY via send-message instead.",
+    "notes": "In QScintilla, setReadOnly() is a Qt widget property, NOT a Scintilla document property. If you set it on the widget, ALL subsequently-viewed documents appear read-only. Use SCI_SETREADONLY (2171) via send-message for per-document read-only. SCI_GETREADONLY (2140) checks the current document's state. This was the root cause of Qt REPL and buffer-list regressions.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "gxi-non-interactive-no-banner",
+    "title": "gxi with pseudo-terminal: #f sends no startup banner — insert prompt yourself",
+    "tags": [
+      "gxi",
+      "repl",
+      "pseudo-terminal",
+      "non-interactive",
+      "banner",
+      "prompt",
+      "open-process"
+    ],
+    "imports": [],
+    "code": ";; When spawning gxi as a subprocess with pseudo-terminal: #f,\n;; gxi runs in non-interactive mode and does NOT send any startup\n;; banner or prompt to stdout. You must insert the prompt yourself.\n\n;; BAD — waits forever for gxi output that never comes:\n;; (set! prompt-pos 999999999)  ;; \"wait for gxi to respond\"\n;; ... timer polls (repl-read-available rs) — nothing comes ...\n\n;; GOOD — insert prompt immediately:\n(def repl-prompt \"> \")\n(let ((rs (repl-start!)))\n  ;; Insert prompt into the editor right away\n  (editor-set-text ed repl-prompt)\n  (editor-goto-pos ed (string-length repl-prompt))\n  (set! (repl-state-prompt-pos rs) (string-length repl-prompt)))",
+    "notes": "Root cause: open-process with pseudo-terminal: #f puts gxi in non-interactive mode. In this mode, gxi does NOT print a welcome banner or initial prompt to stdout — it only outputs evaluation results. If your REPL UI waits for gxi output before enabling typing, the user will never be able to type. The TUI backend already handles this correctly; the Qt backend was broken until this was discovered. Also: when appending gxi output, strip trailing newlines with string-trim-eol since the editor's append function typically adds its own newline.",
+    "related": [
+      "open-process-interactive-repl",
+      "open-process-undocumented-settings"
+    ],
+    "valid_for": [
+      "v0.18.1-173"
+    ]
   }
 ]

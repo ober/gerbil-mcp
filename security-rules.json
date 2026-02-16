@@ -317,5 +317,44 @@
       "data-race",
       "c-shim"
     ]
+  },
+  {
+    "id": "c-declare-ifdef-null-stub",
+    "title": "c-declare #ifdef/#else stub returning NULL pointer — segfault in cross-project exe builds",
+    "severity": "critical",
+    "scope": "ffi-boundary",
+    "pattern": "return\\s*\\(\\s*\\(?\\s*void\\s*\\*\\s*\\)?\\s*\\)?\\s*0\\s*;|return\\s+NULL\\s*;|return\\s+0\\s*;",
+    "message": "c-declare block contains a stub function returning NULL/0. When Gambit builds a downstream exe, per-module cc-options are NOT propagated, so #ifdef guards evaluate incorrectly and these stubs compile instead of the real implementation. This causes NULL pointer dereferences (segfaults) at runtime.",
+    "remediation": "Remove the #else stub entirely. Let the C compiler/linker error at build time if the library isn't available. For optional features, detect availability in build.ss and conditionally include the module rather than using #ifdef stubs in c-declare blocks. See cookbook recipe: c-declare-ifdef-stubs-null-pointer-danger",
+    "related_recipe": "c-declare-ifdef-stubs-null-pointer-danger",
+    "tags": [
+      "c-declare",
+      "ifdef",
+      "NULL",
+      "stub",
+      "segfault",
+      "cross-project",
+      "exe",
+      "cc-options"
+    ]
+  },
+  {
+    "id": "c-declare-static-function-shadows-extern",
+    "title": "Static function in c-declare shadows external library function",
+    "severity": "high",
+    "scope": "ffi-boundary",
+    "pattern": "static\\s+\\w[\\w\\s\\*]*\\w+\\s*\\([^)]*\\)\\s*\\{[^}]*return\\s+(NULL|0|\\(void\\s*\\*\\)\\s*0)",
+    "message": "A static function stub in a c-declare block will shadow any external function with the same name from linked libraries. In C, static functions have internal linkage and take precedence over external symbols in the same compilation unit. This means even if the real library is linked, the stub's return value (typically NULL/0) will be used instead.",
+    "remediation": "Never define static stub functions in c-declare blocks. Either include the real header file unconditionally (let the linker fail if the library is missing), or use build.ss conditional module inclusion to avoid compiling the file at all when the library is unavailable.",
+    "related_recipe": "c-declare-ifdef-stubs-null-pointer-danger",
+    "tags": [
+      "static",
+      "shadow",
+      "extern",
+      "c-declare",
+      "linkage",
+      "function",
+      "stub"
+    ]
   }
 ]

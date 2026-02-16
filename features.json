@@ -16,7 +16,7 @@
     "use_case": "When building a multi-backend project where exe targets transitively depend on FFI libraries through shared modules. Currently requires manual tracing of import chains to find missing -L/-l flags.",
     "example_scenario": "gerbil-emacs Qt binary linked without scintilla/termbox/lexilla static libs because editor.ss (shared core) transitively imports them. The binary was produced as a 'data' file instead of ELF, with no error from the build system. Diagnosing this required manually running pkg-config, nm, and tracing imports — took ~30 minutes and many tool calls.",
     "estimated_token_reduction": "~2000 tokens per diagnosis — eliminates 8-10 tool calls (module_deps, ffi_inspect, eval for pkg-config, nm lookups, file reads of build.ss)",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "cross-module-symbol-dependency-check",
@@ -34,6 +34,25 @@
     "use_case": "When splitting a large Gerbil module (e.g. 10,000+ lines) into multiple sub-modules. The split creates forward references that become unbound identifier errors, but you only discover them one at a time during compilation. With 10+ such errors, this wastes many build cycles.",
     "example_scenario": "Splitting editor.ss (11,402 lines) into 7 sub-modules. After extraction, editor-core.ss references dired-open-directory! (in editor-ui.ss), cmd-repl-send (in editor-ui.ss), push-mark-ring! (in editor-text.ss), and *auto-pair-mode* (in editor-cmds-a.ss). Each was discovered via a separate compile-fail cycle. A pre-check would have identified all 4 in one pass.",
     "estimated_token_reduction": "~3000 tokens per split operation — eliminates 4-8 compile-fix cycles (each ~400 tokens for build output + grep + edit)",
+    "votes": 1
+  },
+  {
+    "id": "detect-ifdef-stubs-in-c-declare",
+    "title": "Detect #ifdef/#else stubs in c-declare blocks that return NULL",
+    "description": "A static analysis tool that scans Gerbil source files for c-declare blocks containing #ifdef/#else/#endif patterns where the #else branch returns NULL, 0, (void*)0, or similar sentinel values. These stubs are a common source of segfaults in cross-project exe builds because Gambit's exe builder doesn't propagate per-module cc-options, so the #else branch compiles instead of the real implementation. The tool would: (1) parse c-declare blocks, (2) identify #ifdef/#else patterns, (3) flag stubs that return NULL/0, (4) suggest removing the stubs and using build-time detection instead.",
+    "impact": "high",
+    "tags": [
+      "ifdef",
+      "c-declare",
+      "stubs",
+      "NULL",
+      "segfault",
+      "cross-project",
+      "static-analysis"
+    ],
+    "use_case": "When writing or reviewing FFI code that uses conditional compilation in c-declare blocks. Especially important for library modules that will be consumed by downstream projects building exe targets.",
+    "example_scenario": "gerbil-qt's libqt.ss had #ifdef QT_SCINTILLA_AVAILABLE / #else stubs returning (void*)0 in its c-declare block. When gerbil-emacs built its exe, Gambit compiled the .c without -DQT_SCINTILLA_AVAILABLE, so the stubs won, qt_scintilla_create returned NULL, and the binary segfaulted. Debugging this took ~2 hours and 50+ tool calls across GDB, nm, grep, and file reads.",
+    "estimated_token_reduction": "~5000 tokens per occurrence — eliminates the entire debugging cycle of GDB breakpoints, nm symbol checks, and .c file inspection",
     "votes": 0
   }
 ]
