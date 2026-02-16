@@ -16,7 +16,7 @@
     "use_case": "When building a multi-backend project where exe targets transitively depend on FFI libraries through shared modules. Currently requires manual tracing of import chains to find missing -L/-l flags.",
     "example_scenario": "gerbil-emacs Qt binary linked without scintilla/termbox/lexilla static libs because editor.ss (shared core) transitively imports them. The binary was produced as a 'data' file instead of ELF, with no error from the build system. Diagnosing this required manually running pkg-config, nm, and tracing imports — took ~30 minutes and many tool calls.",
     "estimated_token_reduction": "~2000 tokens per diagnosis — eliminates 8-10 tool calls (module_deps, ffi_inspect, eval for pkg-config, nm lookups, file reads of build.ss)",
-    "votes": 1
+    "votes": 3
   },
   {
     "id": "cross-module-symbol-dependency-check",
@@ -53,6 +53,43 @@
     "use_case": "When writing or reviewing FFI code that uses conditional compilation in c-declare blocks. Especially important for library modules that will be consumed by downstream projects building exe targets.",
     "example_scenario": "gerbil-qt's libqt.ss had #ifdef QT_SCINTILLA_AVAILABLE / #else stubs returning (void*)0 in its c-declare block. When gerbil-emacs built its exe, Gambit compiled the .c without -DQT_SCINTILLA_AVAILABLE, so the stubs won, qt_scintilla_create returned NULL, and the binary segfaulted. Debugging this took ~2 hours and 50+ tool calls across GDB, nm, grep, and file reads.",
     "estimated_token_reduction": "~5000 tokens per occurrence — eliminates the entire debugging cycle of GDB breakpoints, nm symbol checks, and .c file inspection",
+    "votes": 1
+  },
+  {
+    "id": "qt-test-runner",
+    "title": "Build and run Qt FFI test executables in one step",
+    "description": "A tool that builds a Qt FFI test module as a compiled exe, applies patchelf for rpath, and runs it with QT_QPA_PLATFORM=offscreen — all in one call. Currently testing Qt FFI code requires: (1) adding an exe: entry to build.ss, (2) running gerbil build, (3) running patchelf to fix rpath for OpenSSL and Qt shim, (4) running with QT_QPA_PLATFORM=offscreen. This is 4 separate steps that must happen in order, each requiring knowledge of project-specific paths.",
+    "impact": "medium",
+    "tags": [
+      "qt",
+      "ffi",
+      "test",
+      "exe",
+      "patchelf",
+      "offscreen"
+    ],
+    "use_case": "When writing or debugging Qt FFI tests that need to run headless. The multi-step build-patchelf-run workflow is error-prone and requires remembering project-specific rpath values.",
+    "example_scenario": "Writing qt-highlight-test.ss to verify QScintilla lexer activation. Had to: add exe: target to build.ss, run make build, patchelf the binary, run with QT_QPA_PLATFORM=offscreen. Each step was a separate tool call with project-specific paths. Took 5+ tool calls just for the build-run cycle, repeated multiple times during debugging.",
+    "estimated_token_reduction": "~800 tokens per test cycle — eliminates 4 sequential tool calls and path lookups",
+    "votes": 0
+  },
+  {
+    "id": "pkg-link-sync-artifacts",
+    "title": "Detect and sync stale linked-package artifacts (.ssi, .so, .scm)",
+    "description": "A tool that checks if a `gerbil pkg link`-ed package has newer local build artifacts than the global ~/.gerbil/lib/ copies, and optionally syncs them. It would: (1) find linked packages via ~/.gerbil/pkg/ symlinks, (2) compare timestamps of .ssi, .scm, and .so files between local .gerbil/lib/ and global ~/.gerbil/lib/, (3) report which files are stale, (4) optionally copy them with dry_run support. This covers the common case where `make build` in a linked package updates local artifacts but the global path still has old copies — causing 'unbound identifier' or 'undefined symbol' errors in downstream projects.",
+    "impact": "medium",
+    "tags": [
+      "pkg",
+      "link",
+      "stale",
+      "ssi",
+      "sync",
+      "artifact",
+      "rebuild"
+    ],
+    "use_case": "After adding new exports to a linked dependency package (e.g. gerbil-qt), rebuilding the dependency, and then finding that the downstream project (e.g. gerbil-emacs) fails with 'Reference to unbound identifier' for the new export.",
+    "example_scenario": "Added qt-widget-set-focus! to gerbil-qt, ran `make clean && make build` in gerbil-qt/, then `make build` in gerbil-emacs/ — got 'Reference to unbound identifier: qt-widget-set-focus!' because ~/.gerbil/lib/gerbil-qt/qt.ssi was stale. Required manually grepping to find the right files and copying 3 artifacts (qt.ssi, libqt.ssi, libqt_shim.so). Took ~10 tool calls and 5 minutes.",
+    "estimated_token_reduction": "~800 tokens per occurrence — eliminates 6-8 diagnostic tool calls (grep .ssi, find .so, cp commands)",
     "votes": 0
   }
 ]

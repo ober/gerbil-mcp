@@ -2589,7 +2589,7 @@
   },
   {
     "id": "tty-mode-set-raw-cooked",
-    "title": "Set terminal raw/cooked mode with tty-mode-set! (no stty needed)",
+    "title": "Set terminal raw/cooked mode with tty-mode-set! (CORRECTED arg order)",
     "tags": [
       "tty",
       "terminal",
@@ -2598,16 +2598,15 @@
       "mode",
       "tty-mode-set!",
       "line-editor",
-      "termios"
+      "termios",
+      "input-raw"
     ],
     "imports": [],
-    "code": ";; tty-mode-set! is a Gambit builtin — no imports needed.\n;; It controls terminal I/O mode without shelling out to stty.\n;;\n;; Signature: (tty-mode-set! port input-allow-special input-echo output-raw input-raw)\n;;   input-allow-special: #t = handle Ctrl-C/Z etc. (ISIG); #f = pass through as bytes\n;;   input-echo: #t = echo typed chars; #f = no echo\n;;   output-raw: #t = no output processing; #f = normal (e.g. LF→CRLF)\n;;   input-raw:  #t = raw byte-at-a-time (no line editing, VMIN=1); #f = canonical (line mode)\n\n;; Save current mode (returns: input-allow-special input-echo output-raw input-raw)\n;; There's no built-in to query mode, so save before changing.\n\n;; Set raw mode for a line editor (most common for shell):\n;; - No echo (we draw the line ourselves)\n;; - No canonical mode (read byte-by-byte)\n;; - Allow special signals (Ctrl-C sends SIGINT)\n;; - Normal output processing (LF→CRLF)\n(tty-mode-set! (current-input-port)\n  #t   ;; input-allow-special = #t (let Ctrl-C work)\n  #f   ;; input-echo = #f (we handle display)\n  #f   ;; output-raw = #f (normal output)\n  #t)  ;; input-raw = #t (byte-at-a-time)\n\n;; Fully raw mode (for things like ssh/screen passthrough):\n(tty-mode-set! (current-input-port)\n  #f   ;; no signal processing\n  #f   ;; no echo\n  #t   ;; raw output\n  #t)  ;; raw input\n\n;; Restore cooked/canonical mode:\n(tty-mode-set! (current-input-port)\n  #t   ;; allow specials\n  #t   ;; echo on\n  #f   ;; normal output\n  #f)  ;; canonical input (line-buffered)\n\n;; Safe pattern with cleanup:\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #t #f #f #t))  ;; enter raw\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f))))) ;; restore cooked\n\n;; Read single keystrokes in raw mode:\n(with-raw-terminal\n  (lambda ()\n    (let loop ()\n      (let ((ch (read-char)))\n        (unless (eqv? ch #\\x3)  ;; Ctrl-C\n          (display (format \"key: ~a (~a)\\n\" ch (char->integer ch)))\n          (force-output)\n          (loop))))))",
-    "notes": "tty-mode-set! is a native Gambit function that does termios manipulation in C (sets ICANON, ECHO, ISIG, VMIN=1, VTIME=0 etc). It is MORE RELIABLE than shelling out to stty because it doesn't require a subprocess. Internally it calls tcgetattr/tcsetattr. For a shell's line editor, the typical mode is: allow-special=#t, echo=#f, output-raw=#f, input-raw=#t. This gives byte-at-a-time input without echo, while still allowing Ctrl-C to generate SIGINT. Gambit also provides tty-type-set! for setting TERM type and tty-history/tty-history-set! for Gambit's built-in line editor history.",
-    "related": [
-      "process-status-decode-waitpid",
-      "os-pipe-create-fd-pair"
-    ],
-    "gerbil_version": "v0.18.1-173"
+    "code": ";; tty-mode-set! is a Gambit builtin — no imports needed.\n;; It controls terminal I/O mode without shelling out to stty.\n;;\n;; CORRECT Signature (6 args, verified from Gambit stdlib compiled source):\n;;   (tty-mode-set! port input-allow-special input-echo input-raw output-raw speed)\n;;\n;;   input-allow-special: #t = handle Ctrl-C/Z etc. (ISIG); #f = pass through as bytes\n;;   input-echo: #t = echo typed chars; #f = no echo\n;;   input-raw:  #t = raw byte-at-a-time (no line editing, VMIN=1); #f = canonical (line mode)\n;;   output-raw: #t = no output processing; #f = normal (e.g. LF→CRLF)\n;;   speed: baud rate (0 = don't change)\n;;\n;; WARNING: The arg order is input-raw THEN output-raw.\n;; Getting this wrong causes Gambit's internal line editor to activate,\n;; which buffers all input until Enter — characters don't echo one at a time.\n\n;; Raw mode for a custom line editor (most common for shell):\n;; - No signal processing (we handle Ctrl-C ourselves)\n;; - No echo (we draw the line ourselves via ANSI escapes)\n;; - Raw input (byte-at-a-time, no canonical buffering)\n;; - Raw output (no LF→CRLF conversion)\n;; This matches Gambit's own std/misc/ports#raw-mode.\n(tty-mode-set! (current-input-port)\n  #f   ;; input-allow-special = #f\n  #f   ;; input-echo = #f\n  #t   ;; input-raw = #t (CRITICAL: byte-at-a-time)\n  #t   ;; output-raw = #t\n  0)   ;; speed = 0 (don't change)\n\n;; Restore cooked/canonical mode:\n(tty-mode-set! (current-input-port)\n  #t   ;; allow specials\n  #t   ;; echo on\n  #f   ;; canonical input (line-buffered)\n  #f   ;; normal output\n  0)   ;; speed\n\n;; Safe pattern with cleanup (dynamic-wind ensures restore on exception):\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #f #f #t #t 0))  ;; enter raw\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f 0))))) ;; restore cooked\n\n;; Read single keystrokes in raw mode:\n(with-raw-terminal\n  (lambda ()\n    (let loop ()\n      (let ((ch (read-char)))\n        (unless (eqv? ch #\\x3)  ;; Ctrl-C = char 3\n          (display (format \"key: ~a (~a)\\n\" ch (char->integer ch)))\n          (force-output)\n          (loop))))))",
+    "notes": "CRITICAL: The argument order is (port allow-special echo INPUT-RAW OUTPUT-RAW speed). The previous version of this recipe had input-raw and output-raw SWAPPED, which caused Gambit's internal line editor to activate instead of true raw mode. With input-raw=#f, Gambit buffers all input until Enter is pressed — characters typed by the user don't appear until the full line is submitted. Verified by reading compiled Gambit stdlib: std/misc/ports#raw-mode uses (##tty-mode-set! port #f #f #t #t 0). The 6th arg (speed) is REQUIRED — tty-mode-set! has arity 6.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
   },
   {
     "id": "patchelf-openssl-rpath",
@@ -3942,7 +3941,7 @@
   },
   {
     "id": "tty-mode-set-six-args",
-    "title": "tty-mode-set! takes 6 arguments, not 5 (port + 4 bools + speed)",
+    "title": "tty-mode-set! takes 6 arguments: port allow-special echo INPUT-RAW OUTPUT-RAW speed",
     "tags": [
       "tty-mode-set!",
       "terminal",
@@ -3950,15 +3949,18 @@
       "cooked",
       "arity",
       "six",
-      "speed"
+      "speed",
+      "argument-order"
     ],
     "imports": [],
-    "code": ";; GOTCHA: tty-mode-set! takes 6 arguments, not 5.\n;; The internal ##tty-mode-set! reveals the true signature:\n;;   (tty-mode-set! port allow-special echo output-raw input-raw speed)\n;; The 6th argument is a speed/flags parameter — use 0 for default.\n;;\n;; Evidence from Gambit source (lib/std/misc/ports~0.scm):\n;;   (##tty-mode-set! port '#f '#f '#t '#t '0)  ;; raw mode\n;;   (##tty-mode-set! port '#t '#t '#f '#f '0)  ;; cooked mode\n\n;; WRONG — only 5 args, will throw arity error or silently fail:\n;; (tty-mode-set! port #t #f #f #t)\n\n;; CORRECT — 6 args including speed=0:\n;; Raw mode (for line editor):\n(tty-mode-set! (current-input-port) #t #f #f #t 0)\n\n;; Cooked mode (restore):\n(tty-mode-set! (current-input-port) #t #t #f #f 0)\n\n;; Fully raw (no signal processing):\n(tty-mode-set! (current-input-port) #f #f #t #t 0)\n\n;; Safe pattern with dynamic-wind:\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #t #f #f #t 0))\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f 0)))))",
-    "notes": "The existing cookbook recipe \"tty-mode-set-raw-cooked\" shows 5 args — that is WRONG for Gerbil v0.19+. gerbil_doc reports arity:6 for tty-mode-set!. The 6th argument (speed) should be 0 for default. Discovered by examining Gambit's own std/misc/ports module which uses ##tty-mode-set! with 6 args including a trailing '0. Without the 6th arg, the call may silently fail or throw a type exception, leaving the terminal in an unexpected state.",
+    "code": ";; GOTCHA: tty-mode-set! takes 6 arguments, not 5.\n;; CORRECT signature (verified from Gambit compiled stdlib):\n;;   (tty-mode-set! port allow-special echo input-raw output-raw speed)\n;;\n;; WARNING: input-raw is arg 4, output-raw is arg 5.\n;; Swapping them causes Gambit's line editor to activate (input-raw=#f)\n;; which buffers all input until Enter — no character-by-character echo.\n;;\n;; Evidence from Gambit source (lib/std/misc/ports~0.scm):\n;;   std/misc/ports#raw-mode:   (##tty-mode-set! port '#f '#f '#t '#t '0)\n;;   std/misc/ports#cooked-mode: (##tty-mode-set! port '#t '#t '#f '#f '0)\n\n;; Raw mode (for custom line editor):\n(tty-mode-set! (current-input-port) #f #f #t #t 0)\n;; allow-special=#f, echo=#f, input-raw=#t, output-raw=#t, speed=0\n\n;; Cooked mode (restore):\n(tty-mode-set! (current-input-port) #t #t #f #f 0)\n;; allow-special=#t, echo=#t, input-raw=#f, output-raw=#f, speed=0\n\n;; Safe pattern with dynamic-wind:\n(def (with-raw-terminal thunk)\n  (let ((port (current-input-port)))\n    (dynamic-wind\n      (lambda () (tty-mode-set! port #f #f #t #t 0))  ;; raw\n      thunk\n      (lambda () (tty-mode-set! port #t #t #f #f 0))))) ;; cooked",
+    "notes": "CRITICAL FIX: Previous version had argument order WRONG — listed as (port allow-special echo OUTPUT-RAW INPUT-RAW speed) with output-raw before input-raw. The CORRECT order is (port allow-special echo INPUT-RAW OUTPUT-RAW speed). With the wrong order, (tty-mode-set! port #t #f #f #t 0) sets input-raw=#f output-raw=#t instead of the intended input-raw=#t output-raw=#f, causing Gambit's internal line editor to intercept all input. This bug caused zero character echoing in a shell's custom line editor. The 6th arg (speed) is REQUIRED — arity is 6.",
     "related": [
       "tty-mode-set-raw-cooked"
     ],
-    "gerbil_version": "v0.18.1-173"
+    "valid_for": [
+      "v0.18.1-173"
+    ]
   },
   {
     "id": "signal-handler-zero-arity-callback",
@@ -10526,6 +10528,382 @@
     ],
     "valid_for": [
       "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "qscintilla-raw-lexer-colourise",
+    "title": "QScintilla: activate raw Scintilla lexer with SCI_SETLEXERLANGUAGE + SCI_COLOURISE",
+    "tags": [
+      "qscintilla",
+      "scintilla",
+      "lexer",
+      "syntax-highlighting",
+      "colourise",
+      "setlexerlanguage",
+      "qt"
+    ],
+    "imports": [
+      ":gerbil-qt/qt",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; QScintilla has QsciLexer C++ wrappers for common languages (python, bash, cpp, etc.)\n;; but NOT for lisp, rust, diff, perl, haskell, props.\n;; For languages without wrappers, use raw Scintilla messages:\n;;\n;; CRITICAL: SCI_SETLEXERLANGUAGE alone does NOT colorize text.\n;; You MUST call SCI_COLOURISE explicitly afterward.\n;; QsciLexer wrappers auto-colorize via setLexer(), but raw messages don't.\n\n;; Wrong — sets lexer but no colors appear:\n;; (sci-send/string ed SCI_SETLEXERLANGUAGE \"lisp\")\n\n;; Correct — sets lexer AND forces colorization:\n(sci-send/string ed SCI_SETLEXERLANGUAGE \"lisp\")\n(sci-send ed SCI_COLOURISE 0 -1)\n\n;; For languages WITH QsciLexer wrappers, use the C shim which auto-colorizes:\n;; (qt-scintilla-set-lexer-language! ed \"python\")  ; auto-colorizes",
+    "notes": "QScintilla 2.14.1 bundles pre-Scintilla 5.x, so SCI_SETLEXER (4001) and SCI_SETLEXERLANGUAGE (4006) still work. SCI_SETILEXER (4033) does NOT exist in this version. The C shim's create_lexer_for_language() returns nullptr for unknown languages, which disables highlighting entirely via setLexer(nullptr). Languages without QsciLexer wrappers: lisp, rust, diff, perl, haskell, props. Languages with wrappers: python, bash, cpp, css, html, java, javascript, lua, makefile, markdown, ruby, sql, xml, yaml.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "keyword-args-vs-rest-args-gotcha",
+    "title": "Keyword args vs rest args: don't mix keyword dispatch with rest args",
+    "tags": [
+      "keyword",
+      "rest-args",
+      "arity",
+      "gotcha",
+      "dispatch",
+      "function-signature"
+    ],
+    "imports": [],
+    "code": ";; WRONG: rest args receive keyword symbols as values\n;; When callers pass `mode: QT_KEEP_ANCHOR`, the rest args list\n;; contains the keyword symbol `mode:` followed by the value.\n;; (car args) is `mode:` (a symbol), NOT the value!\n(def (move-cursor! sci op . args)\n  ;; BUG: (car args) is `mode:` keyword symbol, not the value\n  (let ((keep? (and (pair? args) (= (car args) QT_KEEP_ANCHOR))))\n    ...))\n\n;; CORRECT: use keyword dispatch\n(def (move-cursor! sci op mode: (mode #f))\n  ;; mode is properly bound to QT_KEEP_ANCHOR or #f\n  (let ((keep? (and mode (= mode QT_KEEP_ANCHOR))))\n    ...))",
+    "notes": "This is a common Gerbil gotcha. When a function uses rest args `(def (f . args))` and callers pass keyword arguments like `mode: val`, the rest args list contains TWO elements: the keyword symbol `mode:` and the value. Using `(car args)` gives you the keyword symbol, not the value. The fix is to use proper keyword dispatch in the function signature. Error symptom: '(Argument 1) NUMBER expected' when comparing a keyword symbol with `=`."
+  },
+  {
+    "id": "qt-ffi-test-compiled-exe",
+    "title": "Qt FFI tests must be compiled exe, not interpreted via gxi",
+    "tags": [
+      "qt",
+      "ffi",
+      "test",
+      "exe",
+      "compiled",
+      "offscreen",
+      "gxi"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Qt FFI code cannot be tested via `gxi` interpreter — C symbols are undefined.\n;; Must build as compiled exe with linked Qt libraries.\n\n;; In build.ss, add an exe target:\n;; (exe: \"qt-highlight-test\" bin: \"qt-highlight-test\"\n;;       \"-cc-options\" ,qt-cc-opts\n;;       \"-ld-options\" ,qt-ld-opts)\n\n;; After building, fix rpath:\n;; patchelf --set-rpath \"/path/to/openssl/lib:/path/to/gerbil-qt/vendor\" \\\n;;   .gerbil/bin/qt-highlight-test\n\n;; Run headless (no display needed):\n;; QT_QPA_PLATFORM=offscreen .gerbil/bin/qt-highlight-test\n\n;; Test structure:\n(import :std/sugar :gerbil-qt/qt :gerbil-scintilla/constants)\n(export main)\n(def (main . args)\n  (let ((failures 0))\n    (with-qt-app _app\n      ;; Create widget + scintilla, test, destroy\n      (let* ((w (qt-widget-create))\n             (sci (qt-scintilla-create parent: w)))\n        ;; ... test code ...\n        (qt-scintilla-destroy! sci)\n        (qt-widget-destroy! w)))\n    (exit failures)))",
+    "notes": "Common pitfalls: (1) Do NOT add both gxc: and exe: entries for the same module in build.ss — causes 'Completion has already been posted' error. (2) qt-scintilla-create uses keyword arg `parent:`, not positional. (3) Function names have `!` suffix: qt-scintilla-set-text!, qt-scintilla-destroy!, qt-widget-destroy!. (4) SCI_CREATEDOCUMENT/SCI_RELEASEDOCUMENT can segfault in headless tests — use single-document approach instead.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "file-info-directory-check",
+    "title": "Check if path is a directory using file-info-type",
+    "tags": [
+      "file-info",
+      "directory",
+      "check",
+      "file-exists",
+      "type",
+      "dired"
+    ],
+    "imports": [],
+    "code": ";; Check if a path is a directory before file operations\n;; Prevents errors like (call-with-input-file \".\") which crashes on directories\n(def (open-file-or-directory! app filename)\n  (if (and (file-exists? filename)\n           (eq? 'directory (file-info-type (file-info filename))))\n    (handle-directory! app filename)\n    (handle-file! app filename)))",
+    "notes": "file-info returns a file-info struct; file-info-type extracts the type symbol. Possible types: 'regular, 'directory, 'symbolic-link, 'character-special, 'block-special, 'fifo, 'socket. Always check file-exists? first to avoid errors on missing paths."
+  },
+  {
+    "id": "open-process-pty-fallback",
+    "title": "open-process with PTY fallback to pipes when no controlling terminal",
+    "tags": [
+      "open-process",
+      "pseudo-terminal",
+      "pty",
+      "fallback",
+      "pipe",
+      "shell",
+      "bad-file-descriptor",
+      "test"
+    ],
+    "imports": [],
+    "code": ";; pseudo-terminal: #t fails with \"Bad file descriptor\" when no\n;; controlling terminal is available (CI, test runners, sandboxes).\n;; Use with-catch to fall back to pipe mode gracefully.\n(def (shell-start!)\n  (let* ((shell-path (getenv \"SHELL\" \"/bin/bash\"))\n         (proc (with-catch\n                 (lambda (e)\n                   ;; PTY not available — fall back to pipe mode\n                   (open-process\n                     (list path: shell-path\n                           arguments: '()\n                           stdin-redirection: #t\n                           stdout-redirection: #t\n                           stderr-redirection: #t\n                           pseudo-terminal: #f)))\n                 (lambda ()\n                   (open-process\n                     (list path: shell-path\n                           arguments: '()\n                           stdin-redirection: #t\n                           stdout-redirection: #t\n                           pseudo-terminal: #t))))))\n    proc))",
+    "notes": "Error message is: Bad file descriptor (open-process '(... pseudo-terminal: #t)). This happens in MCP test runners, CI containers, and any environment without /dev/ptmx or a controlling terminal. In pipe mode, the shell won't echo typed characters — the application must insert them into the display buffer manually.",
+    "related": [
+      "open-process-undocumented-settings"
+    ]
+  },
+  {
+    "id": "qt-inline-minibuffer-event-loop",
+    "title": "Qt inline minibuffer with blocking event loop (no dialog popup)",
+    "tags": [
+      "qt",
+      "minibuffer",
+      "inline",
+      "event-loop",
+      "process-events",
+      "line-edit",
+      "blocking",
+      "input"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Inline minibuffer: show/hide a persistent QLineEdit in the main\n;; window layout instead of popping up a QDialog.\n;; Uses qt-app-process-events! in a blocking loop.\n\n(def *mb-result* #f)  ;; #f=running, (list text)=accepted, (list)=cancelled\n\n(def (minibuffer-read! qt-app prompt-label input-widget\n                       echo-label container editor)\n  \"Show inline minibuffer, block until Enter/Escape, return text or #f.\"\n  (qt-label-set-text! prompt-label \"Find file: \")\n  (qt-line-edit-set-text! input-widget \"\")\n  ;; Swap: hide echo, show minibuffer\n  (qt-widget-hide! echo-label)\n  (qt-widget-show! container)\n  (qt-widget-set-focus! input-widget)\n  ;; Blocking event loop\n  (set! *mb-result* #f)\n  (let loop ()\n    (qt-app-process-events! qt-app)\n    (thread-sleep! 0.01)\n    (if *mb-result*\n      (let ((text (if (null? *mb-result*) #f  ;; Escape\n                    (let ((t (car *mb-result*)))\n                      (if (string=? t \"\") #f t)))))\n        ;; Restore\n        (qt-widget-hide! container)\n        (qt-widget-show! echo-label)\n        (qt-widget-set-focus! editor)\n        text)\n      (loop))))\n\n;; Wire up during init:\n;; (qt-on-return-pressed! input (lambda () (set! *mb-result* (list (qt-line-edit-text input)))))\n;; (qt-on-key-press! input (lambda () (when (= (qt-last-key-code) QT_KEY_ESCAPE) (set! *mb-result* '()))))",
+    "notes": "Key insight: QDialog creates a separate OS window which breaks the Emacs-style inline minibuffer feel. Instead, create persistent QLabel+QLineEdit widgets in the main layout, hide/show them as needed, and use qt-app-process-events! in a blocking loop. The result convention: #f = still running, (list text) = Enter pressed, (list) = Escape pressed.",
+    "related": [
+      "qt-completer-line-edit-search",
+      "qt-dialog-with-completer-input"
+    ]
+  },
+  {
+    "id": "qt-line-edit-clear-completer",
+    "title": "Clear QCompleter from QLineEdit by passing #f",
+    "tags": [
+      "qt",
+      "completer",
+      "line-edit",
+      "clear",
+      "remove",
+      "nil",
+      "null",
+      "detach"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; To detach a QCompleter from a QLineEdit, pass #f (maps to NULL in FFI).\n;; Qt's QLineEdit::setCompleter(nullptr) is valid and removes any completer.\n\n;; Attach completer\n(let ((completer (qt-completer-create '(\"foo\" \"bar\" \"baz\"))))\n  (qt-line-edit-set-completer! line-edit completer)\n  ;; ... use it ...\n  ;; Detach before destroying\n  (qt-line-edit-set-completer! line-edit #f)\n  (qt-completer-destroy! completer))",
+    "notes": "Always detach the completer before destroying it to avoid dangling pointer issues. The #f→NULL mapping works because gerbil-qt FFI uses (pointer void) for widget types.",
+    "related": [
+      "qt-completer-line-edit-search"
+    ]
+  },
+  {
+    "id": "gerbil-qt-linked-pkg-update-artifacts",
+    "title": "After adding exports to linked gerbil-qt, manually copy .ssi and .so to global path",
+    "tags": [
+      "gerbil-qt",
+      "pkg",
+      "link",
+      "stale",
+      "ssi",
+      "libqt_shim",
+      "so",
+      "update",
+      "rebuild"
+    ],
+    "imports": [],
+    "code": ";; When gerbil-qt is linked via `gerbil pkg link gerbil-qt .`:\n;; - `make build` in gerbil-qt/ only updates LOCAL .gerbil/lib/\n;; - `gerbil pkg build gerbil-qt` does NOT update global artifacts\n;; - Must manually copy .ssi, .scm, and .so files:\n\n;; After: cd ~/mine/gerbil-qt && make clean && make build\n;;\n;; cp .gerbil/lib/gerbil-qt/qt.ssi    ~/.gerbil/lib/gerbil-qt/qt.ssi\n;; cp .gerbil/lib/gerbil-qt/libqt.ssi ~/.gerbil/lib/gerbil-qt/libqt.ssi\n;; cp .gerbil/lib/static/gerbil-qt__qt.scm    ~/.gerbil/lib/static/\n;; cp .gerbil/lib/static/gerbil-qt__libqt.scm ~/.gerbil/lib/static/\n;; cp vendor/libqt_shim.so ~/.gerbil/lib/gerbil-qt/libqt_shim.so\n;;\n;; Then rebuild gerbil-emacs: make build",
+    "notes": "Symptoms of stale artifacts: 'Reference to unbound identifier' for newly exported symbols, or 'undefined symbol' at runtime for new C shim functions. The .ssi contains the export table — if stale, the compiler won't see new exports. The libqt_shim.so is the C++ shared library — if stale, the linker won't find new C functions. This is a known pain point with gerbil pkg link.",
+    "related": [
+      "pkg-link-stale-unbound-rebuild",
+      "stale-global-static-files-segfault"
+    ]
+  },
+  {
+    "id": "qt-stacked-widget-inline-image",
+    "title": "QStackedWidget for inline image display (dual editor/image view)",
+    "tags": [
+      "qt",
+      "QStackedWidget",
+      "image",
+      "inline",
+      "stacked-widget",
+      "editor",
+      "pixmap",
+      "label",
+      "scroll-area"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Use QStackedWidget to toggle between editor and image display.\n;; Index 0 = QScintilla editor, Index 1 = QScrollArea + QLabel for images.\n;; Image widget is created lazily on first use.\n\n;; 1. Wrap editor in QStackedWidget during window creation:\n(let* ((container (qt-stacked-widget-create parent))  ;; arity: 1 (parent widget)\n       (editor (qt-scintilla-create parent: container)))\n  (qt-stacked-widget-add-widget! container editor)    ;; editor at index 0\n  ;; Add container to splitter (NOT editor directly):\n  (qt-splitter-add-widget! splitter container))\n\n;; 2. Lazily create image widget when first needed:\n(def (ensure-image-widget! win)\n  (unless (window-image-scroll win)\n    (let* ((container (window-container win))\n           (scroll (qt-scroll-area-create parent: container))   ;; arity: 1\n           (label (qt-label-create \"\" parent: scroll)))         ;; arity: 1\n      (qt-scroll-area-set-widget! scroll label)\n      (qt-scroll-area-set-widget-resizable! scroll #f)\n      (qt-widget-set-style-sheet! scroll \"background: #202020;\")\n      (qt-label-set-alignment! label (bitwise-ior QT_ALIGN_CENTER QT_ALIGN_CENTER))\n      (qt-stacked-widget-add-widget! container scroll)  ;; image at index 1\n      ;; Store in window struct for later access\n      (set! (window-image-scroll win) scroll)\n      (set! (window-image-label win) label))))\n\n;; 3. Show image:\n(def (show-image! win pixmap zoom orig-w orig-h)\n  (ensure-image-widget! win)\n  (let* ((label (window-image-label win))\n         (container (window-container win))\n         (new-w (inexact->exact (round (* orig-w zoom))))\n         (new-h (inexact->exact (round (* orig-h zoom)))))\n    (when (and (> new-w 0) (> new-h 0))\n      (let ((scaled (qt-pixmap-scaled pixmap new-w new-h)))\n        (qt-label-set-pixmap! label scaled)\n        (qt-widget-set-minimum-size! label new-w new-h)))\n    (qt-stacked-widget-set-current-index! container 1)))  ;; show image\n\n;; 4. Hide image (show editor):\n(def (hide-image! win)\n  (qt-stacked-widget-set-current-index! (window-container win) 0))\n\n;; 5. Hook into buffer-attach to auto-toggle:\n;; Use a make-parameter callback to avoid circular imports.\n;; Set it during app init:\n;; (*post-buffer-attach-hook*\n;;   (lambda (editor buf)\n;;     (if (image-buffer? buf)\n;;       (show-image-buffer! editor buf)\n;;       (hide-image-buffer! editor))))",
+    "notes": "Key points: (1) qt-stacked-widget-create takes 1 arg (parent widget). (2) qt-scroll-area-create and qt-label-create each take 1 arg with keyword parent:. (3) Add container to splitter, NOT editor directly — otherwise switching index has no effect. (4) Use make-parameter hook for the toggle to avoid circular imports between buffer.ss and image.ss. (5) Always set-minimum-size on the label so QScrollArea scrollbars work correctly. (6) qt-pixmap-scaled returns a new pixmap — no need to destroy the scaled copy explicitly (Qt manages it). (7) For window splits, each new window gets its own QStackedWidget container.",
+    "related": [
+      "qt-painter-onto-pixmap",
+      "break-circular-import-with-make-parameter",
+      "qt-inline-minibuffer-event-loop"
+    ]
+  },
+  {
+    "id": "qt-image-buffer-lifecycle",
+    "title": "Image buffer lifecycle with lexer-lang marker and state tracking",
+    "tags": [
+      "qt",
+      "image",
+      "buffer",
+      "lexer-lang",
+      "pixmap",
+      "lifecycle",
+      "cleanup",
+      "state"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PATTERN: Use a buffer's lexer-lang field as a type discriminator.\n;; Set lexer-lang to 'image to mark image buffers.\n;; Store image state separately in a hash keyed by buffer.\n\n;; State tracking:\n(def *image-buffer-state* (make-hash-table-eq))  ;; buffer -> (list pixmap zoom-ref orig-w orig-h)\n\n(def (image-buffer? buf)\n  (eq? (buffer-lexer-lang buf) 'image))\n\n;; Open an image file as a buffer:\n(def (open-image-file! app editor file-path)\n  (let ((pixmap (qt-pixmap-load file-path)))\n    (if (qt-pixmap-null? pixmap)\n      (begin (qt-pixmap-destroy! pixmap)\n             (error \"Failed to load image\" file-path))\n      (let* ((name (path-strip-directory file-path))\n             (buf (buffer-create! name editor file-path)))\n        ;; Mark as image buffer\n        (set! (buffer-lexer-lang buf) 'image)\n        ;; Store state: pixmap, zoom box, original dimensions\n        (hash-put! *image-buffer-state* buf\n                   (list pixmap (box 1.0)\n                         (qt-pixmap-width pixmap)\n                         (qt-pixmap-height pixmap)))\n        ;; Switch to it (the buffer-attach hook handles display)\n        (buffer-attach! editor buf)\n        buf))))\n\n;; Cleanup when killing buffer:\n(def (image-buffer-cleanup! buf)\n  (let ((state (hash-get *image-buffer-state* buf)))\n    (when state\n      (qt-pixmap-destroy! (car state))   ;; destroy the pixmap\n      (hash-remove! *image-buffer-state* buf))))\n\n;; Zoom control (factor = number, 'fit, or 'reset):\n(def (image-zoom! buf factor win)\n  (let ((state (hash-get *image-buffer-state* buf)))\n    (when state\n      (let* ((zoom-ref (list-ref state 1))\n             (orig-w (list-ref state 2))\n             (orig-h (list-ref state 3))\n             (new-zoom\n              (cond\n                ((eq? factor 'fit)\n                 ;; Fit to scroll area dimensions\n                 (let ((cw (qt-widget-width (window-image-scroll win)))\n                       (ch (qt-widget-height (window-image-scroll win))))\n                   (if (and (> orig-w 0) (> orig-h 0) (> cw 0) (> ch 0))\n                     (min (/ (exact->inexact cw) orig-w)\n                          (/ (exact->inexact ch) orig-h))\n                     1.0)))\n                ((eq? factor 'reset) 1.0)\n                (else (min 10.0 (max 0.1 (* (unbox zoom-ref) factor)))))))\n        (set-box! zoom-ref new-zoom)\n        ;; Redisplay with new zoom...\n        ))))",
+    "notes": "Key points: (1) Using lexer-lang as type discriminator avoids adding new fields to buffer struct. (2) make-hash-table-eq for buffer-keyed hash since buffers are compared by identity. (3) Use (box 1.0) for mutable zoom state — avoids mutation of the state list itself. (4) Always qt-pixmap-destroy! on cleanup to prevent memory leaks. (5) Check qt-pixmap-null? after load to handle missing/corrupt files. (6) The buffer still gets a Scintilla document (from buffer-create!) for buffer-list compatibility — it's just never displayed. (7) Kill cleanup should be in the buffer module, not the image module, to avoid circular imports.",
+    "related": [
+      "qt-stacked-widget-inline-image",
+      "qt-painter-onto-pixmap",
+      "break-circular-import-with-make-parameter"
+    ]
+  },
+  {
+    "id": "qt-mode-keymap-by-lexer-lang",
+    "title": "Mode-specific keymaps dispatched by buffer lexer-lang",
+    "tags": [
+      "qt",
+      "keymap",
+      "mode",
+      "lexer-lang",
+      "keybinding",
+      "image-mode",
+      "dired",
+      "dispatch"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; PATTERN: Mode-specific keymaps keyed by buffer lexer-lang symbol.\n;; Used for dired, image-mode, magit, etc. — any buffer that needs\n;; different key bindings from the default editing keymap.\n\n;; Global mode keymap registry:\n(def *mode-keymaps* (make-hash-table-eq))  ;; symbol -> keymap\n\n;; Setup mode keymaps during init:\n(def (setup-mode-keymaps!)\n  ;; Image mode\n  (let ((km (make-keymap)))\n    (keymap-bind! km \"+\" 'image-zoom-in)\n    (keymap-bind! km \"=\" 'image-zoom-in)\n    (keymap-bind! km \"-\" 'image-zoom-out)\n    (keymap-bind! km \"0\" 'image-zoom-fit)\n    (keymap-bind! km \"1\" 'image-zoom-reset)\n    (keymap-bind! km \"q\" 'kill-buffer-cmd)\n    (hash-put! *mode-keymaps* 'image km))\n\n  ;; Dired mode\n  (let ((km (make-keymap)))\n    (keymap-bind! km \"RET\" 'dired-find-file)\n    (keymap-bind! km \"g\" 'dired-refresh)\n    ;; ... more bindings\n    (hash-put! *mode-keymaps* 'dired km)))\n\n;; Key dispatch checks mode keymap first:\n;; (let ((mode-km (hash-get *mode-keymaps* (buffer-lexer-lang current-buffer))))\n;;   (when mode-km\n;;     (let ((cmd (keymap-lookup mode-km key-name)))\n;;       (when cmd (execute-command! cmd) ...))))\n;;\n;; Falls through to global keymap if no mode binding matches.\n\n;; Also suppress self-insert for non-editing modes:\n;; (cond\n;;   ((eq? (buffer-lexer-lang buf) 'dired) (void))  ;; no typing in dired\n;;   ((eq? (buffer-lexer-lang buf) 'image) (void))  ;; no typing in image\n;;   (else (editor-insert-char! editor char)))",
+    "notes": "Key points: (1) Use make-hash-table-eq since lexer-lang values are symbols. (2) Mode keymaps take priority over the global keymap in the dispatch loop. (3) Self-insert must be explicitly suppressed for non-editing modes — otherwise typing characters modifies the hidden Scintilla document. (4) The same pattern works for any custom mode: set buffer-lexer-lang to a unique symbol and register a keymap. (5) Keymap lookup returns #f for unbound keys, allowing fallthrough to global bindings.",
+    "related": [
+      "emacs-keymap-state-machine",
+      "qt-stacked-widget-inline-image",
+      "qt-image-buffer-lifecycle"
+    ]
+  },
+  {
+    "id": "org-mode-tab-dispatch-pattern",
+    "title": "Org-mode TAB dispatch: detect org buffer and dispatch to template-expand or cycle",
+    "tags": [
+      "org-mode",
+      "tab",
+      "dispatch",
+      "indent-or-complete",
+      "template-expand",
+      "org-cycle",
+      "buffer-detection"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":std/srfi/13",
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; Detect org buffer by checking all three: lexer-lang, file-path, buffer-name\n(def (org-buffer? buf)\n  (or (eq? (buffer-lexer-lang buf) 'org)\n      (let ((path (buffer-file-path buf)))\n        (and (string? path) (string-suffix? \".org\" path)))\n      (let ((name (buffer-name buf)))\n        (and (string? name) (> (string-length name) 4)\n             (string-suffix? \".org\" name)))))\n\n;; In cmd-indent-or-complete, add org dispatch before the else clause:\n;; ((org-buffer? buf)\n;;   (let* ((pos (editor-get-current-pos ed))\n;;          (line-num (editor-line-from-position ed pos))\n;;          (line-start (editor-position-from-line ed line-num))\n;;          (line-end (send-message ed SCI_GETLINEENDPOSITION line-num 0))\n;;          (text (editor-get-text ed))\n;;          (line (substring text line-start (min line-end (string-length text))))\n;;          (trimmed (string-trim line)))\n;;     (cond\n;;       ;; <s TAB, <e TAB, etc.\n;;       ((and (>= (string-length trimmed) 2)\n;;             (char=? (string-ref trimmed 0) #\\\\<)\n;;             (memv (string-ref trimmed 1) '(#\\\\s #\\\\e #\\\\q #\\\\v #\\\\c #\\\\C #\\\\l #\\\\h #\\\\a)))\n;;        (execute-command! app 'org-template-expand))\n;;       ;; On heading line\n;;       ((and (> (string-length trimmed) 0)\n;;             (char=? (string-ref trimmed 0) #\\\\*))\n;;        (execute-command! app 'org-cycle))\n;;       ;; Plain text: indent\n;;       (else (editor-insert-text ed pos \\\"  \\\")))))",
+    "notes": "CRITICAL: Testing org functions directly (cmd-org-cycle app) passes but the actual TAB key dispatch through cmd-indent-or-complete may be broken. Always write integration tests that go through cmd-indent-or-complete, not direct function calls. The TUI and Qt binaries have SEPARATE cmd-indent-or-complete implementations — both must be updated. org-buffer? must check buffer-name AND file-path AND lexer-lang because: new unsaved files only have buffer-name, opened files have file-path, and mode-set files have lexer-lang."
+  },
+  {
+    "id": "headless-scintilla-test-pattern",
+    "title": "Headless Scintilla editor test pattern for gerbil-emacs",
+    "tags": [
+      "test",
+      "headless",
+      "scintilla",
+      "editor",
+      "app-state",
+      "gerbil-emacs",
+      "integration"
+    ],
+    "imports": [
+      ":std/test",
+      ":gerbil-scintilla/scintilla",
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; Standard pattern for headless editor tests in gerbil-emacs:\n(test-case \"headless: description of what is tested\"\n  (let* ((ed (create-scintilla-editor width: 80 height: 24))\n         (buf (make-buffer \"test.org\" \"/tmp/test.org\"\n                (send-message ed SCI_GETDOCPOINTER) #f #f #f #f))\n         (win (make-edit-window ed buf 0 0 80 24 0))\n         (fr (make-frame [win] 0 80 24 'vertical))\n         (app (new-app-state fr)))\n    ;; Set initial text\n    (editor-set-text ed \"* Heading\\\\nBody text\")\n    (editor-goto-pos ed 0)\n    ;; Call the command being tested\n    (cmd-indent-or-complete app)  ;; TAB dispatch\n    ;; Verify results\n    (let ((text (editor-get-text ed)))\n      (check (not (not (string-contains text \"expected\"))) => #t))))",
+    "notes": "Key gotchas: (1) make-buffer takes 7 args: name, file-path, doc-pointer, mark, modified, lexer-lang, backup-done?. Set file-path to detect buffer type (e.g. \\\"/tmp/test.org\\\" for org). (2) Use (send-message ed SCI_GETDOCPOINTER) for doc-pointer arg, NOT SCI_CREATEDOCUMENT which can segfault headless. (3) SCI_GETLINEVISIBLE returns 0 (hidden) or 1 (visible) — use (= ... 0) or (= ... 1). (4) org-on-checkbox-line? returns index (truthy integer), not #t — use (not (not ...)) pattern. (5) Always test through the dispatch function (cmd-indent-or-complete) not direct function calls to catch wiring bugs."
+  },
+  {
+    "id": "org-on-checkbox-returns-index",
+    "title": "org-on-checkbox-line? returns index not boolean — use truthy check",
+    "tags": [
+      "org-mode",
+      "checkbox",
+      "predicate",
+      "truthy",
+      "string-contains",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; org-on-checkbox-line? uses string-contains which returns an INDEX, not #t\n;; WRONG:\n;; (check (org-on-checkbox-line? \"- [ ] task\") => #t)  ;; FAILS: returns 0\n\n;; CORRECT — use truthy check:\n(check (not (not (org-on-checkbox-line? \"- [ ] task\"))) => #t)\n(check (org-on-checkbox-line? \"no checkbox\") => #f)\n\n;; Same pattern applies to org-heading-line? and any predicate using string-contains\n;; org-heading-line? only checks first char is *, does NOT require space after star:\n;; (org-heading-line? \"*bold\") => #t  (might be surprising)",
+    "notes": "This is a common Gerbil gotcha: predicates built on string-contains return the match position (an integer, which can be 0) rather than #t. Integer 0 is truthy in Scheme but (check x => #t) fails because (equal? 0 #t) is #f. Always use (not (not ...)) or just test truthiness."
+  },
+  {
+    "id": "fuzzy-filter-sort-file-completion",
+    "title": "Fuzzy file completion using fuzzy-filter-sort from core",
+    "tags": [
+      "fuzzy",
+      "completion",
+      "file",
+      "minibuffer",
+      "hippie",
+      "filter",
+      "sort",
+      "match"
+    ],
+    "imports": [
+      ":std/sort"
+    ],
+    "code": ";; fuzzy-match?, fuzzy-score, fuzzy-filter-sort are in core.ss\\n;; They support character-in-order fuzzy matching with scoring:\\n;; - Consecutive matches get bonus +2 per char\\n;; - Match at position 0 gets bonus +3\\n;; - Match after separator (- _ / space) gets bonus +2\\n\\n;; For file completion, use fuzzy-filter-sort to rank matches:\\n(let ((files '(\\\"echo.ss\\\" \\\"editor-core.ss\\\" \\\"editor-ui.ss\\\" \\\"core.ss\\\" \\\"build.ss\\\")))\\n  ;; \\\"ecs\\\" matches \\\"echo.ss\\\" via e-c-s subsequence\\n  (fuzzy-filter-sort \\\"ecs\\\" files)  ; => (\\\"echo.ss\\\" ...)\\n  ;; \\\"eui\\\" matches \\\"editor-ui.ss\\\"\\n  (fuzzy-filter-sort \\\"eui\\\" files)  ; => (\\\"editor-ui.ss\\\" ...)\\n  ;; Exact prefix ranks first\\n  (fuzzy-filter-sort \\\"core\\\" files) ; => (\\\"core.ss\\\" \\\"editor-core.ss\\\" ...)\\n  ;; No match returns empty\\n  (fuzzy-filter-sort \\\"xyz\\\" files)) ; => ()\\n\\n;; For directory-aware file completion:\\n(def (list-dir-safe dir)\\n  (with-catch (lambda (e) [])\\n    (lambda () (sort (directory-files dir) string<?))))\\n\\n(def (expand-tilde path)\\n  (if (and (> (string-length path) 0)\\n           (char=? (string-ref path 0) #\\\\~))\\n    (let ((home (or (getenv \\\"HOME\\\") \\\"/\\\")))\\n      (if (= (string-length path) 1)\\n        (string-append home \\\"/\\\")\\n        (if (char=? (string-ref path 1) #\\\\/)\\n          (string-append home (substring path 1 (string-length path)))\\n          path)))\\n    path))\"",
+    "notes": "fuzzy-filter-sort returns results sorted by score (best first). Use for minibuffer completion instead of string-prefix-ci? filter for hippie-style matching. Track a 'search-pattern' separately from displayed input during Tab cycling, since Tab replaces input with match but cycling needs the original search pattern to keep stable match lists.",
+    "related": [
+      "directory-files-list-entries",
+      "path-manipulation-utilities"
+    ]
+  },
+  {
+    "id": "tcp-server-auto-port-discovery",
+    "title": "TCP server with OS-assigned port: get actual port number",
+    "tags": [
+      "tcp",
+      "server",
+      "port",
+      "auto-assign",
+      "socket-info",
+      "tcp-server-socket-info",
+      "ephemeral"
+    ],
+    "imports": [],
+    "code": ";; Start TCP server with port 0 (OS auto-assigns an ephemeral port)\n(let ((srv (open-tcp-server\n             (list server-address: \"127.0.0.1\"\n                   port-number: 0\n                   reuse-address: #t\n                   backlog: 8))))\n  ;; Get the actual port assigned by the OS\n  (let ((actual-port (socket-info-port-number\n                       (tcp-server-socket-info srv))))\n    (displayln \"Listening on 127.0.0.1:\" actual-port)\n    ;; Accept connections with (read srv) — returns a client port\n    (thread-start!\n      (make-thread\n        (lambda ()\n          (let loop ()\n            (let ((client (with-exception-catcher\n                            (lambda (e) #f)\n                            (lambda () (read srv)))))\n              (when (and client (not (eof-object? client)))\n                (thread-start!\n                  (make-thread\n                    (lambda ()\n                      (let lp ()\n                        (let ((line (read-line client)))\n                          (unless (eof-object? line)\n                            (display \"OK\\n\" client)\n                            (force-output client)\n                            (lp))))\n                      (close-port client))))\n                (loop)))))))\n    ;; To shut down: (close-port srv)\n    actual-port))",
+    "notes": "Key functions: tcp-server-socket-info returns a socket-info record, socket-info-port-number extracts the port. open-tcp-server returns a port — use (read srv) to accept connections (NOT a handler callback). (close-port srv) stops accepting. The accept loop should catch exceptions because close-port on the server will cause (read srv) to error.",
+    "related": [
+      "tcp-client-server-sockets"
+    ],
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "scintilla-text-based-line-extraction",
+    "title": "Text-based line extraction to avoid Scintilla byte/char position mismatch",
+    "tags": [
+      "scintilla",
+      "line",
+      "position",
+      "byte",
+      "char",
+      "mismatch",
+      "substring",
+      "crash",
+      "utf8",
+      "text-extraction"
+    ],
+    "imports": [],
+    "code": ";; Problem: Scintilla APIs (SCI_LINEFROMPOSITION, SCI_POSITIONFROMLINE,\n;; SCI_GETLINEENDPOSITION) return BYTE positions, but Scheme's substring/\n;; string-ref expect CHARACTER indices. With multi-byte UTF-8 content,\n;; byte-pos > char-length, causing \"out of range\" crashes.\n;;\n;; Solution: Scan the text string for newline chars instead of using\n;; Scintilla position APIs.\n\n;; Given: text = full editor text, pos = cursor position (clamped)\n(let* ((text (editor-get-text ed))\n       (text-len (string-length text))\n       (pos (min (editor-get-current-pos ed) text-len))\n       ;; Find line-start by scanning backwards for \\n\n       (line-start (let loop ((i (- pos 1)))\n                     (cond ((< i 0) 0)\n                           ((char=? (string-ref text i) #\\newline) (+ i 1))\n                           (else (loop (- i 1))))))\n       ;; Find line-end by scanning forwards for \\n\n       (line-end (let loop ((i pos))\n                   (cond ((>= i text-len) text-len)\n                         ((char=? (string-ref text i) #\\newline) i)\n                         (else (loop (+ i 1))))))\n       ;; Extract current line (safe — all indices are char-based)\n       (line (substring text line-start line-end)))\n  ;; Use line, line-start, line-end for further processing\n  line)",
+    "notes": "CRITICAL: Never pass Scintilla byte positions to Scheme string functions. This bug manifested in 3 separate locations in gerbil-emacs (qt/commands.ss, editor-ui.ss, editor-extra-org.ss) before the pattern was identified. Always clamp pos with (min pos text-len) since the cursor position from Scintilla can exceed (string-length text). The same applies to Qt's QPlainTextEdit cursor position."
+  },
+  {
+    "id": "scintilla-safe-text-replacement",
+    "title": "Safe text replacement via full text rebuild (avoids Scintilla byte position APIs)",
+    "tags": [
+      "scintilla",
+      "replace",
+      "text",
+      "rebuild",
+      "set-text",
+      "byte",
+      "position",
+      "safe",
+      "substring",
+      "string-append"
+    ],
+    "imports": [],
+    "code": ";; Problem: Scintilla's SCI_SETTARGETSTART/SCI_SETTARGETEND/SCI_REPLACETARGET\n;; and Qt's set-selection!/insert-text! expect BYTE positions.\n;; Passing Scheme character indices causes wrong text ranges to be replaced.\n;;\n;; Solution: Rebuild the entire text with string-append/substring (char-safe)\n;; and use set-text! to replace the whole buffer.\n\n;; Given: text, line-start, line-end (all char-based from text scanning),\n;;        replacement = new text for the range [line-start, line-end)\n(let* ((text (editor-get-text ed))\n       (text-len (string-length text))\n       (replacement \"#+BEGIN_SRC\\n\\n#+END_SRC\")\n       (new-text (string-append\n                   (substring text 0 line-start)\n                   replacement\n                   (substring text line-end text-len))))\n  ;; For TUI/Scintilla:\n  (editor-set-text ed new-text)\n  ;; For Qt QPlainTextEdit:\n  ;; (qt-plain-text-edit-set-text! ed new-text)\n  ;; Then reposition cursor:\n  (editor-goto-pos ed (+ line-start (string-length replacement))))",
+    "notes": "This pattern is slower than targeted replacement for large files but is the only safe approach when line-start/line-end are computed from Scheme string scanning. SCI_REPLACETARGET and qt-plain-text-edit-set-selection! both expect byte offsets. Do NOT mix char-based indices with those APIs. Related: see scintilla-text-based-line-extraction for computing line-start/line-end safely.",
+    "related": [
+      "scintilla-text-based-line-extraction"
     ]
   }
 ]
