@@ -69,6 +69,8 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_stale_static`**: Compare compiled artifacts in global `$GERBIL_PATH/lib/static/` vs project-local `.gerbil/lib/static/` to detect stale global copies that could shadow the current build. Common cause of segfaults and `#!unbound` errors in compiled executables.
 - **`gerbil_stale_linked_pkg`**: Detect stale linked packages (via `gerbil pkg link`) whose source `.ss` files are newer than compiled `.ssi`/`.scm` artifacts. Reports which packages need rebuilding with `gerbil pkg build`.
 - **`gerbil_build_linkage_diagnostic`**: Analyze exe targets in `build.ss` for missing transitive FFI link dependencies. Traces imports from exe main modules, identifies FFI modules, and checks whether `ld-options` include the required static libraries. Catches silent linkage failures where an exe produces a broken binary due to missing `-L`/`-l` flags. Use `exe_target` to check a specific target.
+- **`gerbil_qt_test_runner`**: Build and run a Qt FFI test executable in one step. Handles build, patchelf rpath, and QT_QPA_PLATFORM=offscreen automatically. Use `skip_build` to rerun without rebuilding. Use `rpath` to override auto-detected rpath values.
+- **`gerbil_pkg_link_sync`**: Detect and sync stale linked-package artifacts (.ssi, .so, .scm) between a package's local build and global ~/.gerbil/lib/. Dry-run by default. Use `sync: true` to copy stale artifacts. Complements `gerbil_stale_linked_pkg` with actual sync capability.
 
 ### For Performance Analysis
 

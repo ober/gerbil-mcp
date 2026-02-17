@@ -6362,6 +6362,98 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Qt test runner tool ─────────────────────────────────────
+
+  describe('Qt test runner tool', () => {
+    it('reports missing binary when project has no exe', async () => {
+      const projDir = join(TEST_DIR, 'qt-runner-no-bin');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: test-qt)');
+      writeFileSync(join(projDir, 'main.ss'), '(def (main) (displayln "hello"))\n');
+      const result = await client.callTool('gerbil_qt_test_runner', {
+        project_path: projDir,
+        bin_name: 'nonexistent-qt-test',
+        skip_build: true,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+
+    it('skips build and patchelf when requested', async () => {
+      const projDir = join(TEST_DIR, 'qt-runner-skip');
+      mkdirSync(join(projDir, '.gerbil', 'bin'), { recursive: true });
+      const binPath = join(projDir, '.gerbil', 'bin', 'test-bin');
+      writeFileSync(binPath, '#!/bin/sh\necho "ok"\n');
+      chmodSync(binPath, 0o755);
+      const result = await client.callTool('gerbil_qt_test_runner', {
+        project_path: projDir,
+        bin_name: 'test-bin',
+        skip_build: true,
+        skip_patchelf: true,
+      });
+      expect(result.text).toContain('Build skipped');
+      expect(result.text).toContain('Patchelf skipped');
+      expect(result.text).toContain('Exit code: 0');
+    });
+
+    it('runs a simple test binary successfully', async () => {
+      const projDir = join(TEST_DIR, 'qt-runner-simple');
+      mkdirSync(join(projDir, '.gerbil', 'bin'), { recursive: true });
+      // Create a simple shell script as the "binary"
+      const binPath = join(projDir, '.gerbil', 'bin', 'test-simple');
+      writeFileSync(binPath, '#!/bin/sh\necho "test passed"\n');
+      chmodSync(binPath, 0o755);
+      const result = await client.callTool('gerbil_qt_test_runner', {
+        project_path: projDir,
+        bin_name: 'test-simple',
+        skip_build: true,
+        skip_patchelf: true,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('test passed');
+      expect(result.text).toContain('Exit code: 0');
+    });
+  });
+
+  // ── Pkg link sync tool ─────────────────────────────────────
+
+  describe('Pkg link sync tool', () => {
+    it('reports missing package when not linked', async () => {
+      const result = await client.callTool('gerbil_pkg_link_sync', {
+        pkg_name: 'nonexistent-pkg-xyz-42',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+
+    it('reports missing .gerbil/lib when pkg_path has no build', async () => {
+      const pkgDir = join(TEST_DIR, 'pkg-sync-no-lib');
+      mkdirSync(pkgDir, { recursive: true });
+      const result = await client.callTool('gerbil_pkg_link_sync', {
+        pkg_name: 'test-pkg',
+        pkg_path: pkgDir,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('.gerbil/lib');
+    });
+
+    it('reports up-to-date when artifacts match', async () => {
+      const pkgDir = join(TEST_DIR, 'pkg-sync-uptodate');
+      const localLib = join(pkgDir, '.gerbil', 'lib');
+      mkdirSync(localLib, { recursive: true });
+      // Create a local artifact
+      writeFileSync(join(localLib, 'test.ssi'), 'compiled data');
+      // Use the temp dir as "global" too so it finds matching files
+      const result = await client.callTool('gerbil_pkg_link_sync', {
+        pkg_name: 'test-pkg',
+        pkg_path: pkgDir,
+        gerbil_path: join(pkgDir, '.gerbil'),
+      });
+      // Artifacts match themselves, so up-to-date
+      expect(result.text).toContain('up to date');
+    });
+  });
+
   // ── Tool annotations for all tools (including new batch) ───
 
   describe('New tool annotations', () => {
@@ -6406,6 +6498,8 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_build_linkage_diagnostic',
         'gerbil_cross_module_check',
         'gerbil_detect_ifdef_stubs',
+        'gerbil_qt_test_runner',
+        'gerbil_pkg_link_sync',
       ];
 
       for (const name of newToolNames) {

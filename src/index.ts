@@ -121,6 +121,8 @@ import { registerPreflightCheckTool } from './tools/preflight-check.js';
 import { registerBuildLinkageDiagnosticTool } from './tools/build-linkage-diagnostic.js';
 import { registerCrossModuleCheckTool } from './tools/cross-module-check.js';
 import { registerDetectIfdefStubsTool } from './tools/detect-ifdef-stubs.js';
+import { registerQtTestRunnerTool } from './tools/qt-test-runner.js';
+import { registerPkgLinkSyncTool } from './tools/pkg-link-sync.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -255,6 +257,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To diagnose exe link failures: use gerbil_build_linkage_diagnostic to trace transitive FFI link dependencies in build.ss exe targets. Detects missing C libraries that would cause silent link failures.
 - To check cross-module symbols: use gerbil_cross_module_check to detect unbound symbol references across project files before compilation. Critical when splitting large modules into sub-modules.
 - To find #ifdef stubs: use gerbil_detect_ifdef_stubs to scan c-declare blocks for #ifdef/#else stub patterns (NULL/0 returns) that cause segfaults in cross-project builds.
+- To run Qt FFI tests: use gerbil_qt_test_runner to build, patchelf, and run a Qt exe test in one step with QT_QPA_PLATFORM=offscreen.
+- To sync linked package artifacts: use gerbil_pkg_link_sync to detect and copy stale .ssi/.so/.scm files from a linked package's local build to the global ~/.gerbil/lib/.
 
 ## Common Workflows
 
@@ -418,6 +422,8 @@ registerPreflightCheckTool(server);
 registerBuildLinkageDiagnosticTool(server);
 registerCrossModuleCheckTool(server);
 registerDetectIfdefStubsTool(server);
+registerQtTestRunnerTool(server);
+registerPkgLinkSyncTool(server);
 
 registerPrompts(server);
 registerResources(server);
