@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 444 tests must pass before considering any change complete. The test suite covers:
+All 456 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -180,6 +180,10 @@ All 444 tests must pass before considering any change complete. The test suite c
 - Batch syntax check tool (multiple snippets, invalid syntax detection, empty array handling)
 - Preflight check tool (environment checks, MCP server project checks)
 - Rename symbol single-file mode (file_path parameter, requires directory or file_path)
+- Build linkage diagnostic tool (missing build.ss, no exe targets, exe_target filtering, no FFI modules)
+- Cross-module check tool (unbound symbol detection, clean file passing, file filtering, no .ss files handling)
+- Detect ifdef stubs tool (NULL stubs in heredoc, zero stubs in inline string, project-wide scan, clean code passing)
+- New tool annotation checks for batch 5 tools
 
 
 ### MANDATORY: Update Documentation After Every Change

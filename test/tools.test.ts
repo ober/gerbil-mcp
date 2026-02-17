@@ -6181,6 +6181,187 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Build linkage diagnostic tool ──────────────────────────
+
+  describe('Build linkage diagnostic tool', () => {
+    it('handles missing build.ss', async () => {
+      const result = await client.callTool('gerbil_build_linkage_diagnostic', {
+        project_path: '/tmp/nonexistent-linkage-proj-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('build.ss');
+    });
+
+    it('reports no exe targets when build.ss has none', async () => {
+      const projDir = join(TEST_DIR, 'linkage-no-exe');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'build.ss'), `(defbuild-script '("lib-module"))`);
+      const result = await client.callTool('gerbil_build_linkage_diagnostic', {
+        project_path: projDir,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('No exe targets');
+    });
+
+    it('handles specific exe_target filter', async () => {
+      const projDir = join(TEST_DIR, 'linkage-filter');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'build.ss'),
+        `(defbuild-script '((exe: "main" bin: "app") (exe: "test" bin: "test-bin")))`);
+      const result = await client.callTool('gerbil_build_linkage_diagnostic', {
+        project_path: projDir,
+        exe_target: 'nonexistent-target',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('not found');
+    });
+
+    it('analyzes exe target with no FFI modules', async () => {
+      const projDir = join(TEST_DIR, 'linkage-no-ffi');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'build.ss'),
+        `(defbuild-script '((exe: "main" bin: "app")))`);
+      writeFileSync(join(projDir, 'main.ss'),
+        '(import :std/text/json)\n(def (main) (displayln "hello"))\n');
+      const result = await client.callTool('gerbil_build_linkage_diagnostic', {
+        project_path: projDir,
+      });
+      expect(result.text).toContain('main');
+    });
+  });
+
+  // ── Cross-module check tool ─────────────────────────────────
+
+  describe('Cross-module check tool', () => {
+    it('detects unbound symbols with source suggestions', async () => {
+      const projDir = join(TEST_DIR, 'cross-mod-unbound');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: test-cross)');
+      writeFileSync(join(projDir, 'core.ss'),
+        '(export helper-fn)\n(def (helper-fn x) (+ x 1))\n');
+      writeFileSync(join(projDir, 'main.ss'),
+        '(def (main) (helper-fn 42))\n');
+      const result = await client.callTool('gerbil_cross_module_check', {
+        project_path: projDir,
+      });
+      expect(result.text).toContain('helper-fn');
+      expect(result.text).toContain('core.ss');
+    });
+
+    it('passes when all symbols resolved', async () => {
+      const projDir = join(TEST_DIR, 'cross-mod-clean');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: test-clean)');
+      writeFileSync(join(projDir, 'self-contained.ss'),
+        '(def (add a b) (+ a b))\n(def (main) (add 1 2))\n');
+      const result = await client.callTool('gerbil_cross_module_check', {
+        project_path: projDir,
+      });
+      expect(result.text).toContain('resolved');
+    });
+
+    it('handles specific file filtering', async () => {
+      const projDir = join(TEST_DIR, 'cross-mod-filter');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'gerbil.pkg'), '(package: test-filter)');
+      writeFileSync(join(projDir, 'a.ss'), '(def (foo) 42)\n');
+      writeFileSync(join(projDir, 'b.ss'), '(def (bar) (foo))\n');
+      const result = await client.callTool('gerbil_cross_module_check', {
+        project_path: projDir,
+        files: [join(projDir, 'b.ss')],
+      });
+      // Only b.ss is checked, so foo is unbound there
+      expect(result.text).toContain('foo');
+    });
+
+    it('handles no .ss files', async () => {
+      const projDir = join(TEST_DIR, 'cross-mod-empty');
+      mkdirSync(projDir, { recursive: true });
+      const result = await client.callTool('gerbil_cross_module_check', {
+        project_path: projDir,
+      });
+      expect(result.text).toContain('No .ss files');
+    });
+  });
+
+  // ── Detect ifdef stubs tool ─────────────────────────────────
+
+  describe('Detect ifdef stubs tool', () => {
+    it('detects NULL return stubs in heredoc form', async () => {
+      const testFile = join(TEST_DIR, 'ifdef-heredoc.ss');
+      writeFileSync(testFile, [
+        '(c-declare #<<END-C',
+        '#ifdef HAS_FEATURE',
+        'void* create_thing() { return real_impl(); }',
+        '#else',
+        'void* create_thing() { return NULL; }',
+        '#endif',
+        'END-C',
+        ')',
+      ].join('\n'));
+      const result = await client.callTool('gerbil_detect_ifdef_stubs', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('CRITICAL');
+      expect(result.text).toContain('return NULL');
+      expect(result.text).toContain('HAS_FEATURE');
+    });
+
+    it('detects zero return stubs in inline string form', async () => {
+      const testFile = join(TEST_DIR, 'ifdef-inline.ss');
+      writeFileSync(testFile,
+        '(c-declare "#ifdef USE_LIB\\nint get_val() { return real_val(); }\\n#else\\nint get_val() { return 0; }\\n#endif")\n');
+      const result = await client.callTool('gerbil_detect_ifdef_stubs', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('CRITICAL');
+      expect(result.text).toContain('return 0');
+    });
+
+    it('project-wide scan finds stubs across files', async () => {
+      const projDir = join(TEST_DIR, 'ifdef-project');
+      mkdirSync(projDir, { recursive: true });
+      writeFileSync(join(projDir, 'clean.ss'), '(def (foo) 42)\n');
+      writeFileSync(join(projDir, 'ffi.ss'), [
+        '(c-declare #<<END-C',
+        '#ifdef HAVE_LIB',
+        'void* init() { return lib_init(); }',
+        '#else',
+        'void* init() { return (void*)0; }',
+        '#endif',
+        'END-C',
+        ')',
+      ].join('\n'));
+      const result = await client.callTool('gerbil_detect_ifdef_stubs', {
+        project_path: projDir,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('ffi.ss');
+      expect(result.text).toContain('CRITICAL');
+    });
+
+    it('clean code with no stubs passes', async () => {
+      const testFile = join(TEST_DIR, 'ifdef-clean.ss');
+      writeFileSync(testFile, [
+        '(c-declare #<<END-C',
+        '#ifdef DEBUG',
+        'void log_msg(const char* msg) { printf("%s\\n", msg); }',
+        '#else',
+        'void log_msg(const char* msg) { /* production logging */ fprintf(stderr, "%s\\n", msg); }',
+        '#endif',
+        'END-C',
+        ')',
+      ].join('\n'));
+      const result = await client.callTool('gerbil_detect_ifdef_stubs', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('clean');
+    });
+  });
+
   // ── Tool annotations for all tools (including new batch) ───
 
   describe('New tool annotations', () => {
@@ -6221,6 +6402,10 @@ void copy_data(const uint8_t *src, int len) {
         'gerbil_ffi_link_check',
         'gerbil_batch_syntax_check',
         'gerbil_preflight_check',
+        // New batch 5 tools
+        'gerbil_build_linkage_diagnostic',
+        'gerbil_cross_module_check',
+        'gerbil_detect_ifdef_stubs',
       ];
 
       for (const name of newToolNames) {

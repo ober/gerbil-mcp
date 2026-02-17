@@ -118,6 +118,9 @@ import { registerBuildChainTool } from './tools/build-chain.js';
 import { registerFFILinkCheckTool } from './tools/ffi-link-check.js';
 import { registerBatchSyntaxCheckTool } from './tools/batch-syntax-check.js';
 import { registerPreflightCheckTool } from './tools/preflight-check.js';
+import { registerBuildLinkageDiagnosticTool } from './tools/build-linkage-diagnostic.js';
+import { registerCrossModuleCheckTool } from './tools/cross-module-check.js';
+import { registerDetectIfdefStubsTool } from './tools/detect-ifdef-stubs.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -249,6 +252,9 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To generate project structure: use gerbil_project_template to create a complete multi-file project from a template (cli, http-api, library, actor-service, db-crud, parser, ffi-wrapper, test-project).
 - To look up error fixes: use gerbil_error_fix_lookup for instant fix lookup from a database of ~20 common error→fix mappings. Much faster than explain_error for known errors.
 - To add error fixes: use gerbil_error_fix_add to record new error→fix mappings discovered during a session.
+- To diagnose exe link failures: use gerbil_build_linkage_diagnostic to trace transitive FFI link dependencies in build.ss exe targets. Detects missing C libraries that would cause silent link failures.
+- To check cross-module symbols: use gerbil_cross_module_check to detect unbound symbol references across project files before compilation. Critical when splitting large modules into sub-modules.
+- To find #ifdef stubs: use gerbil_detect_ifdef_stubs to scan c-declare blocks for #ifdef/#else stub patterns (NULL/0 returns) that cause segfaults in cross-project builds.
 
 ## Common Workflows
 
@@ -268,6 +274,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - **Port from Racket**: gerbil_translate_scheme → gerbil_verify → gerbil_suggest_imports → manual review
 - **Fix common error**: gerbil_error_fix_lookup → apply fix → gerbil_verify
 - **Start new project**: gerbil_project_template → gerbil build → make test
+- **Diagnose exe build issues**: gerbil_build_linkage_diagnostic → gerbil_detect_ifdef_stubs → gerbil_ffi_link_check → gerbil_stale_static
+- **Split a module**: gerbil_cross_module_check → fix missing imports → gerbil_check_import_conflicts → gerbil_verify
 
 ## Important Guidance
 
@@ -407,6 +415,9 @@ registerBuildChainTool(server);
 registerFFILinkCheckTool(server);
 registerBatchSyntaxCheckTool(server);
 registerPreflightCheckTool(server);
+registerBuildLinkageDiagnosticTool(server);
+registerCrossModuleCheckTool(server);
+registerDetectIfdefStubsTool(server);
 
 registerPrompts(server);
 registerResources(server);
