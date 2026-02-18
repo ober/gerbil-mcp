@@ -123,6 +123,7 @@ import { registerCrossModuleCheckTool } from './tools/cross-module-check.js';
 import { registerDetectIfdefStubsTool } from './tools/detect-ifdef-stubs.js';
 import { registerQtTestRunnerTool } from './tools/qt-test-runner.js';
 import { registerPkgLinkSyncTool } from './tools/pkg-link-sync.js';
+import { registerCrossPackageDiffTool } from './tools/cross-package-diff.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -137,7 +138,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - BEFORE calling Gerbil functions: use gerbil_function_signature to check procedure arities and keyword arguments, avoiding wrong number of arguments errors. Use loadpath or project_path for dependency modules.
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes.
-- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files.
+- To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files. Use modules_only: true to skip exe linking targets and only compile library modules (dramatically faster when iterating on code).
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
@@ -170,6 +171,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 ## Specialized Tools
 
 - To compare module exports: use gerbil_diff_modules to see added/removed/shared exports between two modules. Critical for version migration.
+- To compare function signatures across packages: use gerbil_cross_package_diff to see arity/kind differences for shared exports, symbols only in module A, and symbols only in module B. Critical for debugging wrapper/wrapped function mismatches (e.g. a shim with different parameter defaults).
 - To check migration compatibility: use gerbil_migration_check to scan a file for v0.18 patterns that need updating for v0.19.
 - To detect dead code: use gerbil_dead_code to find unexported, uncalled definitions across a project.
 - To detect circular dependencies: use gerbil_dependency_cycles to find circular module imports that cause compilation errors.
@@ -424,6 +426,7 @@ registerCrossModuleCheckTool(server);
 registerDetectIfdefStubsTool(server);
 registerQtTestRunnerTool(server);
 registerPkgLinkSyncTool(server);
+registerCrossPackageDiffTool(server);
 
 registerPrompts(server);
 registerResources(server);

@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { readFile, stat, access, constants, rm } from 'node:fs/promises';
+import { readFile, writeFile, stat, access, constants, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, basename } from 'node:path';
@@ -83,7 +83,9 @@ export function registerBuildAndReportTool(server: McpServer): void {
         'structured file:line:column diagnostics. ' +
         'Uses the modern `gerbil` CLI (not gxpkg). ' +
         'Auto-detects external dependencies from gerbil.pkg depend: entries and ' +
-        'adds ~/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided.',
+        'adds ~/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided. ' +
+        'Use modules_only: true to skip exe linking targets and only compile library modules ' +
+        '(dramatically faster when iterating on code and running tests).',
       annotations: {
         readOnlyHint: false,
         idempotentHint: false,
@@ -112,9 +114,18 @@ export function registerBuildAndReportTool(server: McpServer): void {
           .describe(
             'Directories to add to GERBIL_LOADPATH for project-local module resolution',
           ),
+        modules_only: z
+          .boolean()
+          .optional()
+          .describe(
+            'When true, compile only library modules and skip exe linking targets. ' +
+            'Useful when only .ssi compiled artifacts are needed for testing — ' +
+            'skips the slow exe linking phase (15-20+ minutes for large projects). ' +
+            'Temporarily removes exe targets from build.ss for the duration of the build.',
+          ),
       },
     },
-    async ({ project_path, flags, context_lines, loadpath }) => {
+    async ({ project_path, flags, context_lines, loadpath, modules_only }) => {
       // Detect Makefile and extract targets
       const makefileTargets = await detectMakefileTargets(project_path);
       const makefileNote = makefileTargets.length > 0
@@ -127,11 +138,39 @@ export function registerBuildAndReportTool(server: McpServer): void {
       const args = ['build', ...(flags ?? [])];
       const loadpathEnv = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
 
-      const result = await runGerbilCmd(args, {
-        cwd: project_path,
-        timeout: 120_000,
-        env: loadpathEnv,
-      });
+      // modules_only: temporarily filter exe targets from build.ss
+      const buildSsPath = join(project_path, 'build.ss');
+      let originalBuildSs: string | null = null;
+      if (modules_only) {
+        try {
+          const buildSsContent = await readFile(buildSsPath, 'utf-8');
+          const filtered = filterExeTargets(buildSsContent);
+          if (filtered !== buildSsContent) {
+            originalBuildSs = buildSsContent;
+            await writeFile(buildSsPath, filtered, 'utf-8');
+          }
+        } catch {
+          // build.ss unreadable or no exe targets — proceed with normal build
+        }
+      }
+
+      let result: Awaited<ReturnType<typeof runGerbilCmd>>;
+      try {
+        result = await runGerbilCmd(args, {
+          cwd: project_path,
+          timeout: 120_000,
+          env: loadpathEnv,
+        });
+      } finally {
+        // Always restore original build.ss if we modified it
+        if (originalBuildSs !== null) {
+          try {
+            await writeFile(buildSsPath, originalBuildSs, 'utf-8');
+          } catch {
+            // best-effort restore
+          }
+        }
+      }
 
       if (result.timedOut) {
         return {
@@ -500,4 +539,70 @@ function runMake(
       },
     );
   });
+}
+
+/**
+ * Filter exe targets from build.ss content so gerbil build skips the
+ * expensive exe linking phase. Handles both build/script format:
+ *   (exe "name" main: "module" ...)
+ * and defbuild-script format:
+ *   (exe: "name" bin: "binary")
+ *
+ * Uses a line-by-line parenthesis-depth scanner to handle multi-line forms.
+ * Lines containing an exe target opener are skipped; subsequent lines of
+ * the same form (depth > 0) are also skipped.
+ */
+function filterExeTargets(content: string): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let skipDepth = 0;
+
+  for (const line of lines) {
+    // If we're inside a skipped exe form, track depth until it closes
+    if (skipDepth > 0) {
+      let inStr = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '\\' && inStr) { i++; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (ch === ';') break;
+        if (ch === '(') skipDepth++;
+        else if (ch === ')') { skipDepth--; }
+      }
+      // Skip this line (part of the exe form)
+      continue;
+    }
+
+    const trimmed = line.trimStart();
+
+    // Check if this line opens an exe target
+    // build/script: (exe "name" ...) or (exe\n
+    // defbuild-script: (exe: "name" ...) or '(exe: ...)
+    const isExeStart =
+      /^\(exe[:\s"]/.test(trimmed) ||
+      /^'\s*\(exe[:\s"]/.test(trimmed);
+
+    if (isExeStart) {
+      // Count depth to handle multi-line forms
+      let inStr = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '\\' && inStr) { i++; continue; }
+        if (ch === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (ch === ';') break;
+        if (ch === '(') skipDepth++;
+        else if (ch === ')') skipDepth--;
+      }
+      // If skipDepth <= 0 the form closed on this line, reset
+      if (skipDepth < 0) skipDepth = 0;
+      // Skip this line
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join('\n');
 }

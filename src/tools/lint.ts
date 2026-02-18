@@ -72,7 +72,9 @@ export function registerLintTool(server: McpServer): void {
         'wg-wait visibility gaps), pitfall detection (unquote outside quasiquote, ' +
         'dot in brackets, missing exported definitions, re-export awareness), ' +
         'SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, ' +
-        'byte/char port type mismatch (fdopen with char I/O), and compilation errors via gxc.',
+        'byte/char port type mismatch (fdopen with char I/O), ' +
+        'pregexp inline flag detection ((?i)/(?m)/(?s) cause runtime crashes), ' +
+        'and compilation errors via gxc.',
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -114,6 +116,7 @@ export function registerLintTool(server: McpServer): void {
       checkSrfi19TimeShadow(content, analysis, diagnostics);
       checkUnsafeMutexPattern(lines, diagnostics);
       checkPortTypeMismatch(lines, diagnostics);
+      checkPregexpInlineFlags(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -978,6 +981,78 @@ function checkMissingExportedDefinitions(
           });
         }
       }
+    }
+  }
+}
+
+/**
+ * Detect pregexp inline flags ((?i), (?m), (?s), (?x)) in string literals.
+ * Gerbil's :std/pregexp does not support these Perl-style inline flags —
+ * they cause a cryptic "BUG: pregexp internal error" at runtime from
+ * pregexp-read-cluster-type. Suggest character classes or string-downcase instead.
+ */
+function checkPregexpInlineFlags(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  // Match (?i), (?m), (?s), (?x), (?I), etc. inside a string
+  const INLINE_FLAG_RE = /\(\?[imsxIMSX]\)/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1;
+    const trimmed = line.trimStart();
+
+    // Skip pure comment lines
+    if (trimmed.startsWith(';')) continue;
+
+    // Quick bail: no inline flag pattern at all
+    if (!INLINE_FLAG_RE.test(line)) continue;
+
+    // Scan for string literals and check if they contain an inline flag
+    let j = 0;
+    let warned = false;
+    while (j < line.length && !warned) {
+      const ch = line[j];
+
+      // Skip line comments
+      if (ch === ';') break;
+
+      // Enter a string literal
+      if (ch === '"') {
+        const start = j;
+        j++;
+        while (j < line.length) {
+          if (line[j] === '\\') {
+            j += 2; // skip escaped character
+            continue;
+          }
+          if (line[j] === '"') {
+            j++;
+            break;
+          }
+          j++;
+        }
+        const strContent = line.slice(start, j);
+        const flagMatch = INLINE_FLAG_RE.exec(strContent);
+        if (flagMatch) {
+          diagnostics.push({
+            line: lineNum,
+            severity: 'warning',
+            code: 'pregexp-inline-flag',
+            message:
+              `String contains pregexp inline flag "${flagMatch[0]}". ` +
+              "Gerbil's :std/pregexp does not support (?i)/(?m)/(?s)/(?x) — " +
+              'they cause a "BUG: pregexp internal error" at runtime. ' +
+              'Use character classes (e.g. [Aa][Bb] for case-insensitive "ab") ' +
+              'or string-downcase/string-upcase before matching.',
+          });
+          warned = true;
+        }
+        continue;
+      }
+
+      j++;
     }
   }
 }

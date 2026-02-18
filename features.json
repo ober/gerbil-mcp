@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "test-single-case-with-trace",
+    "title": "Run a single test case with expression tracing for debugging",
+    "description": "When a specific test case fails, debugging requires manually adding displayln statements to the test, rebuilding, running all tests, grepping for output, then removing the debug prints. A gerbil_run_tests mode that runs a single named test case and automatically instruments intermediate expressions with tracing would dramatically speed up test debugging. Could support: (1) filter to run a single test-case by name, (2) capture and return stdout/stderr from that specific test, (3) optionally wrap check expressions with before/after value logging.",
+    "impact": "medium",
+    "tags": [
+      "test",
+      "debug",
+      "trace",
+      "single-test",
+      "displayln",
+      "diagnostic"
+    ],
+    "use_case": "When a single test case fails and you need to understand intermediate values (cursor positions, parsed data, function return values) to diagnose the root cause without modifying the test file.",
+    "example_scenario": "Test 'org-table: TAB skips separator rows' fails with cursor on line 0 instead of 2. Need to check: what does org-table-find-bounds return? What does org-table-next-data-line return? Where is the cursor after org-table-align? Currently requires adding 8 displayln statements, rebuilding (which takes time since gerbil test recompiles), running, grepping output, then cleaning up. With this feature: gerbil_run_tests with filter='TAB skips separator' and verbose=true would capture all output from that single test case.",
+    "estimated_token_reduction": "~1500 tokens per debug iteration — eliminates edit-rebuild-grep-cleanup cycle, typically 3-4 iterations per failing test = ~5000 tokens saved",
+    "votes": 0
+  }
+]
