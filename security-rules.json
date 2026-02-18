@@ -356,5 +356,42 @@
       "function",
       "stub"
     ]
+  },
+  {
+    "id": "sci-send-string-missing-wparam",
+    "title": "sci-send/string called without explicit wParam for length-dependent Scintilla messages",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "sci-send/string\\s+\\S+\\s+SCI_REPLACETARGET\\s+\\S+\\s*\\)",
+    "message": "sci-send/string defaults wParam to 0. For SCI_REPLACETARGET, wParam=0 means 'replace with 0 bytes' which silently deletes the entire target region instead of replacing it. Similar issue affects SCI_APPENDTEXT and SCI_SEARCHINTARGET.",
+    "remediation": "Pass the string length as the fourth argument: (sci-send/string ed SCI_REPLACETARGET text (string-length text)). For Unicode text, use string-utf8-length for byte-accurate length.",
+    "related_recipe": "qt-sci-send-string-wparam-length",
+    "tags": [
+      "scintilla",
+      "sci-send/string",
+      "wparam",
+      "SCI_REPLACETARGET",
+      "data-loss",
+      "silent-deletion",
+      "qt"
+    ]
+  },
+  {
+    "id": "pregexp-unsupported-inline-flag",
+    "title": "Unsupported pregexp inline flag (?i)/(?m)/(?s) causes runtime crash",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "pregexp[^\\\"]*\\\"[^\\\"]*\\(\\?[ims]",
+    "message": "std/pregexp does not support PCRE inline flags like (?i), (?m), or (?s). Using them causes a runtime crash: [BUG]: pregexp internal error in pregexp-read-cluster-type. This is not caught at compile time.",
+    "remediation": "Remove the inline flag and either: (1) downcase the input string with string-downcase before matching, then use a plain lowercase pattern; or (2) use character classes like [Aa][Bb] for case-insensitive matching. Also avoid POSIX bracket expressions like [[:space:]] — use \\\\s instead.",
+    "related_recipe": "pregexp-no-inline-flags",
+    "tags": [
+      "pregexp",
+      "regex",
+      "inline-flag",
+      "case-insensitive",
+      "runtime-crash",
+      "gotcha"
+    ]
   }
 ]

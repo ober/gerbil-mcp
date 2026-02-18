@@ -10905,5 +10905,305 @@
     "related": [
       "scintilla-text-based-line-extraction"
     ]
+  },
+  {
+    "id": "pregexp-no-inline-flags",
+    "title": "std/pregexp does not support inline flags like (?i)",
+    "tags": [
+      "pregexp",
+      "regex",
+      "case-insensitive",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/pregexp",
+      ":std/srfi/13"
+    ],
+    "code": ";; WRONG — crashes at runtime with [BUG]: pregexp internal error:\n;; (pregexp-match \"(?i)^#+begin_src\\\\s+(\\\\S+)\" line)\n\n;; RIGHT — downcase the string first, then use a plain lowercase pattern:\n(def (match-src-block-lang line)\n  (let* ((lower (string-downcase (string-trim line)))\n         (m (pregexp-match \"^#\\\\+begin_src\\\\s+(\\\\S+)\" lower)))\n    (and m (list-ref m 1))))",
+    "notes": "std/pregexp does NOT support PCRE inline flag clusters like (?i) for case-insensitive matching. Using (?i) causes a runtime crash: [BUG]: pregexp internal error in pregexp-read-cluster-type. Also avoid [[:space:]] POSIX bracket expressions — use \\\\s instead. Workaround: downcase the input before matching, then use a plain lowercase pattern.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "org-parse-heading-line-returns-values",
+    "title": "org-parse-heading-line returns multiple values, NOT an org-heading struct",
+    "tags": [
+      "org-parse",
+      "heading",
+      "values",
+      "struct",
+      "gotcha",
+      "let-values",
+      "org-heading"
+    ],
+    "imports": [
+      ":gerbil-emacs/org-parse"
+    ],
+    "code": ";; org-parse-heading-line returns 5 VALUES, not an org-heading struct:\\n(let-values (((level keyword priority title tags)\\n              (org-parse-heading-line \\\"* TODO [#A] My Title :work:home:\\\")))\\n  ;; level = 1, keyword = \\\"TODO\\\", priority = #\\\\A\\n  ;; title = \\\"My Title\\\", tags = (\\\"work\\\" \\\"home\\\")\\n  (displayln title))  ;; => \\\"My Title\\\"\\n\\n;; WRONG — this captures only the first value (level integer):\\n;; (let ((parsed (org-parse-heading-line \\\"* TODO Morning\\\")))\\n;;   (org-heading-title parsed))  ;; ERROR: not an org-heading struct\\n\\n;; To make an org-heading struct, use make-org-heading (12 positional args):\\n(make-org-heading 1 \\\"TODO\\\" #f \\\"Morning\\\" '() #f #f #f #f '() 0 #f)\\n;; Fields: stars keyword priority title tags scheduled deadline\\n;;         closed properties clocks line-number file-path\\n\\n;; org-parse-buffer returns a list of org-heading structs (full parsing).",
+    "notes": "org-parse-heading-line is a lightweight parser that returns (values level keyword priority title tags). For a full org-heading struct with scheduled/deadline/properties/clocks, use org-parse-buffer which scans subsequent lines. Common bug: assigning the result of org-parse-heading-line to a single variable captures only 'level' (integer), then calling org-heading-title on it crashes with type error.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "srfi-13-string-trim-vs-trim-both",
+    "title": "SRFI-13 string-trim only trims LEADING whitespace — use string-trim-both for both ends",
+    "tags": [
+      "srfi-13",
+      "string-trim",
+      "string-trim-both",
+      "string-trim-right",
+      "whitespace",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/srfi/13"
+    ],
+    "code": ";; string-trim removes LEADING whitespace only:\\n(string-trim \\\"  hello  \\\")  ;; => \\\"hello  \\\" (trailing spaces remain!)\\n\\n;; string-trim-right removes TRAILING whitespace only:\\n(string-trim-right \\\"  hello  \\\")  ;; => \\\"  hello\\\"\\n\\n;; string-trim-both removes BOTH leading and trailing:\\n(string-trim-both \\\"  hello  \\\")  ;; => \\\"hello\\\"\\n\\n;; Common bug: using string-trim to clean table cells\\n;; gives cells with trailing whitespace like \\\"abc \\\" instead of \\\"abc\\\".\\n;; Fix: use string-trim-both.",
+    "notes": "SRFI-13 follows the traditional Scheme convention: string-trim = left trim, string-trim-right = right trim, string-trim-both = both sides. This is opposite to many other languages where 'trim' means both sides.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "gerbil-test-uses-compiled-ssi",
+    "title": "gerbil test loads compiled .ssi artifacts — must rebuild after source changes",
+    "tags": [
+      "gerbil",
+      "test",
+      "ssi",
+      "compiled",
+      "recompile",
+      "build",
+      "stale",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; `gerbil test` loads .ssi compiled artifacts, NOT raw .ss source files.\\n;; If you edit a .ss file, you MUST run `gerbil build` before `gerbil test`\\n;; to see the changes take effect in tests.\\n;;\\n;; Workflow:\\n;;   1. Edit source file (e.g. org-babel.ss)\\n;;   2. Run: gerbil build          ;; recompiles changed modules\\n;;   3. Run: gerbil test            ;; now uses updated .ssi\\n;;\\n;; Common mistake:\\n;;   - Edit source → run tests immediately → old behavior still seen\\n;;   - Fix: always build first\\n;;\\n;; Note: `gerbil build` is incremental — it only recompiles modules\\n;; whose .ss source is newer than the .ssi artifact. But the exe\\n;; linking phase rebuilds the entire binary every time (very slow\\n;; for large projects with 8MB+ generated C files).\\n;;\\n;; Tip: You can run `gerbil test` while the exe linking phase is\\n;; still running — tests only need the .ssi files, not the exe binary.",
+    "notes": "This is especially important when debugging test failures: if you fix a bug in source but tests still fail, check that gerbil build has recompiled the module (look for '... compile modulename' in build output). The exe linking phase can take 15+ minutes for large projects but is NOT needed for running tests.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "mutex-action-queue-thread-to-ui",
+    "title": "Mutex-protected action queue for background thread to UI thread communication",
+    "tags": [
+      "mutex",
+      "queue",
+      "thread",
+      "ui",
+      "action",
+      "poll",
+      "timer",
+      "background",
+      "thunk",
+      "ipc"
+    ],
+    "imports": [
+      ":std/misc/queue"
+    ],
+    "code": ";; Pattern: Background thread produces work items (thunks),\n;; UI thread polls and executes them on its own thread.\n;; This avoids Qt/GUI thread-safety issues.\n\n;; State: mutex-protected queue of thunks\n(def *ui-queue* (make-queue))\n(def *ui-mutex* (make-mutex \"ui-action-queue\"))\n\n;; Called from ANY thread (background reader, worker, etc.)\n(def (queue-ui-action! thunk)\n  (mutex-lock! *ui-mutex*)\n  (enqueue! *ui-queue* thunk)\n  (mutex-unlock! *ui-mutex*))\n\n;; Called from UI thread on a timer (e.g. every 50ms)\n(def (poll-ui-actions!)\n  (let ((actions []))\n    ;; Snapshot under lock, then execute outside lock\n    (mutex-lock! *ui-mutex*)\n    (let loop ()\n      (unless (queue-empty? *ui-queue*)\n        (set! actions (cons (dequeue! *ui-queue*) actions))\n        (loop)))\n    (mutex-unlock! *ui-mutex*)\n    ;; Execute in reverse order (FIFO)\n    (for-each (lambda (thunk) (thunk)) (reverse actions))))\n\n;; Usage from background thread:\n;; (queue-ui-action! (lambda () (update-status-bar! \"Done\")))\n\n;; Usage from UI timer setup:\n;; (let ((timer (qt-timer-create)))\n;;   (qt-on-timeout! timer poll-ui-actions!)\n;;   (qt-timer-start! timer 50))",
+    "notes": "Key design: snapshot all pending actions under the mutex, then execute them OUTSIDE the lock. This prevents deadlocks if a thunk itself tries to queue another action. The reverse call preserves FIFO ordering since we cons onto the front. Common in Qt/GUI applications where background I/O threads cannot directly manipulate widgets. Timer interval of 50ms gives responsive feel without excessive CPU. Always use unwind-protect around mutex-lock!/unlock! in production code.",
+    "related": [
+      "mutex-unwind-protect-deadlock-prevention",
+      "mutex-minimize-critical-section",
+      "misc-queue-fifo",
+      "spawn-thread"
+    ],
+    "gerbil_version": "v0.18"
+  },
+  {
+    "id": "lsp-content-length-framing-stdio",
+    "title": "Content-Length framed JSON-RPC messages over stdio (LSP transport)",
+    "tags": [
+      "lsp",
+      "json-rpc",
+      "content-length",
+      "stdio",
+      "transport",
+      "protocol",
+      "framing",
+      "header"
+    ],
+    "imports": [
+      ":std/text/json"
+    ],
+    "code": ";; LSP/JSON-RPC transport: Content-Length header + JSON body over stdio\n;; Used by Language Server Protocol, Debug Adapter Protocol, etc.\n\n;; Read headers until empty line, extract Content-Length\n(def (lsp-read-headers port)\n  (let loop ((content-length #f))\n    (let ((line (read-line port)))\n      (cond\n        ((eof-object? line) (values #f))\n        ((or (string=? line \"\") (string=? line \"\\r\"))\n         content-length)\n        (else\n         (let ((cl (and (> (string-length line) 16)\n                        (string-prefix? \"Content-Length: \" line)\n                        (string->number\n                          (string-trim-right\n                            (substring line 16 (string-length line))\n                            (lambda (c) (or (char=? c #\\return)\n                                            (char=? c #\\newline))))))))\n           (loop (or cl content-length))))))))\n\n;; Read one JSON-RPC message from port\n(def (lsp-read-message port)\n  (let ((content-length (lsp-read-headers port)))\n    (and content-length\n         (> content-length 0)\n         (let ((buf (make-string content-length)))\n           (let ((n (read-substring buf 0 content-length port)))\n             (and (= n content-length)\n                  (string->json-object buf)))))))\n\n;; Write one JSON-RPC message to port\n(def (lsp-write-message port msg)\n  (let* ((body (json-object->string msg))\n         (len (string-length body)))\n    (display (string-append \"Content-Length: \" (number->string len) \"\\r\\n\\r\\n\") port)\n    (display body port)\n    (force-output port)))\n\n;; Example: send a JSON-RPC request\n;; (lsp-write-message output-port\n;;   (hash (\"jsonrpc\" \"2.0\") (\"id\" 1)\n;;         (\"method\" \"initialize\")\n;;         (\"params\" (hash (\"capabilities\" (hash))))))\n\n;; Example: read a response\n;; (let ((msg (lsp-read-message input-port)))\n;;   (hash-get msg \"result\"))",
+    "notes": "The Content-Length header value must match the BYTE length of the body. For ASCII JSON this equals string-length, but for UTF-8 with non-ASCII characters you'd need string->bytes length. The \\r\\n line endings are required by the LSP spec. Always call force-output after writing — stdio is buffered. The read side uses read-substring to read exactly content-length characters. For a bidirectional subprocess, use open-process with both stdin-redirection: #t and stdout-redirection: #t, then the single port works for both read and write directions.",
+    "related": [
+      "json-parse",
+      "open-process-stdin-write-read",
+      "write-json-arity-one-parameterize"
+    ],
+    "gerbil_version": "v0.18"
+  },
+  {
+    "id": "box-pattern-mutable-callback-alternative",
+    "title": "Use scheme/box for mutable callback slots to avoid compiler type errors",
+    "tags": [
+      "box",
+      "mutable",
+      "callback",
+      "compiler",
+      "type-error",
+      "set-box!",
+      "unbox",
+      "procedure",
+      "slot"
+    ],
+    "imports": [
+      ":scheme/box"
+    ],
+    "code": ";; Alternative to (void) pattern for mutable callback variables.\n;; Uses :scheme/box (SRFI-111) to wrap the callback.\n;; The variable itself is never called directly, avoiding the compiler\n;; \"illegal application; not a procedure\" error entirely.\n\n;; WRONG — compiler sees #f and rejects (*handler* args...):\n;; (def *handler* #f)\n;; (when *handler* (*handler* x y))\n\n;; CORRECT — box holds the callback, unbox to retrieve:\n(def *handler* (box #f))\n\n;; Set the callback from another module at init time:\n;; (set-box! *handler* (lambda (x y) (do-something x y)))\n\n;; Call the callback safely:\n(def (dispatch-handler x y)\n  (let ((h (unbox *handler*)))\n    (when (procedure? h)\n      (h x y))))\n\n;; This pattern is useful when:\n;; 1. Module A defines the callback slot (exported)\n;; 2. Module B sets it at init time (to break circular imports)\n;; 3. Module A's reader thread dispatches through it\n;;\n;; The box indirection means the compiler never analyzes\n;; the variable as a direct procedure call site.",
+    "notes": "Two approaches exist: (1) Initialize with (void) and use set! — see void-initial-callback-avoids-compiler-type-error. (2) Use (box #f) with unbox/set-box! — this recipe. The box approach is cleaner when the callback is dispatched from code that checks procedure? at call time, since the box value is never in call position. Both work; choose based on style preference. The box approach makes the indirection explicit and works well when multiple callbacks need the same pattern (e.g., LSP client with diagnostics handler + message handler).",
+    "related": [
+      "void-initial-callback-avoids-compiler-type-error",
+      "scheme-box-mutable-container"
+    ],
+    "gerbil_version": "v0.18"
+  },
+  {
+    "id": "scintilla-getline-trailing-newline",
+    "title": "editor-get-line returns trailing newline — use string-trim-both before parsing",
+    "tags": [
+      "scintilla",
+      "editor-get-line",
+      "newline",
+      "string-trim",
+      "string-trim-both",
+      "gotcha",
+      "org-table",
+      "SCI_GETLINE"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla",
+      ":std/srfi/13"
+    ],
+    "code": ";; GOTCHA: editor-get-line (SCI_GETLINE) includes trailing \\n for all lines\n;; except the last line. string-trim only strips LEADING whitespace!\n;;\n;; This causes bugs when:\n;; 1. Checking if a line ends with a specific char (e.g., | for table rows)\n;; 2. Using regex with $ anchor (won't match before \\n)\n;; 3. Splitting by a delimiter (extra empty element after last delimiter)\n\n;; WRONG — trailing \\n breaks regex $ anchor:\n;; (let ((trimmed (string-trim line)))  ;; only strips leading ws!\n;;   (pregexp-match \"^\\\\|[-+]+\\\\|?$\" trimmed))  ;; fails if line has \\n\n\n;; CORRECT — use string-trim-both:\n(let* ((line (editor-get-line ed line-num))\n       (trimmed (string-trim-both line)))\n  ;; Now trimmed has no leading/trailing whitespace or newlines\n  (pregexp-match \"^\\\\|[-+]+\\\\|?$\" trimmed))  ;; works correctly",
+    "notes": "Scintilla's SCI_GETLINE always includes line-ending characters (LF, CRLF). When processing line content, always use string-trim-both from SRFI-13, NOT string-trim (which only trims leading whitespace). This bug caused org-table separator detection to fail and table alignment to create extra empty columns on every alignment pass.",
+    "related": [
+      "srfi-13-string-trim-vs-trim-both"
+    ]
+  },
+  {
+    "id": "qt-sci-send-string-wparam-length",
+    "title": "Qt sci-send/string requires explicit wParam for SCI_REPLACETARGET — default 0 deletes text",
+    "tags": [
+      "scintilla",
+      "sci-send/string",
+      "SCI_REPLACETARGET",
+      "wparam",
+      "string-length",
+      "qt",
+      "gotcha",
+      "delete"
+    ],
+    "imports": [
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; WRONG — default wparam=0 means \"replace with 0 bytes\" = DELETE target region\n;; (sci-send/string ed SCI_REPLACETARGET replacement)\n\n;; CORRECT — pass string length as wparam\n(sci-send/string ed SCI_REPLACETARGET replacement\n                (string-length replacement))\n\n;; For comparison, gerbil-scintilla's send-message/string computes\n;; (string-utf8-length str) automatically. The Qt shim does NOT.\n;; For pure ASCII, string-length == string-utf8-length.\n;; For Unicode, use string-utf8-length for byte-accurate length.",
+    "notes": "The Qt shim sci-send/string (qt/sci-shim.ss) defaults wparam to 0, unlike gerbil-scintilla's send-message/string which auto-computes string-utf8-length. For SCI_REPLACETARGET, Scintilla interprets wParam as the replacement length — 0 means delete. Other affected messages: SCI_APPENDTEXT, SCI_SEARCHINTARGET. Always pass explicit length when using sci-send/string with string-parameter Scintilla messages.",
+    "related": [
+      "scintilla-safe-text-replacement"
+    ]
+  },
+  {
+    "id": "scintilla-replacetarget-clears-manual-styling",
+    "title": "SCI_REPLACETARGET clears manual styling — re-apply with SCI_STARTSTYLING/SCI_SETSTYLING",
+    "tags": [
+      "scintilla",
+      "SCI_REPLACETARGET",
+      "styling",
+      "SCI_STARTSTYLING",
+      "SCI_SETSTYLING",
+      "manual",
+      "org-mode",
+      "highlight"
+    ],
+    "imports": [
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; After SCI_REPLACETARGET, manual styles (non-lexer) are cleared.\n;; Must re-apply styles to the affected region.\n\n;; Replace text in target region\n(sci-send/string ed SCI_REPLACETARGET replacement (string-length replacement))\n\n;; Re-apply manual styling line-by-line\n(let loop ((i start-line))\n  (when (<= i end-line)\n    (let ((ls (sci-send ed SCI_POSITIONFROMLINE i 0))\n          (le (sci-send ed SCI_GETLINEENDPOSITION i)))\n      (sci-send ed SCI_STARTSTYLING ls 0)\n      (sci-send ed SCI_SETSTYLING (- le ls) style-id))\n    (loop (+ i 1))))",
+    "notes": "When using SCI_SETILEXER 0 (no lexer) with manual styling, any text replacement via SCI_REPLACETARGET or SCI_INSERTTEXT resets styles to 0 (default) in the affected region. You must re-apply styles after modification. The second arg to SCI_STARTSTYLING is the style mask (use 0 for Scintilla 5.x). SCI_SETSTYLING takes byte length and style number.",
+    "related": [
+      "qscintilla-raw-lexer-colourise",
+      "qt-sci-send-string-wparam-length"
+    ]
+  },
+  {
+    "id": "scintilla-replace-region-trailing-newline",
+    "title": "SCI_POSITIONFROMLINE(line+1) includes newline — replacement text must preserve it",
+    "tags": [
+      "scintilla",
+      "SCI_POSITIONFROMLINE",
+      "newline",
+      "replace",
+      "region",
+      "trailing",
+      "gotcha",
+      "table"
+    ],
+    "imports": [
+      ":gerbil-scintilla/constants"
+    ],
+    "code": ";; When replacing lines start..end, the region typically extends to start of line end+1:\n;;   start-pos = (send-message ed SCI_POSITIONFROMLINE start)\n;;   end-pos   = (send-message ed SCI_POSITIONFROMLINE (+ end 1))\n;;\n;; This end-pos is AFTER the newline of line `end`, so the replacement region\n;; includes the trailing newline. If your replacement text (e.g. string-join\n;; with \"\\n\") does NOT include a trailing newline, you'll eat the line after.\n\n(let* ((start-pos (editor-position-from-line ed start))\n       (end-pos (if (< (+ end 1) (editor-get-line-count ed))\n                  (editor-position-from-line ed (+ end 1))\n                  (editor-get-text-length ed))))\n  (send-message ed SCI_SETTARGETSTART start-pos)\n  (send-message ed SCI_SETTARGETEND end-pos)\n  ;; Add trailing newline when region extends to next line start\n  (let ((replacement (if (< (+ end 1) (editor-get-line-count ed))\n                       (string-append new-text \"\\n\")\n                       new-text)))\n    (editor-replace-target-text ed replacement)))",
+    "notes": "The classic bug: string-join produces \\\"line1\\\\nline2\\\\nline3\\\" (no trailing newline), but the target region includes the newline after the last line. Without appending \\\"\\\\n\\\", the replacement consumes the blank line or content after the region. Always check whether the region boundary is at end-of-buffer (use editor-get-text-length) vs next-line-start (use editor-position-from-line).",
+    "related": [
+      "scintilla-getline-trailing-newline",
+      "scintilla-safe-text-replacement"
+    ]
+  },
+  {
+    "id": "qt-org-full-buffer-highlight",
+    "title": "Qt org-mode full-buffer highlighting with sci-send (parallel to TUI org-highlight-buffer!)",
+    "tags": [
+      "qt",
+      "org-mode",
+      "highlight",
+      "sci-send",
+      "SCI_STARTSTYLING",
+      "SCI_SETSTYLING",
+      "full-buffer",
+      "manual-styling"
+    ],
+    "imports": [
+      ":std/sugar",
+      ":std/srfi/13",
+      ":std/pregexp",
+      ":gemacs/qt/sci-shim"
+    ],
+    "code": ";; Qt org-mode uses manual styling (SCI_SETILEXER 0, no lexer).\n;; After any text modification (SCI_REPLACETARGET, set-text, insert),\n;; you MUST re-apply styles to the FULL BUFFER, not just the modified region.\n;; Reason: Scintilla resets endStyled to the modification point.\n\n;; Constants (not in Qt sci-shim, define locally)\n(def SCI_STARTSTYLING 2032)\n(def SCI_SETSTYLING   2033)\n\n;; Styling primitives for Qt editors\n(def (qt-org-style-line! ed pos len style)\n  (when (> len 0)\n    (sci-send ed SCI_STARTSTYLING pos 0)\n    (sci-send ed SCI_SETSTYLING len style)))\n\n;; Full-buffer highlight: walk every line, classify, apply style\n(def (qt-org-highlight-buffer! ed text)\n  (let* ((lines (string-split text #\\newline))\n         (total (length lines)))\n    (let loop ((i 0) (pos 0) (state 'normal))\n      (when (< i total)\n        (let* ((line (list-ref lines i))\n               (line-len (string-length line))\n               (next-pos (+ pos line-len 1)))\n          ;; Classify line by state machine (normal/src-block/drawer)\n          ;; and apply appropriate style (heading/table/comment/etc.)\n          ;; ... dispatch to style-line! for each line ...\n          (loop (+ i 1) next-pos state))))))",
+    "notes": "The TUI version uses org-highlight-buffer! with send-message (gerbil-scintilla API). The Qt version needs a parallel function using sci-send (gerbil-qt API). These are incompatible editor types so you can't reuse the TUI function directly. SCI_STARTSTYLING=2032 and SCI_SETSTYLING=2033 are NOT in the Qt sci-shim — define them locally. When importing :gemacs/org-parse for line classifiers (org-heading-line?, org-table-line?, etc.), use only-in to avoid import conflict with :std/srfi/13 on string-prefix-ci?.",
+    "related": [
+      "scintilla-replacetarget-clears-manual-styling",
+      "resolve-import-naming-conflicts",
+      "org-mode-tab-dispatch-pattern"
+    ]
+  },
+  {
+    "id": "scintilla-font-before-styleclearall",
+    "title": "Set Scintilla font on STYLE_DEFAULT BEFORE SCI_STYLECLEARALL so all styles inherit it",
+    "tags": [
+      "scintilla",
+      "qscintilla",
+      "font",
+      "monospace",
+      "STYLECLEARALL",
+      "STYLE_DEFAULT",
+      "gotcha",
+      "alignment"
+    ],
+    "imports": [
+      ":gerbil-scintilla/constants",
+      ":gemacs/qt/sci-shim"
+    ],
+    "code": ";; WRONG — setting font AFTER SCI_STYLECLEARALL has no effect on existing styles:\n;; (sci-send ed SCI_STYLECLEARALL)\n;; (sci-send/string ed SCI_STYLESETFONT \"Monospace\" STYLE_DEFAULT)  ; too late!\n\n;; RIGHT — set font on STYLE_DEFAULT BEFORE SCI_STYLECLEARALL so it propagates:\n(sci-send ed SCI_STYLESETBACK STYLE_DEFAULT (rgb->sci #x1e #x1e #x2e))\n(sci-send ed SCI_STYLESETFORE STYLE_DEFAULT (rgb->sci #xd4 #xd4 #xd4))\n;; Must come BEFORE SCI_STYLECLEARALL:\n(sci-send/string ed SCI_STYLESETFONT \"Monospace\" STYLE_DEFAULT)\n(sci-send ed SCI_STYLESETSIZE STYLE_DEFAULT 11)\n;; SCI_STYLECLEARALL copies STYLE_DEFAULT to all other style slots:\n(sci-send ed SCI_STYLECLEARALL)\n;; Now all styles inherit Monospace — critical for org-table column alignment",
+    "notes": "Scintilla's internal text renderer ignores CSS font-family set on the Qt widget. You MUST use SCI_STYLESETFONT (message 2188) on STYLE_DEFAULT to control the font. Crucially, this must happen BEFORE SCI_STYLECLEARALL (2010), which copies STYLE_DEFAULT to all 256 style slots. If you call SCI_STYLESETFONT after SCI_STYLECLEARALL, only STYLE_DEFAULT is updated — all other numbered styles (like STYLE_LINENUMBER, custom org-mode styles, etc.) keep the default system font. This matters for org-table column alignment: mixed proportional/monospace fonts cause columns to drift even if CSS font-family is set on the parent widget.",
+    "related": [
+      "qt-widget-set-font-arity",
+      "qscintilla-raw-lexer-colourise"
+    ]
   }
 ]
