@@ -89,24 +89,6 @@
     "votes": 0
   },
   {
-    "id": "macro-pattern-detector",
-    "title": "Detect repetitive code patterns that could be replaced with macros",
-    "description": "A tool that analyzes a Gerbil source file and identifies repetitive code patterns that could be replaced with macros. It would detect: (1) repeated function definitions with similar structure (same template, different names/args), (2) repeated method definitions wrapping the same boilerplate, (3) repeated import+export blocks, (4) repeated validation/check patterns, (5) repeated struct accessor patterns. For each detected pattern, it would suggest a macro definition and show the before/after code size.",
-    "impact": "high",
-    "tags": [
-      "macro",
-      "boilerplate",
-      "pattern",
-      "detection",
-      "code-reduction",
-      "static-analysis"
-    ],
-    "use_case": "When Claude generates 50+ lines of repetitive code (like defining 10 similar accessor functions or 20 similar method wrappers), this tool would flag the pattern and suggest a macro that reduces it to 5 lines.",
-    "example_scenario": "File has 15 functions of the form `(def (get-FOO obj) (hash-ref obj \"FOO\"))` with different FOO values. Tool detects the pattern and suggests: `(defrule (def-getter name key) (def (name obj) (hash-ref obj key)))` plus the compact invocations.",
-    "estimated_token_reduction": "~2000-5000 tokens per file with repetitive patterns — eliminates both the repetitive code generation and the review/debugging of that code",
-    "votes": 1
-  },
-  {
     "id": "macro-expansion-size-check",
     "title": "Check macro expansion size to catch accidentally explosive macros",
     "description": "A tool that expands a macro invocation and reports the size (number of forms/tokens) of the expanded code compared to the source. Would flag macros that expand to unexpectedly large code (e.g., a 1-line macro call expanding to 100+ forms). This helps catch: (1) macros that accidentally expand recursively, (2) macros that generate more code than expected, (3) cases where a function would be more appropriate than a macro.",
