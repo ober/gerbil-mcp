@@ -90,24 +90,6 @@
     "votes": 1
   },
   {
-    "id": "qt-exe-thread-pipe-io-warning",
-    "title": "Warn when open-process + background thread pipe I/O is used inside with-qt-app",
-    "description": "Detect static patterns where open-process is used with stdout-redirection: #t and a background thread reads from the pipe inside a with-qt-app or qt-app-create context. Qt's event dispatcher interferes with Gambit's pipe fd readiness mechanism, causing background green threads blocked on read-line/read-u8vector to never be scheduled. This produces silent hangs with no error message.",
-    "impact": "high",
-    "tags": [
-      "qt",
-      "open-process",
-      "thread",
-      "pipe",
-      "hang",
-      "scheduling"
-    ],
-    "use_case": "When writing Qt exe tests or features that spawn subprocesses and read their output via background threads",
-    "example_scenario": "lsp-functional-test.ss spawns gerbil-lsp via open-process and starts a reader thread. The thread blocks forever on read-line inside a with-qt-app context. gerbil-lsp responds in 5ms (confirmed from gxi), but the Qt exe reader thread never wakes. 20s timeout fires and LSP init test fails. This burned many hours of debugging across multiple sessions.",
-    "estimated_token_reduction": "Saves ~3000+ tokens of debugging per encounter; eliminates the multi-session investigation cycle",
-    "votes": 0
-  },
-  {
     "id": "dispatch-sequence-coverage-analysis",
     "title": "Detect test coverage gaps for command dispatch sequences",
     "description": "A tool that analyzes functional test files to detect coverage gaps for multi-command interaction sequences. Many bugs only appear when commands are chained in specific orders (e.g. split → other-window → split), but tests often only exercise commands in isolation. The tool would: (1) extract all execute-command! call sequences from test files, (2) identify which commands are tested alone vs which are tested in combination with other commands, (3) suggest missing interaction sequences based on common patterns (e.g. if split-right and other-window are both tested, but never sequenced together), (4) optionally analyze the source code to detect state-dependent dispatch logic that would benefit from sequence testing.",
