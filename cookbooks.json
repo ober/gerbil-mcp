@@ -11759,5 +11759,241 @@
     ],
     "code": ";; BAD — single with-catch wraps ALL groups.\n;; If Group 9 crashes, Group 10 never runs. The crash is reported but\n;; you lose all subsequent test results, making failures hard to diagnose.\n(with-catch\n  (lambda (e) (displayln \"ERROR: \" e))\n  (lambda ()\n    (run-group-1!)\n    (run-group-9!)     ; crash here...\n    (run-group-10!)))  ; ...means this never runs\n\n;; GOOD — per-group isolation: each group gets its own catch.\n;; A crash in one group increments *failures* and prints the error,\n;; but all remaining groups still run.\n(def *passes* 0)\n(def *failures* 0)\n\n(def (run-group! name thunk)\n  (with-catch\n    (lambda (e)\n      (set! *failures* (+ *failures* 1))\n      (displayln \"  CRASH in \" name \": \" e)\n      (force-output (current-output-port)))\n    thunk))\n\n(run-group! \"Group 1\" run-group-1!)\n(run-group! \"Group 9\" run-group-9!)\n(run-group! \"Group 10\" run-group-10!)\n\n;; Report totals\n(displayln \"Results: \" *passes* \" passed, \" *failures* \" failed\")",
     "notes": "This pattern is especially important for compiled exe functional tests where test groups have independent setup (different Qt widgets, different buffer states). A crash in group N shouldn't prevent groups N+1..M from producing useful diagnostic information. The `run-group!` helper counts a crash as one failure, ensuring the exit code is non-zero even when the crash swallows individual check-true!/check! calls that would have incremented *failures*."
+  },
+  {
+    "id": "qt-splitter-add-widget-async-reparenting",
+    "title": "Qt splitter reparents widgets asynchronously - don't destroy old parent immediately",
+    "tags": [
+      "qt",
+      "splitter",
+      "widget",
+      "parent",
+      "reparent",
+      "async",
+      "destroy",
+      "crash",
+      "lifecycle"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": "(import :gerbil-qt/qt)\n\n;; BAD — crashes because old parent is destroyed before Qt finishes reparenting\n(def (make-frame-bad)\n  (let* ((parent1 (qt-widget-create))\n         (splitter1 (qt-splitter-create QT_VERTICAL parent: parent1))\n         (parent2 (qt-widget-create))\n         (splitter2 (qt-splitter-create QT_HORIZONTAL parent: parent2)))\n    ;; Add splitter2 to splitter1 — Qt starts async reparent\n    (qt-splitter-add-widget! splitter1 splitter2)\n    ;; CRASH: parent2 destroyed while Qt event loop still updating parent/child links\n    (qt-widget-destroy! parent2)\n    splitter1))\n\n;; GOOD — let Qt's event loop complete reparenting before cleanup\n(def (make-frame-good)\n  (let* ((parent1 (qt-widget-create))\n         (splitter1 (qt-splitter-create QT_VERTICAL parent: parent1))\n         (parent2 (qt-widget-create))\n         (splitter2 (qt-splitter-create QT_HORIZONTAL parent: parent2)))\n    (qt-splitter-add-widget! splitter1 splitter2)\n    ;; Don't destroy parent2 — either leak it (tests) or track for later cleanup\n    ;; after ensuring Qt has processed the reparent event\n    splitter1))\n\n;; For production code: track old parents and clean up later via timer or explicit flush\n;; For test code: leak the old parents (they're destroyed when test process exits)",
+    "notes": "qt-splitter-add-widget! doesn't immediately update Qt's parent/child relationships — it posts an event to Qt's event loop. Destroying the old parent widget before Qt processes this event causes use-after-free crashes (segfaults). This is especially common in headless Qt tests where widget creation/destruction happens rapidly without a running event loop. Solution: either leak old parents in tests, or in production code, defer cleanup until after qt-application-process-events! or a timer callback."
+  },
+  {
+    "id": "qt-test-frame-leak-parent-workaround",
+    "title": "Qt test frame setup pattern - leak parent widgets to avoid reparenting crashes",
+    "tags": [
+      "qt",
+      "test",
+      "widget",
+      "parent",
+      "leak",
+      "workaround",
+      "headless",
+      "functional-test"
+    ],
+    "imports": [
+      ":gerbil-qt/qt",
+      ":gemacs/qt/window"
+    ],
+    "code": "(import :gerbil-qt/qt :gemacs/qt/window)\n\n;; Pattern for creating Qt test frames that survive multiple split operations\n;; without crashing. Used in qt-functional-test.ss.\n\n(def (make-qt-split-test-frame!)\n  \"Create a real Qt frame for split testing. Must be inside with-qt-app.\n   Leaks parent widgets to avoid crashes from async reparenting.\"\n  (let* ((parent (qt-widget-create))  ;; Create fresh parent each time\n         (splitter (qt-splitter-create QT_VERTICAL parent: parent))\n         (fr (qt-frame-init! #f splitter))\n         (app (new-app-state fr)))\n    ;; NOTE: We do NOT call (qt-widget-destroy! parent) here.\n    ;; When qt-frame-do-split! creates nested splitters and adds them via\n    ;; qt-splitter-add-widget!, Qt reparents widgets asynchronously.\n    ;; Destroying the old parent before Qt processes the reparent event\n    ;; causes segfaults. Solution: leak the parent widgets in tests.\n    ;; They'll be cleaned up when the test process exits.\n    (values fr app)))\n\n;; Usage in tests:\n(def group-10-tests\n  (test-suite \"test Group 10 — Qt Window Splits (Split Tree)\"\n    (test-case \"basic split-right\"\n      (with-qt-app\n        (lambda ()\n          (let-values (((fr app) (make-qt-split-test-frame!)))\n            (cmd-split-window-right! app)\n            (check-equal! (length (qt-frame-windows fr)) 2)))))))",
+    "notes": "This pattern is specific to functional tests where we rapidly create/destroy/reparent Qt widgets without a fully running event loop. The parent widgets are deliberately leaked to avoid crashes. In production gemacs-qt, parent widgets have longer lifetimes and are managed by Qt's parent/child hierarchy, so this workaround isn't needed. Key insight: qt-splitter-add-widget! is async, so old parents can't be destroyed immediately."
+  },
+  {
+    "id": "winner-mode-split-tree-undo-insight",
+    "title": "Winner mode undo for split trees - delete-last-N windows naturally restores structure",
+    "tags": [
+      "winner",
+      "undo",
+      "split",
+      "tree",
+      "restore",
+      "delete",
+      "window-management"
+    ],
+    "imports": [
+      ":gemacs/qt/window"
+    ],
+    "code": "(import :gemacs/qt/window)\n\n;; INSIGHT: Winner mode undo doesn't need to reconstruct the split tree explicitly.\n;; The tree is restored automatically via qt-frame-delete-window!'s unwrap logic.\n\n;; How it works:\n;; 1. Splits always append new windows to the END of the flat window list\n;; 2. Winner snapshot stores (tree-sexp . buffer-name) and the window count\n;; 3. Undo = delete the last N windows where N = (current-count - snapshot-count)\n;; 4. qt-frame-delete-window! automatically unwraps single-child nodes\n;; 5. Result: tree structure is restored\n\n;; Example:\n;; Start: A (1 window)\n;; split-right → A|B (2 windows, B is last)\n;; split-below in B → A|(B/C) (3 windows, C is last)\n;; Winner undo: delete windows #2 and #1 (C then B)\n;;   - delete C: parent node (B/C) unwraps to just B\n;;   - delete B: root node (A|B) unwraps to just A\n;; Result: back to A\n\n;; The code:\n(def (winner-undo! app)\n  (unless (null? *winner-history*)\n    (let* ((fr (app-state-frame app))\n           (cur-count (length (qt-frame-windows fr)))\n           (snapshot (car *winner-history*))\n           (snapshot-count (winner-count-leaves (car snapshot))))\n      ;; Delete the newest windows (at end of list) until we match snapshot count\n      (let loop ((count cur-count))\n        (when (> count snapshot-count)\n          ;; Always delete the last window in the list\n          (set! (qt-frame-current-idx fr) (- count 1))\n          (qt-frame-delete-window! fr)\n          (loop (- count 1)))))))\n\n(def (winner-count-leaves sexp)\n  \"Count leaf nodes in tree s-expression.\"\n  (cond\n    ((and (pair? sexp) (eq? (car sexp) 'leaf)) 1)\n    ((and (pair? sexp) (memq (car sexp) '(h-split v-split)))\n     (apply + (map winner-count-leaves (cdr sexp))))\n    (else 0)))",
+    "notes": "This is a key architectural insight for implementing winner-mode in a split-tree system. You don't need to explicitly reconstruct the tree from the s-expression snapshot — just delete the windows that were added since the snapshot. The delete logic's automatic node unwrapping (when a node has only one child after deletion, replace the node with that child) does the rest. This works because splits are always additive (append to end) and symmetric (undo = remove from end)."
+  },
+  {
+    "id": "defstruct-transparent-constructor-arity",
+    "title": "defstruct with transparent: #t - constructor takes all fields as positional args",
+    "tags": [
+      "defstruct",
+      "transparent",
+      "constructor",
+      "arity",
+      "struct",
+      "make-",
+      "positional"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; defstruct with transparent: #t generates a constructor (make-NAME ...)\n;; that takes ALL fields as positional arguments, in declaration order.\n\n(defstruct split-leaf (edit-window) transparent: #t)\n;; Generated: (make-split-leaf edit-window)\n\n(defstruct split-node (orientation splitter children) transparent: #t)\n;; Generated: (make-split-node orientation splitter children)\n\n(defstruct qt-frame\n  (splitter root windows current-idx main-win)\n  transparent: #t)\n;; Generated: (make-qt-frame splitter root windows current-idx main-win)\n;; Takes FIVE positional arguments, not four!\n\n;; GOTCHA: When you add a field to a transparent struct, ALL call sites break\n;; with \"illegal struct constructor application; arity mismatch\"\n\n;; Before adding 'root' field (4 fields):\n(make-qt-frame #f (list win) 0 #f)  ;; OK\n\n;; After adding 'root' field (5 fields):\n(make-qt-frame #f (list win) 0 #f)  ;; CRASHES - arity mismatch\n\n;; Fix:\n(make-qt-frame #f (make-split-leaf win) (list win) 0 #f)  ;; OK\n\n;; NON-transparent structs use keyword args (more resilient to schema changes):\n(defstruct config (host port timeout))\n(make-config host: \"localhost\" port: 8080 timeout: 30)  ;; order doesn't matter\n\n;; Use transparent: #t for performance-critical internal types where you control\n;; all call sites. Use keyword constructors for public APIs and config structs.",
+    "notes": "The arity mismatch error is compile-time for interpreted code but can be runtime for compiled code if the struct definition and call sites are in different modules. Always check gerbil_function_signature for make-* constructors after modifying struct fields. The transparent flag also affects pattern matching (allows matching as a list) and equality (uses equal? on fields instead of eq? on identity)."
+  },
+  {
+    "id": "tree-flat-list-sync",
+    "title": "Maintain flat list in sync with tree structure via rebuild",
+    "tags": [
+      "tree",
+      "flatten",
+      "depth-first",
+      "sync",
+      "list",
+      "consistency",
+      "split-tree"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Maintaining both a hierarchical tree and a flat ordered list of its leaves.\n;; WRONG: Appending to the flat list when adding to tree breaks depth-first order.\n\n;; Example: Split tree for window management\n(defstruct split-leaf (window))\n(defstruct split-node (orientation children))\n\n;; WRONG APPROACH - appending breaks order:\n(def (bad-split! tree current-window new-window)\n  ;; Modify tree...\n  (set! tree (make-split-node 'horizontal (list current-window new-window)))\n  ;; BUG: Just append to flat list (wrong order after nested splits!)\n  (set! windows (append windows (list new-window))))\n\n;; CORRECT APPROACH - rebuild from tree after every modification:\n(def (split-tree-flatten node)\n  \"Rebuild flat list via depth-first traversal.\"\n  (cond\n    ((split-leaf? node) [(split-leaf-window node)])\n    ((split-node? node)\n     (apply append (map split-tree-flatten (split-node-children node))))))\n\n(def (good-split! tree-root current-window new-window)\n  ;; 1. Modify the tree structure\n  (let ((new-node (make-split-node 'horizontal \n                                   (list (make-split-leaf current-window)\n                                         (make-split-leaf new-window)))))\n    (set! tree-root new-node))\n  \n  ;; 2. ALWAYS rebuild flat list from tree to maintain depth-first order\n  (set! windows (split-tree-flatten tree-root))\n  \n  ;; 3. Find new element's index in the rebuilt list\n  (let ((new-idx (list-index (lambda (w) (eq? w new-window)) windows)))\n    (set! current-idx new-idx)))\n\n;; WHY THIS MATTERS:\n;; Scenario: horizontal[A, B], split B vertically → horizontal[A, vertical[B, C]]\n;; - Append approach: windows = [A, B, C] (WRONG - C is after B, not nested)\n;; - Rebuild approach: windows = [A, B, C] but rebuilding from nested tree gives correct semantics\n;; Actually, depth-first of horizontal[A, vertical[B, C]] = [A, B, C] BUT:\n;; If we split A instead: horizontal[vertical[A, A2], B]\n;; - Append: [A, B, A2] (WRONG)\n;; - Depth-first: [A, A2, B] (CORRECT)",
+    "notes": "Key insight: Don't maintain the flat list incrementally. Derive it from the tree after every modification. This ensures the flat list always reflects the tree's actual depth-first traversal order. Used in qt/window.ss for window split tree management. The cost of rebuilding is O(n) but n is small (typically &lt; 10 windows) and correctness is critical.",
+    "related": [
+      "winner-mode-split-tree-undo-insight"
+    ]
+  },
+  {
+    "id": "list-index-predicate",
+    "title": "Find index of first element matching predicate",
+    "tags": [
+      "list",
+      "index",
+      "find",
+      "predicate",
+      "search",
+      "position"
+    ],
+    "imports": [],
+    "code": ";; Find the index (0-based) of the first element matching a predicate.\n;; Returns #f if no match.\n\n(def (list-index pred lst)\n  \"Find the index of the first element matching pred, or #f.\"\n  (let loop ((l lst) (i 0))\n    (cond\n      ((null? l) #f)\n      ((pred (car l)) i)\n      (else (loop (cdr l) (+ i 1))))))\n\n;; Usage examples:\n\n;; Find index of a specific value\n(list-index (lambda (x) (eq? x 'foo)) '(a b foo c))\n;; => 2\n\n;; Find index of first even number\n(list-index even? '(1 3 6 7))\n;; => 2\n\n;; Find window's index after tree flattening\n(let ((windows (split-tree-flatten tree)))\n  (list-index (lambda (w) (eq? w new-window)) windows))\n\n;; Not found returns #f\n(list-index (lambda (x) (> x 100)) '(1 2 3))\n;; => #f\n\n;; Use with (or idx default) for fallback\n(let ((idx (list-index pred lst)))\n  (or idx 0))  ; Defaults to 0 if not found",
+    "notes": "Standard utility function for finding element positions. Similar to SRFI-1 list-index. Gerbil's :std/iter has (index-of lst val =) for value equality, but this provides predicate-based search. Time complexity: O(n). Returns #f instead of raising an error when element is not found, allowing (or idx default) pattern for fallbacks."
+  },
+  {
+    "id": "ffi-pointer-void-eq-comparison",
+    "title": "FFI (pointer void) values cannot be compared with eq? — use indexOf or address",
+    "tags": [
+      "ffi",
+      "pointer",
+      "eq",
+      "comparison",
+      "void",
+      "c-lambda",
+      "identity",
+      "equal"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; WRONG — each c-lambda call returning (pointer void) creates a new Scheme box.\n;; Two boxes wrapping the same C pointer are NOT eq?\n;; (eq? (get-widget-at splitter 0) my-widget)  ; => #f even if same C pointer!\n\n;; CORRECT approaches:\n\n;; 1. Use an indexOf-style FFI function to check position\n;; (define-c-lambda widget_index_of ((pointer void) (pointer void)) int \"widget_index_of\")\n;; (= (widget_index_of container widget) expected-index)\n\n;; 2. Or compare pointer addresses via ##foreign-address (Gambit internal)\n;; (= (##foreign-address ptr1) (##foreign-address ptr2))\n\n;; 3. Or maintain a Scheme-side hash table mapping widgets to identifiers\n;; (hash-put! *widget-map* widget-id widget-ptr)\n;; (eq? (hash-get *widget-map* widget-id) stored-ptr)  ; works because same box",
+    "notes": "Each call to a c-lambda that returns (pointer void) allocates a fresh Scheme foreign object box. Even if the underlying C pointer address is identical, the Scheme boxes are different objects, so eq? returns #f. This is a common trap when writing tests that verify FFI widget hierarchies — e.g. checking if a QSplitter contains a specific widget. Use indexOf-style C functions or compare numeric addresses instead."
+  },
+  {
+    "id": "begin-ffi-export-list-required",
+    "title": "begin-ffi requires listing all c-lambda names in its export list",
+    "tags": [
+      "begin-ffi",
+      "export",
+      "c-lambda",
+      "unbound",
+      "ffi",
+      "define-c-lambda"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; WRONG — c-lambda defined inside begin-ffi but NOT listed in its export list:\n;; (begin-ffi (existing_func)   ; <-- my_new_func missing here!\n;;   (define-c-lambda existing_func (...) ...)\n;;   (define-c-lambda my_new_func (...) ...))  ; => \"unbound identifier\" in importing module\n\n;; CORRECT — ALL c-lambda names must appear in the begin-ffi export list:\n(begin-ffi (existing_func my_new_func)  ; <-- add it here\n  (define-c-lambda existing_func ((pointer void)) int \"existing_func\")\n  (define-c-lambda my_new_func ((pointer void) int) (pointer void) \"my_new_func\"))",
+    "notes": "When adding new c-lambda declarations inside a begin-ffi block, you MUST also add the function name to the parenthesized export list at the top of the begin-ffi form. Otherwise the symbol will be unbound in any module that imports the FFI module. The error message is 'Syntax Error: Reference to unbound identifier' pointing at the calling module, NOT the defining module, which makes it confusing. This applies to begin-ffi only — (export #t) in the module handles the outer module export, but begin-ffi has its own internal export list that gates which c-lambda bindings are visible."
+  },
+  {
+    "id": "qt-splitter-insert-widget-positioning",
+    "title": "QSplitter: use insertWidget for precise positioning, not addWidget or parent:",
+    "tags": [
+      "qt",
+      "splitter",
+      "insertWidget",
+      "addWidget",
+      "parent",
+      "position",
+      "ordering",
+      "widget"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; WRONG — creating a QSplitter with parent: relies on Qt's childEvent ordering\n;; which may not place the widget at the expected index:\n;; (qt-splitter-create QT_HORIZONTAL parent: parent-spl)  ; appended at END\n\n;; WRONG — addWidget always appends to end:\n;; (qt-splitter-add-widget! parent-spl new-spl)  ; goes to last index\n\n;; CORRECT — save position, create without parent, insert at exact index:\n(let* ((cur-idx (qt-splitter-index-of parent-spl cur-widget))\n       (new-spl (qt-splitter-create QT_HORIZONTAL)))  ; no parent: arg\n  ;; Move cur-widget into new-spl\n  (qt-splitter-add-widget! new-spl cur-widget)\n  ;; Insert new-spl at the exact position cur-widget occupied\n  (qt-splitter-insert-widget! parent-spl cur-idx new-spl))",
+    "notes": "When nesting QSplitters (e.g. to create mixed h/v splits), the new sub-splitter must occupy the exact position of the widget it replaces. Using `parent:` on qt-splitter-create or qt-splitter-add-widget! appends to the end, which puts the nested splitter at the wrong position. Always: (1) save the index with qt-splitter-index-of, (2) create without parent, (3) reparent the original widget into the new splitter, (4) insert the new splitter at the saved index with qt-splitter-insert-widget!. These three FFI functions (index-of, insert-widget!, widget) were added to gerbil-qt in Feb 2026."
+  },
+  {
+    "id": "build-ss-add-module-for-exe-linking",
+    "title": "Add new module to build.ss defbuild-script for exe linking",
+    "tags": [
+      "build.ss",
+      "defbuild-script",
+      "exe",
+      "static",
+      "module",
+      "linking",
+      "dependency-order"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": ";; When adding a new module that will be imported by exe targets,\n;; it MUST be listed in the defbuild-script module list.\n;; Otherwise, the exe linker will fail with:\n;;   \"cannot find static module ... gemacs__mymodule.scm\"\n;;\n;; The exe linker requires static .scm files in .gerbil/lib/static/\n;; which are only generated for modules listed in defbuild-script.\n\n(import :std/build-script)\n\n;; BEFORE: core.ss imports face.ss, but face not in build.ss\n;; (defbuild-script\n;;   `(\"core\"        ;; imports :gemacs/face\n;;     \"persist\"\n;;     ...\n;;     (exe: \"main\" bin: \"gemacs\" ...)))\n;;\n;; Result: exe linking fails - no gemacs__face.scm generated\n\n;; CORRECT: Add face BEFORE core (dependency order matters)\n(defbuild-script\n  `(\"face\"         ;; NEW module - no dependencies\n    \"core\"         ;; imports :gemacs/face\n    \"persist\"\n    ...\n    (exe: \"main\" bin: \"gemacs\" ...)))\n\n;; Module order rules:\n;; 1. List modules in dependency order (dependencies before dependents)\n;; 2. If A imports B, then B must appear before A in the list\n;; 3. Shared/core modules with no dependencies go first\n;; 4. All modules imported by exe targets must be listed\n;; 5. gxc: targets (FFI modules) can use gxc: form for cc/ld-options",
+    "notes": "Critical for exe targets: only modules in defbuild-script generate static .scm files needed for exe linking. If you add a new module and exe linking fails with \"cannot find static module\", check that the module is listed in defbuild-script. The error happens at link-time, not compile-time, which can be confusing. Module order must respect dependencies - if unsure, put the new module early in the list (before modules that import it)."
+  },
+  {
+    "id": "module-constant-to-function-dynamic",
+    "title": "Convert module-level constant to function for dynamic value generation",
+    "tags": [
+      "constant",
+      "function",
+      "dynamic",
+      "module",
+      "stylesheet",
+      "string",
+      "Qt",
+      "configuration"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; PROBLEM: Module-level constants are evaluated once at load time.\n;; If the constant depends on other values that change at runtime,\n;; the constant becomes stale.\n\n;; BEFORE: Hardcoded constant (cannot change at runtime)\n(def *mb-style*\n  \"QWidget { background: #1e1e1e; border-top: 1px solid #484848; }\n   QLabel { color: #b0b0b0; font-family: monospace; font-size: 10pt; }\")\n\n;; Usage:\n(qt-widget-set-style-sheet! container *mb-style*)\n;; Problem: If default font changes, the stylesheet doesn't update\n\n;; AFTER: Convert constant to function (generates fresh value each call)\n(def (mb-style)\n  \"Generate minibuffer Qt stylesheet with current font settings.\"\n  (let ((font-css (string-append \" font-family: \" *default-font-family*\n                                 \"; font-size: \" (number->string *default-font-size*) \"pt;\")))\n    (string-append\n      \"QWidget { background: #1e1e1e; border-top: 1px solid #484848; }\\n\"\n      \"   QLabel { color: #b0b0b0; background: transparent;\" font-css \" }\")))\n\n;; Usage: Call the function to get current value\n(qt-widget-set-style-sheet! container (mb-style))\n;; Benefit: Reads current *default-font-family* and *default-font-size* each time\n\n;; Pattern: Works for any module-level constant that should be dynamic\n;; Common use cases:\n;; - Qt stylesheets that depend on theme/font settings\n;; - Format strings that include runtime configuration\n;; - Paths that depend on environment variables\n;; - Configuration strings built from user preferences",
+    "notes": "This pattern is essential when you need \"constants\" that actually depend on runtime state. The tradeoff is slightly more overhead per call (function call + string operations), but it ensures correctness when underlying values change. For Qt stylesheets, this is negligible because stylesheet application is infrequent (theme changes, window creation). Alternative: use a parameter object, but the function pattern is simpler and more idiomatic in Gerbil."
+  },
+  {
+    "id": "plugin-directory-discovery-eval",
+    "title": "Discover and load plugins from directory",
+    "tags": [
+      "plugin",
+      "theme",
+      "extension",
+      "directory",
+      "discover",
+      "eval",
+      "load"
+    ],
+    "imports": [],
+    "code": ";; Pattern: Discover .ss plugin files in a directory and eval-load them\n;; (no imports needed — directory-files and file I/O are Gambit builtins)\n\n;; 1. Discover plugins in ~/.myapp-plugins/*.ss\n(def (discover-plugins plugin-dir)\n  \"Scan PLUGIN-DIR/*.ss for plugin files. Returns list of plugin names (symbols).\"\n  (with-catch\n    (lambda (e) [])  ;; Return empty list on error (dir doesn't exist, etc.)\n    (lambda ()\n      (if (file-exists? plugin-dir)\n        (let* ((files (directory-files plugin-dir))\n               ;; Filter for .ss files, exclude dotfiles\n               (plugin-files (filter (lambda (f)\n                                       (and (string-suffix? \".ss\" f)\n                                            (not (string-prefix? \".\" f))))\n                                     files)))\n          ;; Convert \"my-plugin.ss\" -> 'my-plugin\n          (map (lambda (f)\n                 (string->symbol (substring f 0 (- (string-length f) 3))))\n               plugin-files))\n        []))))\n\n;; 2. Load a plugin file by evaluating its contents\n(def (load-plugin-file! plugin-name plugin-dir)\n  \"Load PLUGIN-DIR/PLUGIN-NAME.ss by reading and eval'ing its forms.\n   Returns #t on success, #f on failure.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let ((plugin-path (path-expand (string-append (symbol->string plugin-name) \".ss\")\n                                      plugin-dir)))\n        (when (file-exists? plugin-path)\n          ;; Read entire file as string\n          (let ((text (call-with-input-file plugin-path\n                        (lambda (port) (read-line port #f)))))  ;; #f = read entire file\n            (when text\n              ;; Open string as port and eval each form\n              (let ((port (open-input-string text)))\n                (let loop ()\n                  (let ((form (read port)))\n                    (unless (eof-object? form)\n                      (eval form)  ;; Eval in current environment\n                      (loop))))\n                #t))))))))\n\n;; Usage example:\n(def *plugin-dir* (path-expand \".myapp-plugins\" (getenv \"HOME\" \".\")))\n\n;; Discover all plugins\n(def available-plugins (discover-plugins *plugin-dir*))\n;; => ('my-plugin 'another-plugin ...)\n\n;; Load a specific plugin\n(load-plugin-file! 'my-plugin *plugin-dir*)\n;; => #t (success) or #f (failure)\n\n;; Typical plugin file format (~/.myapp-plugins/my-plugin.ss):\n;;   (def (my-plugin-init) ...)\n;;   (register-plugin! 'my-plugin my-plugin-init)\n",
+    "notes": "Use with-catch for both discovery and loading to handle missing directories and malformed files gracefully. The eval call executes in the current environment, so plugins can call any functions/macros available at load time. For security-sensitive apps, consider sandboxing or validating plugin files before eval. This pattern is used by gemacs for theme loading from ~/.gemacs-themes/."
+  },
+  {
+    "id": "hash-table-tab-separated-persistence",
+    "title": "Save and load hash tables as tab-separated files",
+    "tags": [
+      "hash-table",
+      "persist",
+      "save",
+      "load",
+      "file",
+      "tab-separated",
+      "tsv"
+    ],
+    "imports": [
+      ":std/srfi/13"
+    ],
+    "code": ";; Pattern: Persist hash table to tab-separated file (one row per key)\n\n;; Save hash table to tab-separated file\n(def (save-hash-to-tsv! ht file-path)\n  \"Save hash table HT to FILE-PATH as tab-separated rows.\n   Format: key TAB value1 TAB value2 ...\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (call-with-output-file file-path\n        (lambda (port)\n          (hash-for-each\n            (lambda (key val)\n              ;; Build row: key TAB val1 TAB val2 ...\n              (let ((row (string-append (symbol->string key) \"\\t\" val)))\n                (displayln row port)))\n            ht))\n        #t))))\n\n;; Load hash table from tab-separated file\n(def (load-hash-from-tsv file-path)\n  \"Load hash table from FILE-PATH (tab-separated format).\n   Returns hash table or #f on error.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (if (file-exists? file-path)\n        (let ((ht (make-hash-table-eq)))\n          (call-with-input-file file-path\n            (lambda (port)\n              (let loop ()\n                (let ((line (read-line port)))\n                  (unless (eof-object? line)\n                    ;; Split on tab\n                    (let* ((parts (string-split line #\\tab))\n                           (key (and (pair? parts) (string->symbol (car parts))))\n                           (vals (cdr parts)))\n                      (when key\n                        ;; Reconstruct value from remaining fields\n                        (hash-put! ht key vals))\n                      (loop)))))))\n          ht)\n        #f))))\n\n;; Example with structured values:\n(def (save-custom-faces! faces-ht file-path)\n  \"Save faces hash table with structured values.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (call-with-output-file file-path\n        (lambda (port)\n          (hash-for-each\n            (lambda (face-name customizations)\n              (let ((line (string-append (symbol->string face-name))))\n                ;; Add each customization as key:value\n                (when (hash-key? customizations 'fg)\n                  (set! line (string-append line \"\\tfg:\" (hash-get customizations 'fg))))\n                (when (hash-key? customizations 'bold)\n                  (set! line (string-append line \"\\tbold:\"\n                                            (if (hash-get customizations 'bold) \"true\" \"false\"))))\n                (displayln line port)))\n            faces-ht)))\n      #t)))\n\n;; Load with structured parsing:\n(def (load-custom-faces! file-path)\n  \"Load faces hash table with structured values.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let ((ht (make-hash-table-eq)))\n        (when (file-exists? file-path)\n          (call-with-input-file file-path\n            (lambda (port)\n              (let loop ()\n                (let ((line (read-line port)))\n                  (unless (eof-object? line)\n                    (let* ((parts (string-split line #\\tab))\n                           (face-name (and (pair? parts) (string->symbol (car parts)))))\n                      (when face-name\n                        (let ((customizations (make-hash-table-eq)))\n                          ;; Parse key:value pairs\n                          (for-each\n                            (lambda (attr-str)\n                              (let ((colon-idx (string-index attr-str #\\:)))\n                                (when colon-idx\n                                  (let ((key (string->symbol (substring attr-str 0 colon-idx)))\n                                        (val (substring attr-str (+ colon-idx 1) (string-length attr-str))))\n                                    (hash-put! customizations key val)))))\n                            (cdr parts))\n                          (hash-put! ht face-name customizations)))\n                      (loop))))))))\n        ht))))\n",
+    "notes": "Tab-separated format is simple and human-readable. Use hash-for-each to iterate hash tables. For complex values, encode them as key:value pairs in additional columns. Always use with-catch for file I/O. Use call-with-output-file and call-with-input-file for automatic port cleanup. This pattern is used by gemacs for custom face persistence."
   }
 ]

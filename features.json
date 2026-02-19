@@ -15,7 +15,7 @@
     "use_case": "When a single test case fails and you need to understand intermediate values (cursor positions, parsed data, function return values) to diagnose the root cause without modifying the test file.",
     "example_scenario": "Test 'org-table: TAB skips separator rows' fails with cursor on line 0 instead of 2. Need to check: what does org-table-find-bounds return? What does org-table-next-data-line return? Where is the cursor after org-table-align? Currently requires adding 8 displayln statements, rebuilding (which takes time since gerbil test recompiles), running, grepping output, then cleaning up. With this feature: gerbil_run_tests with filter='TAB skips separator' and verbose=true would capture all output from that single test case.",
     "estimated_token_reduction": "~1500 tokens per debug iteration — eliminates edit-rebuild-grep-cleanup cycle, typically 3-4 iterations per failing test = ~5000 tokens saved",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "pre-signature-change-impact",
@@ -51,7 +51,7 @@
     "use_case": "When an FFI module's C code has errors — wrong argument count, type mismatches, undeclared identifiers — the structured build report gives no actionable information and forces a raw `gerbil build 2>&1` fallback to see the actual C error lines.",
     "example_scenario": "pcre2_match_8 called with 6 args instead of 7. gerbil_build_and_report reported: 'target compilation or link failed while compiling libpcre2~0.scm' and a ProcessError. Had to run `gerbil build 2>&1` directly to see 'error: too few arguments to function pcre2_match_8'. Required one extra bash invocation to diagnose a straightforward C arity error.",
     "estimated_token_reduction": "~400 tokens per FFI build failure — eliminates the raw bash fallback invocation and its large output that must be manually scanned",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "test-assertion-audit",
@@ -161,6 +161,43 @@
     "use_case": "When writing protocol implementations that mix text headers with binary bodies on the same port — LSP JSON-RPC, HTTP, or any Content-Length framed protocol.",
     "example_scenario": "lsp-client.ss read headers with read-line (char I/O) then read body with read-subu8vector (byte I/O) on the same process port. This crashed with nonempty-input-port-character-buffer-exception inside a background thread. The with-catch handler swallowed the exception silently, making the thread appear stuck. A lint rule detecting read-subu8vector and read-line on the same port variable would have caught this immediately.",
     "estimated_token_reduction": "~5000+ tokens — this bug took multiple sessions to diagnose; a lint warning would catch it at code review time",
+    "votes": 0
+  },
+  {
+    "id": "dispatch-sequence-coverage-analysis",
+    "title": "Detect test coverage gaps for command dispatch sequences",
+    "description": "A tool that analyzes functional test files to detect coverage gaps for multi-command interaction sequences. Many bugs only appear when commands are chained in specific orders (e.g. split → other-window → split), but tests often only exercise commands in isolation. The tool would: (1) extract all execute-command! call sequences from test files, (2) identify which commands are tested alone vs which are tested in combination with other commands, (3) suggest missing interaction sequences based on common patterns (e.g. if split-right and other-window are both tested, but never sequenced together), (4) optionally analyze the source code to detect state-dependent dispatch logic that would benefit from sequence testing.",
+    "impact": "high",
+    "tags": [
+      "test",
+      "coverage",
+      "dispatch",
+      "sequence",
+      "interaction",
+      "functional-test",
+      "command-chain"
+    ],
+    "use_case": "When maintaining functional test suites for command-driven applications (editors, REPLs, UIs). Helps identify scenarios where individual commands work but their combinations fail due to state management bugs.",
+    "example_scenario": "gemacs window split bug: tests exercised split-right and split-below individually, and tested other-window in simple cases, but never tested split → other-window → split sequences. The bug (flat window list not being rebuilt from tree after nested split) passed all 119 existing tests but broke on the first real user interaction. Had to manually analyze the code to realize what sequence wasn't being tested, then add 4 new tests for split navigation scenarios. A sequence coverage tool would have flagged: 'split-right tested in 3 cases, other-window tested in 2 cases, but never sequenced together — suggest testing split + navigation + split patterns.'",
+    "estimated_token_reduction": "~2000 tokens per test suite audit — eliminates the manual analysis of 'what scenarios aren't we testing' and the debug cycle of finding bugs in production that tests should have caught",
+    "votes": 0
+  },
+  {
+    "id": "build-verify-detect-stale-artifacts",
+    "title": "Detect stale .ssi artifacts when gerbil_verify reports \"cannot find library module\"",
+    "description": "When gerbil_verify (or gerbil_compile_check) reports \"cannot find library module :package/module\", the actual cause is often a stale .ssi file in .gerbil/lib/ or ~/.gerbil/lib/ that was compiled before recent changes. The error message is misleading because the module exists and compiles fine in isolation - it's just that the importing module is using a stale precompiled interface file. A heuristic detector could: (1) parse the \"cannot find library module :foo/bar\" error, (2) check if foo/bar.ss exists in the project or dependency, (3) check if foo/bar.ssi exists and its mtime is older than foo/bar.ss source, (4) if yes, append a diagnostic hint: \"Note: found stale foo/bar.ssi (older than source). Run 'make clean' or 'rm .gerbil/lib/foo/bar.ssi' and rebuild.\"",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "verify",
+      "compile-check",
+      "stale",
+      "ssi",
+      "diagnostic"
+    ],
+    "use_case": "When adding a new module or modifying an existing one, and gerbil_verify on an importing module fails with \"cannot find library module\" even though the module compiles fine on its own. The actual issue is stale .ssi but the error message doesn't indicate this.",
+    "example_scenario": "Added face.ss to project, modified core.ss to import :gemacs/face. Running gerbil_verify on core.ss failed with \"cannot find library module :gemacs/face\" even though gerbil_verify on face.ss passed. Tried multiple times, confused because face.ss existed and compiled. Actual fix: ran 'make clean' to remove stale core.ssi. A diagnostic hint would have saved 15+ minutes of debugging.",
+    "estimated_token_reduction": "~800 tokens per occurrence - eliminates multiple rounds of gerbil_verify, gerbil_compile_check, gxc -S attempts, and eventually discovering the clean solution via trial and error",
     "votes": 0
   }
 ]
