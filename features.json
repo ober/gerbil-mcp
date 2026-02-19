@@ -220,25 +220,6 @@
     "votes": 1
   },
   {
-    "id": "macro-aware-code-review",
-    "title": "Code review mode that suggests macro usage from stdlib sugar",
-    "description": "A lint-like tool that scans Gerbil code for patterns that could be simplified using existing stdlib macros from :std/sugar and related modules. It would detect: (1) `(let (x expr) (when x ...))` suggesting `awhen`, (2) `(let (x expr) (if x then else))` suggesting `if-let`, (3) nested lets feeding into each other suggesting `chain`, (4) `(let ((a (hash-ref h \"a\")) (b (hash-ref h \"b\")))` suggesting `let-hash`, (5) repeated `(hash-ref obj \"key\")` suggesting using/struct access, (6) manual `try/finally` around resources suggesting `with-destroy`. Would report line numbers, the current code, and the suggested replacement.",
-    "impact": "high",
-    "tags": [
-      "macro",
-      "review",
-      "sugar",
-      "suggestion",
-      "stdlib",
-      "code-reduction",
-      "lint"
-    ],
-    "use_case": "When Claude generates verbose code that does not use available sugar macros. Claude often defaults to explicit let/when/if patterns instead of using the sugar macros that Gerbil provides.",
-    "example_scenario": "Code has `(let ((v (hash-get config \"debug\"))) (when v (set! debug-mode #t)))`. Tool suggests: `(awhen (v (hash-get config \"debug\")) (set! debug-mode #t))` — saves 1 line and is more idiomatic.",
-    "estimated_token_reduction": "~500-1500 tokens per file — reduces generated code size and makes it more idiomatic",
-    "votes": 0
-  },
-  {
     "id": "macro-template-library",
     "title": "Library of reusable macro templates for common patterns",
     "description": "A tool that generates project-local macro definitions for common patterns. Given a pattern name (e.g., \"hash-accessors\", \"method-delegation\", \"validation-guards\", \"enum-constants\", \"event-handlers\"), it generates a tested, working defrule/defsyntax definition that the user can include in their project. Unlike cookbook recipes, these would be generated with project-specific naming conventions and immediately usable.",

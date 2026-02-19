@@ -3920,6 +3920,94 @@ END-C
     });
   });
 
+  describe('Macro suggestion lint rules', () => {
+    it('gerbil_lint suggests awhen for let + when pattern', async () => {
+      const testFile = join(TEST_DIR, 'suggest-awhen.ss');
+      writeFileSync(
+        testFile,
+        `(def (process-value config)
+  (let ((v (hash-get config "debug")))
+    (when v
+      (set! debug-mode #t))))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('suggest-awhen');
+      expect(result.text).toContain('awhen');
+    });
+
+    it('gerbil_lint suggests if-let for let + if pattern', async () => {
+      const testFile = join(TEST_DIR, 'suggest-if-let.ss');
+      writeFileSync(
+        testFile,
+        `(def (get-value config)
+  (let ((v (hash-get config "key")))
+    (if v
+      (process v)
+      #f)))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('suggest-if-let');
+      expect(result.text).toContain('if-let');
+    });
+
+    it('gerbil_lint suggests let-hash for multiple hash-ref', async () => {
+      const testFile = join(TEST_DIR, 'suggest-let-hash.ss');
+      writeFileSync(
+        testFile,
+        `(def (process-config h)
+  (let ((host (hash-ref h "host"))
+        (port (hash-ref h "port"))
+        (debug (hash-ref h "debug")))
+    (connect host port debug)))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('suggest-let-hash');
+      expect(result.text).toContain('let-hash');
+    });
+
+    it('gerbil_lint suggests with-destroy for try/finally cleanup', async () => {
+      const testFile = join(TEST_DIR, 'suggest-with-destroy.ss');
+      writeFileSync(
+        testFile,
+        `(def (read-file path)
+  (try
+    (let ((f (open-input-file path)))
+      (read-all f))
+    (finally
+      (close f))))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('suggest-with-destroy');
+      expect(result.text).toContain('with-destroy');
+    });
+
+    it('gerbil_lint does not suggest macros for clean code', async () => {
+      const testFile = join(TEST_DIR, 'clean-macro.ss');
+      writeFileSync(
+        testFile,
+        `(def (simple-function x)
+  (+ x 1))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).not.toContain('suggest-');
+    });
+  });
+
   describe('FFI callback debug tool', () => {
     it('gerbil_ffi_callback_debug finds matched c-define/extern', async () => {
       const result = await client.callTool('gerbil_ffi_callback_debug', {

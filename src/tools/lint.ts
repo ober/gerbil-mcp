@@ -75,6 +75,7 @@ export function registerLintTool(server: McpServer): void {
         'byte/char port type mismatch (fdopen with char I/O), ' +
         'pregexp inline flag detection ((?i)/(?m)/(?s) cause runtime crashes), ' +
         'char/byte I/O mixing on same port (nonempty-input-port-character-buffer-exception), ' +
+        'macro suggestions (awhen, if-let, let-hash for verbose patterns), ' +
         'and compilation errors via gxc.',
       annotations: {
         readOnlyHint: true,
@@ -119,6 +120,7 @@ export function registerLintTool(server: McpServer): void {
       checkPortTypeMismatch(lines, diagnostics);
       checkPregexpInlineFlags(lines, diagnostics);
       checkCharByteIOMixing(lines, diagnostics);
+      checkMacroSuggestions(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -1173,6 +1175,120 @@ function checkCharByteIOMixing(
             `and byte I/O (${byteUsage.fn} at L${byteUsage.line}). ` +
             'Mixing char and byte I/O on the same port causes nonempty-input-port-character-buffer-exception. ' +
             'Use only char I/O or only byte I/O, or create separate ports.',
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Suggest stdlib sugar macros for verbose patterns.
+ * Detects patterns that could be simplified using :std/sugar macros like
+ * awhen, if-let, let-hash, etc.
+ */
+function checkMacroSuggestions(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Pattern 1: (let (var expr) (when var ...)) → suggest awhen
+    // Look for let followed by when using the same variable
+    const letWhenMatch = trimmed.match(/\(let\s+\(\((\S+)\s+/);
+    if (letWhenMatch) {
+      const varName = letWhenMatch[1];
+      // Look ahead for (when varName ...)
+      const lookAhead = lines.slice(i, Math.min(i + 5, lines.length)).join(' ');
+      if (new RegExp(`\\(when\\s+${varName}\\b`).test(lookAhead)) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'info',
+          code: 'suggest-awhen',
+          message: `Consider using 'awhen' instead of let + when. awhen binds the result to 'it' if truthy: (awhen (${varName} expr) ...)`,
+        });
+      }
+    }
+
+    // Pattern 2: (let (var expr) (if var ...)) → suggest if-let
+    if (letWhenMatch) {
+      const varName = letWhenMatch[1];
+      const lookAhead = lines.slice(i, Math.min(i + 5, lines.length)).join(' ');
+      if (new RegExp(`\\(if\\s+${varName}\\b`).test(lookAhead)) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'info',
+          code: 'suggest-if-let',
+          message: `Consider using 'if-let' instead of let + if: (if-let (${varName} expr) then-branch else-branch)`,
+        });
+      }
+    }
+
+    // Pattern 3: Multiple hash-ref calls in let bindings → suggest let-hash
+    // (let ((a (hash-ref h "a")) (b (hash-ref h "b"))) ...)
+    if (trimmed.includes('let') && trimmed.includes('hash-ref')) {
+      const lookAhead = lines.slice(i, Math.min(i + 10, lines.length)).join('\n');
+      const hashRefCount = (lookAhead.match(/hash-ref\s+(\S+)/g) || []).length;
+      if (hashRefCount >= 2) {
+        // Extract the hash table variable name from first hash-ref
+        const firstHashRef = lookAhead.match(/hash-ref\s+(\S+)\s+/);
+        if (firstHashRef) {
+          const hashVar = firstHashRef[1];
+          // Check if multiple hash-refs use the same hash variable
+          const sameHashCount = (lookAhead.match(new RegExp(`hash-ref\\s+${hashVar}\\s+`, 'g')) || []).length;
+          if (sameHashCount >= 2) {
+            diagnostics.push({
+              line: lineNum,
+              severity: 'info',
+              code: 'suggest-let-hash',
+              message: `Consider using 'let-hash' for multiple hash-ref from the same hash: (let-hash ${hashVar} ((key1 val1) (key2 val2) ...) ...)`,
+            });
+          }
+        }
+      }
+    }
+
+    // Pattern 4: try with explicit cleanup → suggest with-destroy
+    if (trimmed.includes('try') || trimmed.includes('with-catch')) {
+      const lookAhead = lines.slice(i, Math.min(i + 15, lines.length)).join('\n');
+      if ((lookAhead.includes('finally') || lookAhead.includes('close')) &&
+          (lookAhead.includes('make-') || lookAhead.includes('open-'))) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'info',
+          code: 'suggest-with-destroy',
+          message: `Consider using 'with-destroy' for automatic resource cleanup: (with-destroy obj-expr obj-destructor body ...)`,
+        });
+      }
+    }
+
+    // Pattern 5: Repeated hash-get on same object → suggest using
+    // This is trickier - look for multiple hash-get calls with the same first argument
+    const hashGetMatches = trimmed.match(/hash-get\s+(\S+)\s+/g);
+    if (hashGetMatches && hashGetMatches.length >= 3) {
+      diagnostics.push({
+        line: lineNum,
+        severity: 'info',
+        code: 'suggest-using',
+        message: `Consider using 'using' macro for repeated access: (using (obj-expr :- accessor) (accessor \"field1\") (accessor \"field2\") ...)`,
+      });
+    }
+
+    // Pattern 6: Nested let expressions → suggest chain or let*
+    if (trimmed.match(/\(let\s+\(\(/)) {
+      const lookAhead = lines.slice(i, Math.min(i + 10, lines.length)).join('\n');
+      const nestedLetCount = (lookAhead.match(/\(let\s+\(\(/g) || []).length;
+      if (nestedLetCount >= 2) {
+        diagnostics.push({
+          line: lineNum,
+          severity: 'info',
+          code: 'suggest-let-star-or-chain',
+          message: `Consider using 'let*' for sequential bindings or 'chain' for threading values: (let* ((a expr1) (b (use-a a))) ...) or (chain expr (fn1) (fn2))`,
         });
       }
     }

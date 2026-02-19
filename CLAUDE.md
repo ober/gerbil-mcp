@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 473 tests must pass before considering any change complete. The test suite covers:
+All 478 tests must pass before considering any change complete. The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -189,6 +189,7 @@ All 473 tests must pass before considering any change complete. The test suite c
 - Pregexp inline flag lint check ((?i)/(?m)/(?s)/(?x) detection in gerbil_lint)
 - Char/byte I/O mixing lint check (detects nonempty-input-port-character-buffer-exception risk)
 - C compiler error parsing in build-and-report (parseCCompilerErrors for FFI build failures)
+- Macro suggestion lint rules (suggest awhen, if-let, let-hash, with-destroy for verbose patterns)
 - Build modules_only option (gerbil_build_and_report skip exe targets, filterExeTargets)
 - Cross-package diff tool (gerbil_cross_package_diff: compare signatures/arities across modules)
 
