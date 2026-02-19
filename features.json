@@ -16,5 +16,151 @@
     "example_scenario": "Test 'org-table: TAB skips separator rows' fails with cursor on line 0 instead of 2. Need to check: what does org-table-find-bounds return? What does org-table-next-data-line return? Where is the cursor after org-table-align? Currently requires adding 8 displayln statements, rebuilding (which takes time since gerbil test recompiles), running, grepping output, then cleaning up. With this feature: gerbil_run_tests with filter='TAB skips separator' and verbose=true would capture all output from that single test case.",
     "estimated_token_reduction": "~1500 tokens per debug iteration — eliminates edit-rebuild-grep-cleanup cycle, typically 3-4 iterations per failing test = ~5000 tokens saved",
     "votes": 0
+  },
+  {
+    "id": "pre-signature-change-impact",
+    "title": "Pre-signature-change impact report: find all call sites before editing a function",
+    "description": "When changing a function's parameter list (adding, removing, or reordering args), there is no single tool that shows all affected call sites across both source and test files before you make the edit. Currently requires: (1) gerbil_check_test_arity to find test call sites, (2) gerbil_find_callers to find all source call sites, (3) gerbil_check_arity after the change to verify. A single tool that accepts a function name and new arity and returns: all test files calling it with wrong arity, all source files calling it with wrong arity, and a summary of how many sites need updating — would save 2-3 round trips per signature change.",
+    "impact": "medium",
+    "tags": [
+      "arity",
+      "signature",
+      "refactor",
+      "callers",
+      "test",
+      "impact"
+    ],
+    "use_case": "Before changing an exported function's parameter list — e.g. adding a context argument like `def-ctx` — to find all test and source call sites that will break, before running the build.",
+    "example_scenario": "Added `def-ctx` parameter to `classify-symbol-token` (making it 4-arg instead of 3-arg). Discovered the breakage only after running tests, then had to manually update 10+ test call sites. Running gerbil_check_test_arity would have caught this, but it requires knowing to call it first. A pre-signature-change tool would proactively surface all affected sites in one call.",
+    "estimated_token_reduction": "~600 tokens per signature change — eliminates separate check_test_arity + find_callers calls and the test-failure round trip",
+    "votes": 0
+  },
+  {
+    "id": "build-report-c-compiler-output",
+    "title": "gerbil_build_and_report: surface raw C compiler errors when gxc C compilation fails",
+    "description": "When gxc compiles a begin-ffi module, it first generates a .c file then invokes the system C compiler (gcc/clang). If the C compiler exits nonzero, gerbil_build_and_report currently returns only a generic \"target compilation or link failed\" message with a ProcessError, losing the actual C compiler output (error: too few arguments to function, type mismatch, undeclared identifier, etc). The tool should capture and include the C compiler's stdout+stderr in the structured diagnostic output when this failure mode is detected. A heuristic: if the build log contains \"compile pcre2/libfoo\" followed by a ProcessError, scan the build output for lines matching \"^.*\\.(c|h):\\d+:\\d+: error:\" and include them as additional diagnostic entries with file, line, column, message.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "ffi",
+      "c-compiler",
+      "diagnostics",
+      "gxc",
+      "begin-ffi"
+    ],
+    "use_case": "When an FFI module's C code has errors — wrong argument count, type mismatches, undeclared identifiers — the structured build report gives no actionable information and forces a raw `gerbil build 2>&1` fallback to see the actual C error lines.",
+    "example_scenario": "pcre2_match_8 called with 6 args instead of 7. gerbil_build_and_report reported: 'target compilation or link failed while compiling libpcre2~0.scm' and a ProcessError. Had to run `gerbil build 2>&1` directly to see 'error: too few arguments to function pcre2_match_8'. Required one extra bash invocation to diagnose a straightforward C arity error.",
+    "estimated_token_reduction": "~400 tokens per FFI build failure — eliminates the raw bash fallback invocation and its large output that must be manually scanned",
+    "votes": 0
+  },
+  {
+    "id": "test-assertion-audit",
+    "title": "Audit :std/test check assertions for common mistakes",
+    "description": "A tool that statically analyzes :std/test files for common assertion mistakes that silently pass: (1) `check x ? #f` which tests if x satisfies predicate #f (always fails silently, prints warning but doesn't fail suite) — should be `check x => #f`; (2) `check x ? values` which tests truthiness but doesn't verify the specific value — flag when comparing against known types (string, list); (3) `check (fn args) => expected` where fn returns a struct but expected is a string/list (type mismatch that equal? silently fails on); (4) using pcre2-match (full match) where pcre2-search was intended (subject doesn't fully match pattern). Static analysis of check forms would catch these before running tests.",
+    "impact": "medium",
+    "tags": [
+      "test",
+      "check",
+      "assertion",
+      "audit",
+      "silent-failure",
+      "std-test"
+    ],
+    "use_case": "When writing or reviewing test suites to catch assertions that appear to test something but silently pass due to wrong check syntax, type mismatches, or semantic errors.",
+    "example_scenario": "In gerbil-pcre, 4 test bugs were found: (1) `check (pcre2-match rx \"say hello\") ? values` — pcre2-match uses ANCHORED so \"say hello\" never matches \"hel+o\", m is #f, and `(#f ? values)` silently warns but doesn't fail the suite; (2) `check all => '(\"1\" \"3\" \"5\")` where all is a list of pcre-match structs not strings — equal? returns #f, prints warning, doesn't fail; (3) `check (vector? pos) ? values` where pos is a pair not vector — returns #f, `(#f ? values)` warns silently. A static tool scanning check forms for these patterns would have caught all 4 issues immediately.",
+    "estimated_token_reduction": "~800 tokens per test file audit — eliminates the manual read-trace-diagnose cycle for each silent test failure, typically 3-5 bad assertions per file",
+    "votes": 0
+  },
+  {
+    "id": "qt-exe-process-status-detector",
+    "title": "Detect process-status calls in Qt exe targets that will cause SIGCHLD deadlocks",
+    "description": "Qt executables install a SIGCHLD handler that calls waitpid(-1,...,WNOHANG) reaping ALL child processes. When Gambit's open-process is used in a Qt exe and (process-status p) is called afterward, there is a race: Qt may reap the child first, causing Gambit's waitpid to block indefinitely (ECHILD). A tool that detects (process-status ...) calls inside files that are compiled into Qt exe targets (or any file that imports from :gerbil-qt/qt) would catch this hazard before it manifests as a hard-to-diagnose hang in CI or headless testing. The tool should: (1) identify which source files are compiled into Qt exe targets by reading build.ss exe target definitions, (2) scan those files and their transitive imports for (process-status ...) call sites, (3) report file/line/function context with a note that process-status is unsafe in Qt executables and read-line is sufficient for waiting.",
+    "impact": "medium",
+    "tags": [
+      "qt",
+      "process-status",
+      "sigchld",
+      "deadlock",
+      "exe",
+      "subprocess",
+      "hang"
+    ],
+    "use_case": "When writing or reviewing code that spawns subprocesses (git commands, shell scripts) inside a Qt executable. The SIGCHLD race is silent — no error message, just an indefinite hang that only manifests in CI headless testing with real subprocess calls.",
+    "example_scenario": "In gemacs-qt, magit-run-git called (process-status proc) after (read-line proc #f). All tests passed with mocked git (no actual subprocess), but adding real git integration tests in Group 9 caused qt-functional-test to hang indefinitely. Root cause took 2 sessions to diagnose: Qt's SIGCHLD handler raced with Gambit's waitpid. A static detector on qt/commands-ide.ss and its Qt exe imports would have flagged the process-status call immediately.",
+    "estimated_token_reduction": "~3000 tokens saved per occurrence — the root cause diagnosis took 2 full sessions with multiple gerbil_eval, bash, and gerbil_qt_test_runner calls to isolate",
+    "votes": 1
+  },
+  {
+    "id": "ffi-utf8-byte-length-audit",
+    "title": "Detect string-length passed to FFI functions expecting byte length",
+    "description": "A static analysis tool that detects when `string-length` is used to compute a length argument passed to a C function via `c-lambda`. In Gambit FFI, `char-string` arguments are UTF-8 encoded, so `string-length` returns character count (e.g. 4 for \"café\") while the C function typically expects byte count (5 for \"café\" in UTF-8). The tool should: (1) scan `c-lambda` declarations for parameters named or typed as length/size, (2) trace call sites where `string-length` feeds into those parameters, (3) flag the mismatch with a suggestion to use `PCRE2_ZERO_TERMINATED`, `strlen()` in the C shim, or `(u8vector-length (string->bytes s))` on the Scheme side.",
+    "impact": "high",
+    "tags": [
+      "ffi",
+      "utf8",
+      "string-length",
+      "byte-length",
+      "char-string",
+      "audit",
+      "static-analysis"
+    ],
+    "use_case": "When writing FFI bindings for any C library that takes string + length parameters. The string-length vs byte-length mismatch is silent until a non-ASCII string is used, at which point it causes truncation, crashes, or incorrect results.",
+    "example_scenario": "In gerbil-pcre, `pcre2-compile` passed `(string-length pattern)` to `ffi-pcre2-compile` which forwarded it to `pcre2_compile_8` as the byte length. Pattern \"(?=é)\" has string-length 4 but UTF-8 byte length 6. PCRE2 saw a truncated pattern and returned 'UTF-8 error: 1 byte missing at end'. The bug was silent for ASCII-only patterns and only manifested with non-ASCII input.",
+    "estimated_token_reduction": "~2000 tokens per FFI project — eliminates the multi-step debugging cycle of gerbil_eval reproducing the bug, tracing through C shims, and discovering the root cause",
+    "votes": 1
+  },
+  {
+    "id": "security-scan-suppress-inline",
+    "title": "Support inline suppression comments for security scanner false positives",
+    "description": "Allow suppressing specific security scanner findings with inline comments like `;; gerbil-security: suppress ffi-pointer-void-type-mismatch` or `;; security-ok: reason`. The scanner currently has no suppression mechanism, so confirmed false positives (like a null-guard `if (!table)` being flagged as an `#ifdef` stub, or `open-output-string` flagged as a resource leak) generate noise on every scan. The tool should: (1) recognize suppression comments on the same or preceding line, (2) skip the finding for the specific rule ID, (3) optionally report suppressed findings in a separate section for audit purposes.",
+    "impact": "medium",
+    "tags": [
+      "security",
+      "scan",
+      "suppress",
+      "false-positive",
+      "inline-comment"
+    ],
+    "use_case": "When a security scan produces false positives on legitimate code patterns. Without suppression, every scan reports the same known-safe findings, wasting tokens on triage and cluttering the output.",
+    "example_scenario": "In gerbil-pcre, gerbil_security_scan reported a CRITICAL 'c-declare-ifdef-null-stub' on a line containing `if (!table || index >= name_count)` — a null-pointer guard, not an #ifdef stub. Confirmed safe via gerbil_detect_ifdef_stubs (0 stubs found). But every future scan will re-flag this line, requiring manual triage each time.",
+    "estimated_token_reduction": "~300 tokens per scan invocation — eliminates re-triaging known false positives across repeated scans",
+    "votes": 1
+  },
+  {
+    "id": "qt-exe-thread-pipe-io-warning",
+    "title": "Warn when open-process + background thread pipe I/O is used inside with-qt-app",
+    "description": "Detect static patterns where open-process is used with stdout-redirection: #t and a background thread reads from the pipe inside a with-qt-app or qt-app-create context. Qt's event dispatcher interferes with Gambit's pipe fd readiness mechanism, causing background green threads blocked on read-line/read-u8vector to never be scheduled. This produces silent hangs with no error message.",
+    "impact": "high",
+    "tags": [
+      "qt",
+      "open-process",
+      "thread",
+      "pipe",
+      "hang",
+      "scheduling"
+    ],
+    "use_case": "When writing Qt exe tests or features that spawn subprocesses and read their output via background threads",
+    "example_scenario": "lsp-functional-test.ss spawns gerbil-lsp via open-process and starts a reader thread. The thread blocks forever on read-line inside a with-qt-app context. gerbil-lsp responds in 5ms (confirmed from gxi), but the Qt exe reader thread never wakes. 20s timeout fires and LSP init test fails. This burned many hours of debugging across multiple sessions.",
+    "estimated_token_reduction": "Saves ~3000+ tokens of debugging per encounter; eliminates the multi-session investigation cycle",
+    "votes": 0
+  },
+  {
+    "id": "lint-char-byte-io-mixing",
+    "title": "Lint rule: detect char/byte I/O mixing on same port",
+    "description": "A lint rule that detects when both character I/O functions (read-line, read-char, read-string, write-string) and byte I/O functions (read-subu8vector, write-subu8vector, read-u8, write-u8) are used on the same port variable within a function or module. Gambit raises nonempty-input-port-character-buffer-exception when byte I/O follows char I/O on the same port, because read-line consumes bytes into the character buffer. This is a common bug in HTTP/LSP Content-Length framed protocol implementations where headers use read-line and body uses read-subu8vector.",
+    "impact": "high",
+    "tags": [
+      "lint",
+      "port",
+      "char-io",
+      "byte-io",
+      "read-subu8vector",
+      "read-line",
+      "gambit"
+    ],
+    "use_case": "When writing protocol implementations that mix text headers with binary bodies on the same port — LSP JSON-RPC, HTTP, or any Content-Length framed protocol.",
+    "example_scenario": "lsp-client.ss read headers with read-line (char I/O) then read body with read-subu8vector (byte I/O) on the same process port. This crashed with nonempty-input-port-character-buffer-exception inside a background thread. The with-catch handler swallowed the exception silently, making the thread appear stuck. A lint rule detecting read-subu8vector and read-line on the same port variable would have caught this immediately.",
+    "estimated_token_reduction": "~5000+ tokens — this bug took multiple sessions to diagnose; a lint warning would catch it at code review time",
+    "votes": 0
   }
 ]

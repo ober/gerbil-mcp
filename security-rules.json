@@ -393,5 +393,154 @@
       "runtime-crash",
       "gotcha"
     ]
+  },
+  {
+    "id": "c-shim-array-no-bounds-check",
+    "title": "C shim array access without bounds validation",
+    "severity": "high",
+    "scope": "c-shim",
+    "pattern": "ov\\[.*idx|arr\\[.*idx|buf\\[.*idx|table\\[.*index",
+    "message": "C shim accesses array using an index parameter from Scheme without bounds checking. Scheme callers can pass arbitrary index values, causing out-of-bounds memory reads (information leak) or writes (code execution). Always validate idx against the array's known size before access.",
+    "remediation": "Add bounds check before array access: get the array size (e.g. pcre2_get_ovector_count), check `if (idx >= count) return SENTINEL;`, then access. Return a safe sentinel value (PCRE2_UNSET, 0, NULL, 1 for bool) for out-of-bounds access.",
+    "related_recipe": "ffi-ovector-bounds-check",
+    "tags": [
+      "array",
+      "bounds-check",
+      "ovector",
+      "index",
+      "out-of-bounds",
+      "memory-safety"
+    ]
+  },
+  {
+    "id": "c-shim-static-globals-no-mutex",
+    "title": "Static C globals without mutex protection for thread safety",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "^static\\s+(int|size_t|char|uint32_t|PCRE2_SIZE)\\s+_ffi_",
+    "message": "Static C variables used to communicate results between FFI calls (e.g. error codes, offsets, buffers) are not thread-safe. Concurrent calls from multiple Gerbil threads will corrupt shared state, producing wrong error messages, offsets, or data. This is especially dangerous for error-reporting statics used during compilation or initialization.",
+    "remediation": "Protect access to static C globals with a Scheme-level mutex (mutex-lock!/unwind-protect/mutex-unlock!) around all FFI calls that read or write the statics. Alternatively, refactor to pass results via return values or caller-allocated buffers instead of statics.",
+    "tags": [
+      "static",
+      "global",
+      "thread-safety",
+      "mutex",
+      "concurrent",
+      "race-condition",
+      "ffi"
+    ]
+  },
+  {
+    "id": "qt-process-status-sigchld-race",
+    "title": "process-status after open-process in Qt executable causes indefinite deadlock",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "\\(process-status\\s+\\w",
+    "message": "Calling (process-status p) after (open-process ...) is unsafe in Qt executables. Qt's QCoreApplication installs a SIGCHLD handler that calls waitpid(-1, &status, WNOHANG) to reap all child zombies. If Qt's handler runs between Gambit's fork() and its waitpid(pid, ...) call in process-status, the child is reaped by Qt first, causing Gambit's waitpid to return ECHILD and block indefinitely. This produces a silent hang with no error message.",
+    "remediation": "In Qt executables (files compiled into exe targets that import :gerbil-qt/qt), omit (process-status p) after (read-line p #f). The read-line call already blocks until stdout EOF, which only occurs when the subprocess exits and closes its write pipe. The zombie process is then reaped by Qt's SIGCHLD handler. In TUI (non-Qt) executables, process-status is safe and should be retained.",
+    "related_recipe": "qt-open-process-no-process-status",
+    "tags": [
+      "qt",
+      "process-status",
+      "sigchld",
+      "waitpid",
+      "deadlock",
+      "hang",
+      "subprocess",
+      "race-condition"
+    ]
+  },
+  {
+    "id": "ffi-string-length-as-byte-count",
+    "title": "string-length passed as byte count to FFI C function",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "\\(string-length\\s+\\w+\\).*\\bffi-|ffi-.*\\(string-length\\s+\\w+\\)",
+    "message": "string-length returns character count, not UTF-8 byte count. When passed to a C function via FFI (char-string encodes as UTF-8), non-ASCII strings will be truncated. For \"café\", string-length returns 4 but UTF-8 byte length is 5.",
+    "remediation": "Use PCRE2_ZERO_TERMINATED or strlen() in the C shim to let C compute the byte length. Alternatively, use (u8vector-length (string->bytes s)) on the Scheme side. Never pass (string-length s) as a byte-count argument to FFI functions.",
+    "related_recipe": "ffi-string-length-byte-length-mismatch",
+    "tags": [
+      "ffi",
+      "utf8",
+      "string-length",
+      "byte-length",
+      "truncation",
+      "char-string"
+    ]
+  },
+  {
+    "id": "c-declare-static-buffer-no-thread",
+    "title": "Static C buffer in c-declare without __thread qualifier",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "static\\s+char\\s+\\w+\\[(?!.*__thread)",
+    "message": "Static char buffers in c-declare blocks are shared across all Gambit threads. Concurrent FFI calls can corrupt the buffer contents, leading to garbled strings or crashes. This is especially dangerous for error message buffers used by multiple regex operations.",
+    "remediation": "Add the __thread qualifier to make the buffer thread-local: 'static __thread char buf[256]'. This gives each OS thread its own copy with no mutex overhead. Note: __thread requires C11 or GCC/Clang extension support.",
+    "related_recipe": "ffi-thread-local-static-buffer",
+    "tags": [
+      "thread-safety",
+      "static",
+      "buffer",
+      "c-declare",
+      "__thread",
+      "race-condition"
+    ]
+  },
+  {
+    "id": "ffi-char-string-unicode-crash",
+    "title": "FFI char-string type crashes on non-Latin-1 Unicode",
+    "severity": "high",
+    "scope": "ffi-boundary",
+    "pattern": "c-lambda\\s+\\([^)]*char-string",
+    "message": "Gambit's char-string FFI type only handles ISO-8859-1 / Latin-1 (U+0000-U+00FF). Strings with characters above U+00FF (€, CJK, emoji, em dash, etc.) cause a runtime crash: \\\"Can't convert to C char-string\\\". This is especially dangerous when the library claims UTF-8 support.",
+    "remediation": "Replace char-string with UTF-8-string in c-lambda declarations. UTF-8-string converts Scheme strings to/from UTF-8 encoded C strings, supporting the full Unicode range. Example: (define-c-lambda foo (UTF-8-string) int \\\"foo\\\") instead of (define-c-lambda foo (char-string) int \\\"foo\\\").",
+    "related_recipe": "ffi-utf8-string-type",
+    "tags": [
+      "ffi",
+      "char-string",
+      "UTF-8-string",
+      "unicode",
+      "crash",
+      "latin-1",
+      "gambit"
+    ]
+  },
+  {
+    "id": "read-subu8vector-after-read-line",
+    "title": "Mixing char I/O and byte I/O on same port",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "read-subu8vector",
+    "message": "Using read-subu8vector (byte I/O) on a port that may also use read-line/read-char/read-string (char I/O) raises nonempty-input-port-character-buffer-exception in Gambit. The char reader consumes bytes into a character buffer; subsequent byte reads find the byte buffer empty and crash. This is especially dangerous in LSP/HTTP Content-Length framed protocols where headers are read with read-line and body with read-subu8vector.",
+    "remediation": "Use read-string instead of read-subu8vector when reading from a port that also uses character I/O (read-line, read-char). For ASCII content like JSON, Content-Length in bytes equals string-length in characters. Pattern: (let ((body (read-string content-length port))) ...)",
+    "related_recipe": "lsp-content-length-framing-stdio",
+    "tags": [
+      "gambit",
+      "port",
+      "read-subu8vector",
+      "read-line",
+      "char-buffer",
+      "byte-buffer",
+      "lsp",
+      "content-length"
+    ]
+  },
+  {
+    "id": "silent-exception-swallow-in-thread",
+    "title": "Silent exception swallowing in background threads",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "\\(with-catch\\s+\\(lambda\\s+\\([^)]+\\)\\s+\\(void\\)\\)",
+    "message": "with-catch handler that returns (void) silently swallows ALL exceptions in background threads, making crashes appear as hangs. The thread runs, hits an error (e.g. nonempty-input-port-character-buffer-exception), and exits with no visible error. From the outside, the thread appears to never have run at all.",
+    "remediation": "Always log exceptions in background thread catch handlers, even if you expect the thread to be robust. At minimum: (with-catch (lambda (e) (displayln \"thread error: \" e) (force-output)) thunk). Consider using (current-error-port) for logging.",
+    "tags": [
+      "thread",
+      "with-catch",
+      "void",
+      "silent",
+      "exception",
+      "hang",
+      "debug"
+    ]
   }
 ]

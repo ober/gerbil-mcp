@@ -11205,5 +11205,559 @@
       "qt-widget-set-font-arity",
       "qscintilla-raw-lexer-colourise"
     ]
+  },
+  {
+    "id": "qt-with-qt-app-headless-test",
+    "title": "Qt headless test with with-qt-app and Scintilla editor",
+    "tags": [
+      "qt",
+      "test",
+      "headless",
+      "with-qt-app",
+      "scintilla",
+      "offscreen",
+      "exe",
+      "functional-test"
+    ],
+    "imports": [
+      "gerbil-qt/qt",
+      ":std/test"
+    ],
+    "code": ";; Qt headless functional tests using with-qt-app + compiled exe pattern.\n;; Use gerbil_qt_test_runner to build and run in one step.\n;;\n;; Build target in build.ss:\n;;   (exe: \"qt-functional-test\" bin: \"qt-functional-test\"\n;;         \"-cc-options\" ,qt-cc-opts\n;;         \"-ld-options\" ,qt-ld-opts)\n;;\n;; Makefile target:\n;;   test-qt: build\n;;     QT_QPA_PLATFORM=offscreen .gerbil/bin/qt-functional-test\n;;\n;; Test file pattern (qt-functional-test.ss):\n\n(import :std/test\n        (only-in :gerbil-qt/qt\n          with-qt-app\n          qt-widget-create\n          qt-widget-destroy!\n          qt-scintilla-create)\n        ;; Import your project's Qt sci-shim with only-in to avoid\n        ;; conflicts with :gerbil-qt/qt exports of the same name:\n        (only-in :myproject/qt/sci-shim\n          sci-send\n          sci-get-text\n          editor-insert-text\n          editor-get-text)\n        :myproject/qt/commands-core)\n\n(export qt-functional-test)\n\n(def qt-functional-test\n  (test-suite \"qt-functional\"\n    (test-case \"insert text\"\n      (with-qt-app\n        (lambda (app)\n          (let* ((win (qt-widget-create))\n                 (sci (qt-scintilla-create win)))\n            ;; Use position 0 (not -1) — -1 crashes due to unsigned-long FFI\n            (editor-insert-text sci 0 \"hello world\")\n            (check (editor-get-text sci) => \"hello world\")\n            (qt-widget-destroy! win)))))\n\n    (test-case \"verify command exists before testing\"\n      ;; Qt command registry may differ from TUI — verify first\n      (with-qt-app\n        (lambda (app)\n          (let ((reg (make-command-registry)))\n            (qt-register-all-commands! reg)\n            ;; Check org-todo-cycle exists (Qt uses this, NOT org-todo)\n            (check (hash-key? reg \"org-todo-cycle\") => #t)\n            ;; Execute via dispatch\n            (execute-command! \"some-command\" ...)))))\n    ))\n\n(def (main . args)\n  (run-tests! qt-functional-test))",
+    "notes": "Key differences from TUI tests:\n1. Use `with-qt-app` (from :gerbil-qt/qt) not `qt-app-create` directly — it handles lifecycle.\n2. Both :gerbil-qt/qt and project sci-shim modules may export the same symbol (e.g. qt-plain-text-edit-insert-text!). Use `only-in` on BOTH imports to take only what you need from each and avoid 'Bad binding; import conflict' errors.\n3. `editor-insert-text` takes 3 args: (editor pos text). Position -1 crashes due to unsigned-long FFI type — use 0 and then goto-pos explicitly.\n4. Qt command registry may have different command names than TUI:\n   - TUI: `org-todo`, Qt: `org-todo-cycle`\n   - Always verify command names with (hash-key? registry name) before testing.\n5. Exit code may be 139 (SIGSEGV) from Qt offscreen cleanup — this is benign if all tests passed. Use gerbil_qt_test_runner which handles this correctly.\n6. SCI_CREATEDOCUMENT / SCI_RELEASEDOCUMENT can segfault in headless tests — avoid them; use the single document that comes with the widget.",
+    "related": [
+      "qt-offscreen-headless-testing",
+      "qt-ffi-test-compiled-exe",
+      "resolve-import-naming-conflicts"
+    ],
+    "gerbil_version": "v0.18.1-173"
+  },
+  {
+    "id": "qt-command-registry-name-differences",
+    "title": "Qt command registry has different names than TUI for some commands",
+    "tags": [
+      "qt",
+      "command",
+      "registry",
+      "org-todo-cycle",
+      "org-todo",
+      "command-name",
+      "functional-test"
+    ],
+    "imports": [],
+    "code": ";; The Qt backend and TUI backend register commands under different names.\n;; Always verify a command exists in the Qt registry before writing tests.\n;;\n;; Known differences (TUI → Qt):\n;;   org-todo        → org-todo-cycle\n;;   org-priority    → not registered in Qt (use org-promote etc.)\n;;\n;; Pattern: check before use\n\n;; In tests, verify the command is registered:\n(def (command-registered? registry name)\n  (hash-key? registry name))\n\n;; In test setup:\n(qt-register-all-commands! *command-registry*)\n\n;; Before testing a command:\n(when (command-registered? *command-registry* \"org-todo-cycle\")\n  ;; Safe to test\n  (execute-command! \"org-todo-cycle\" ...))\n\n;; Alternative: check during test discovery phase\n;; This prevents failing tests that claim a feature is broken\n;; when it's simply not registered in the Qt backend yet.",
+    "notes": "When porting TUI functional tests to Qt, don't assume command names are identical. The Qt command registry is populated by `qt-register-all-commands!` from qt/commands.ss, while TUI uses a different registration mechanism. Known renames: `org-todo` (TUI) → `org-todo-cycle` (Qt). Some TUI commands may not be registered in Qt at all (e.g. `org-priority`). Always check with `hash-key? registry name` before using in tests.",
+    "related": [
+      "qt-with-qt-app-headless-test",
+      "qt-offscreen-headless-testing"
+    ]
+  },
+  {
+    "id": "lsp-form-aware-indentation",
+    "title": "Form-aware indentation: backward scan to find containing form and count args",
+    "tags": [
+      "lsp",
+      "indentation",
+      "paren",
+      "backward-scan",
+      "indent-rules",
+      "classify-text-regions"
+    ],
+    "imports": [],
+    "code": ";; Given a text offset, scan backward to find the innermost unclosed ( or [.\n;; Read the head symbol, count complete sexps between head and cursor.\n;; Returns (values paren-off paren-col head-sym arg-pos) or (-1 0 #f 0).\n;;\n;; Uses classify-text-regions (u8vector: 0=code 1=string 2=comment) to skip\n;; over string/comment characters during backward and forward scanning.\n\n(def (find-containing-form text offset regions)\n  (let ((len (string-length text)))\n    (let loop ((i (- offset 1)) (depth 0))\n      (cond\n        ((< i 0) (values -1 0 #f 0))\n        ;; Skip string/comment chars (regions[i] > 0)\n        ((> (u8vector-ref regions i) 0) (loop (- i 1) depth))\n        (else\n         (let ((c (string-ref text i)))\n           (cond\n             ;; Going backward: ) or ] → increase nesting depth\n             ((or (char=? c #\\)) (char=? c #\\])) (loop (- i 1) (+ depth 1)))\n             ;; ( or [ → decrease depth; if depth=0, found containing form\n             ((or (char=? c #\\() (char=? c #\\[))\n              (if (> depth 0)\n                (loop (- i 1) (- depth 1))\n                (let ((paren-col (column-of-offset text i)))\n                  ;; Skip whitespace then read head symbol\n                  (let head-skip ((j (+ i 1)))\n                    (if (>= j len) (values i paren-col #f 0)\n                      (let ((sc (string-ref text j)))\n                        (cond\n                          ((or (char=? sc #\\space) (char=? sc #\\tab)\n                               (char=? sc #\\newline) (char=? sc #\\return))\n                           (head-skip (+ j 1)))\n                          ((not (is-delim? sc))\n                           ;; Read the head symbol\n                           (let head-end ((k (+ j 1)))\n                             (if (or (>= k len) (is-delim? (string-ref text k)))\n                               (values i paren-col\n                                       (substring text j k)\n                                       (count-args-in-range text k offset regions))\n                               (head-end (+ k 1)))))\n                          (else (values i paren-col #f 0)))))))))\n             (else (loop (- i 1) depth)))))))))\n\n;; Count complete sexps in text[start..end), skipping whitespace and comments.\n(def (count-args-in-range text start end regions)\n  (let loop ((i start) (count 0))\n    (cond\n      ((>= i end) count)\n      (else\n       (let ((c (string-ref text i)))\n         (cond\n           ((= (u8vector-ref regions i) 2) (loop (+ i 1) count)) ; comment\n           ((or (char=? c #\\space) (char=? c #\\tab)\n                (char=? c #\\newline) (char=? c #\\return)) (loop (+ i 1) count))\n           ((or (char=? c #\\)) (char=? c #\\])) count) ; hit closing paren\n           (else\n            (let ((next (scan-forward-sexp text i (string-length text) regions)))\n              (if (and (> next i) (<= next end))\n                (loop next (+ count 1))\n                count)))))))))\n\n;; Indent rule lookup:\n;;   indent-0:  all args at paren-col+2\n;;   indent-1:  arg-pos<1 → +4, else +2\n;;   indent-2:  arg-pos<2 → +4, else +2\n;;   defun:     arg-pos<1 → +4, else +2 (same as indent-1 but semantic differs)\n(def (calculate-indent text line)\n  (if (= line 0) 0\n    (let* ((offset (line-col->offset text line 0))\n           (regions (classify-text-regions text)))\n      (let-values (((paren-off paren-col head-sym arg-pos)\n                    (find-containing-form text offset regions)))\n        (if (< paren-off 0) 0\n          (if head-sym\n            (let ((rule (hash-ref *indent-rules* head-sym #f)))\n              (cond\n                ((number? rule) (if (< arg-pos rule) (+ paren-col 4) (+ paren-col 2)))\n                ((eq? rule 'defun) (if (< arg-pos 1) (+ paren-col 4) (+ paren-col 2)))\n                (else (+ paren-col 2))))\n            (+ paren-col 2)))))))",
+    "notes": "Key insight: going BACKWARD, closing delimiters increase depth and opening delimiters decrease it. At depth=0, we found the innermost containing form. The `classify-text-regions` u8vector lets us skip string (1) and comment (2) characters without a stateful parser. For indent-0 forms (import, begin, cond), arg-pos >= 0 always, so all args get +2. For defun forms (def, defstruct etc.), name is at +4 (arg-pos=0), body at +2 (arg-pos>=1). The `is-delim?` function must treat `(`, `)`, `[`, `]`, `\\\"`, `;`, whitespace as delimiters."
+  },
+  {
+    "id": "lsp-semantic-token-def-context",
+    "title": "LSP semantic tokens: context-aware definition name highlighting",
+    "tags": [
+      "lsp",
+      "semantic-tokens",
+      "definition",
+      "tokenizer",
+      "context",
+      "highlighting"
+    ],
+    "imports": [],
+    "code": ";; Track \"expecting definition name\" state in the tokenizer loop.\n;; After seeing a defining keyword (def, defstruct, etc.), the NEXT symbol\n;; token gets the appropriate type (function/type/macro) + definition modifier.\n\n;; Map keyword → (token-type . modifiers)\n(def *def-name-forms*\n  (let ((ht (make-hash-table)))\n    ;; function + definition\n    (for-each (lambda (s) (hash-put! ht s (cons SemanticTokenType.function\n                                                SemanticTokenModifier.definition)))\n      '(\"def\" \"define\" \"defmethod\" \"defgeneric\"))\n    ;; type + definition\n    (for-each (lambda (s) (hash-put! ht s (cons SemanticTokenType.type\n                                                SemanticTokenModifier.definition)))\n      '(\"defstruct\" \"defclass\" \"definterface\"))\n    ;; macro + definition\n    (for-each (lambda (s) (hash-put! ht s (cons SemanticTokenType.macro\n                                                SemanticTokenModifier.definition)))\n      '(\"defsyntax\" \"defrule\" \"defrules\"))\n    ;; variable + readonly\n    (hash-put! ht \"defconst\" (cons SemanticTokenType.variable SemanticTokenModifier.readonly))\n    ht))\n\n;; In the tokenizer loop, track def-ctx as a mutable variable:\n(let ((tokens '())\n      (def-ctx #f))   ;; #f or (token-type . modifiers)\n  (let loop (...)\n    ...\n    ;; When a symbol token is emitted:\n    ((symbol-start-char? c)\n     (let* ((end (find-end-of-token text i len))\n            (tok (substring text i end)))\n       ;; Apply def-ctx override if set and token is not itself a keyword\n       (let ((tok-info\n              (if (and def-ctx (not (hash-key? *keywords* tok)))\n                (list line col (string-length tok) (car def-ctx) (cdr def-ctx))\n                (classify-symbol-token tok line col))))\n         (set! tokens (cons tok-info tokens))\n         ;; Update def-ctx: consume it, or set it if this keyword defines names\n         (set! def-ctx (if def-ctx #f (hash-ref *def-name-forms* tok #f))))))\n    ...))",
+    "notes": "Works for BOTH `(def name ...)` and `(def (name args) ...)` forms: in the latter, the tokenizer skips `(` and sees `name` as the next symbol, so def-ctx is correctly applied. The key is: def-ctx is consumed (set to #f) as soon as the NEXT symbol is emitted. Keywords themselves always get classified as keyword even if def-ctx is set (the `not (hash-key? *keywords* tok)` guard prevents recursive misclassification). For dot-accessors like `obj.method`, split and emit two tokens: variable for `obj`, property for `method` (index 10 in legend)."
+  },
+  {
+    "id": "lsp-dot-accessor-token-split",
+    "title": "Split obj.method tokens into variable + property for LSP semantic highlighting",
+    "tags": [
+      "lsp",
+      "semantic-tokens",
+      "dot-accessor",
+      "property",
+      "tokenizer",
+      "split"
+    ],
+    "imports": [],
+    "code": ";; Gerbil's dot syntax (obj.slot or obj.method) reads as a single atom\n;; because '.' is a valid symbol character. For rich LSP highlighting,\n;; detect mid-dot and emit TWO tokens: variable for obj, property for method.\n\n;;; Returns (obj-part . prop-part) if name contains a dot in the middle, else #f.\n(def (dot-accessor-split name)\n  (let ((len (string-length name)))\n    (if (< len 3) #f     ;; at least \"a.b\"\n      (let loop ((i 1))\n        (cond\n          ((>= i (- len 1)) #f)           ;; no mid-dot found\n          ((char=? (string-ref name i) #\\.)\n           (cons (substring name 0 i)     ;; object part\n                 (substring name (+ i 1) len)))  ;; property part\n          (else (loop (+ i 1))))))))\n\n;; Usage in the tokenizer loop (symbol branch):\n;;   Register \"property\" as token type 10 in capabilities legend.\n(def SemanticTokenType.property 10)\n\n;; In tokenize-source, replace the plain symbol case:\n((symbol-start-char? c)\n (let* ((end (find-end-of-token text i len))\n        (tok (substring text i end))\n        (dot-split (dot-accessor-split tok)))\n   (if dot-split\n     ;; Emit obj as variable, property as property token\n     (let ((obj-len (string-length (car dot-split)))\n           (prop-len (string-length (cdr dot-split))))\n       (set! tokens (cons (list line col obj-len SemanticTokenType.variable 0) tokens))\n       ;; property starts at col + obj-len + 1 (skip the dot)\n       (set! tokens (cons (list line (+ col obj-len 1) prop-len SemanticTokenType.property 0) tokens)))\n     ;; Normal symbol classification\n     (set! tokens (cons (classify-symbol-token tok line col) tokens)))\n   (loop end line (+ col (- end i)))))",
+    "notes": "Only split on the FIRST interior dot (position 1 to len-2). Leading dots (e.g., `.foo`) and trailing dots (e.g., `foo.`) are left as-is — the loop condition `(>= i (- len 1))` handles the trailing case, and starting at index 1 handles the leading case. Add `property` to both `*semantic-token-types*` vector in semantic-tokens.ss AND `*capability-token-types*` vector in capabilities.ss — they must match by index. The Emacs eglot face for property should inherit `font-lock-property-use-face`."
+  },
+  {
+    "id": "find-project-root-walk-up",
+    "title": "Walk up directory tree to find project root (build.ss or gerbil.pkg)",
+    "tags": [
+      "project",
+      "root",
+      "directory",
+      "walk-up",
+      "path-directory",
+      "build",
+      "gerbil.pkg"
+    ],
+    "imports": [],
+    "code": ";; Walk up from a file path to find the project root.\n;; Use Gambit's path-directory builtin (no import needed) — cleaner than manual scanning.\n\n;;; Return the parent directory of path (stripping trailing slash first).\n;;; Returns #f if already at filesystem root.\n(def (find-parent-dir path)\n  ;; Strip trailing slash if present\n  (let* ((p (let ((len (string-length path)))\n               (if (and (> len 1) (char=? (string-ref path (- len 1)) #\\/))\n                 (substring path 0 (- len 1))\n                 path)))\n         (parent (path-directory p)))\n    ;; path-directory returns \"\" for bare filenames, \"/\" for root children\n    (cond\n      ((string=? parent \"\") #f)\n      ((string=? parent p) #f)   ;; no change means we're at root\n      (else\n       ;; Strip trailing slash from result for consistent behavior\n       (let ((plen (string-length parent)))\n         (if (and (> plen 1) (char=? (string-ref parent (- plen 1)) #\\/))\n           (substring parent 0 (- plen 1))\n           parent))))))\n\n;;; Walk upward from file-path to find a directory containing build.ss or gerbil.pkg.\n;;; Returns the directory path string, or #f if not found.\n(def (find-project-root file-path)\n  (let dir-loop ((dir (find-parent-dir file-path)))\n    (if (not dir) #f\n      (if (or (file-exists? (string-append dir \"/build.ss\"))\n              (file-exists? (string-append dir \"/gerbil.pkg\")))\n        dir\n        (dir-loop (find-parent-dir dir))))))\n\n;; Example:\n(find-project-root \"/home/user/project/src/foo/bar.ss\")\n;; => \"/home/user/project\"  (if that dir contains build.ss)\n;; => #f                    (if no build.ss or gerbil.pkg found above)",
+    "notes": "Use Gambit's built-in `path-directory` (no import needed) rather than manually scanning backward for `/`. `path-directory` returns a trailing slash (e.g. `\"/foo/bar/\"`) so strip it for consistent comparison. The guard `(string=? parent p)` catches the edge case where `path-directory` returns the same path (signals we've hit the root). You can extend the sentinel files: add `\"Makefile\"`, `\".git\"`, or `\"gerbil-project.json\"` to the `or` condition as needed for your project layout."
+  },
+  {
+    "id": "ffi-two-module-export-t",
+    "title": "FFI two-module pattern: add (export #t) to libfoo.ss for constants to be visible",
+    "tags": [
+      "ffi",
+      "begin-ffi",
+      "export",
+      "constants",
+      "two-module",
+      "extern",
+      "build",
+      "unbound"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; libfoo.ss — Layer 1: raw FFI bindings\n(import :std/foreign)\n(export #t)        ;; REQUIRED: without this, extern/define-const are NOT\n                   ;; exported when the build system loads from source.\n                   ;; The begin-ffi export list alone is insufficient.\n\n(begin-ffi\n  (MY_CONST ffi-func ...)\n  (c-declare #<<C\n    #define MY_CONST 42\n  C)\n  (define-const MY_CONST)\n  (define-c-lambda ffi-func () int \"my_func\"))\n\n;; foo.ss — Layer 2: high-level API\n(import ./libfoo)\n\n;; MY_CONST and ffi-func are now visible here",
+    "notes": "When the gerbil build system (make-build / import/mx) loads libfoo.ss from source to analyze dependencies, module-context-export returns 0 for the begin-ffi exports unless (export #t) is declared at the top module level. Without it, all constants and extern bindings from begin-ffi are invisible to importing modules during the build expansion phase, causing 'Reference to unbound identifier' errors for any constant used in foo.ss. Pattern confirmed from gerbil-cairo and gerbil-qt. Always add (export #t) before begin-ffi in any FFI binding module.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "ffi-pcre2-context-null-wrappers",
+    "title": "PCRE2 FFI: wrap context/stack NULL args in C shims — direct c-lambda calls fail",
+    "tags": [
+      "ffi",
+      "pcre2",
+      "c-lambda",
+      "context",
+      "null",
+      "wrapper",
+      "too-few-arguments",
+      "pcre2_match",
+      "pcre2_jit_match"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Many PCRE2 functions take optional context/stack pointer as their last arg.\n;; Gambit's c-lambda generates a C call with exactly the listed arg count,\n;; so you CANNOT call pcre2_match_8 directly with 6 args — it needs 7.\n;; Create thin C wrappers that pass NULL for the context/stack.\n\n(begin-ffi (...)\n  (c-declare #<<C\n#define PCRE2_CODE_UNIT_WIDTH 8\n#include <pcre2.h>\n\n/* Wrap match: passes NULL for match_context */\nstatic int ffi_pcre2_match(\n    const pcre2_code_8* code,\n    const char* subject, size_t length,\n    size_t startoffset, uint32_t options,\n    pcre2_match_data_8* match_data)\n{\n    return pcre2_match_8(code, (PCRE2_SPTR8)subject, length,\n                         startoffset, options, match_data, NULL);\n}\n\n/* Wrap match_data_create_from_pattern: passes NULL for general_context */\nstatic pcre2_match_data_8* ffi_pcre2_match_data_create_from_pattern(\n    const pcre2_code_8* code)\n{\n    return pcre2_match_data_create_from_pattern_8(code, NULL);\n}\n\n/* Wrap match_data_create: passes NULL for general_context */\nstatic pcre2_match_data_8* ffi_pcre2_match_data_create(uint32_t ovecsize) {\n    return pcre2_match_data_create_8(ovecsize, NULL);\n}\n\n/* Wrap jit_match: passes NULL for jit_stack */\nstatic int ffi_pcre2_jit_match(\n    const pcre2_code_8* code,\n    const char* subject, size_t length,\n    size_t startoffset, uint32_t options,\n    pcre2_match_data_8* match_data)\n{\n    return pcre2_jit_match_8(code, (PCRE2_SPTR8)subject, length,\n                              startoffset, options, match_data, NULL);\n}\nC)\n\n  (define-c-lambda ffi-pcre2-match\n    (pcre2-code* char-string size_t size_t unsigned-int32 pcre2-match-data*)\n    int\n    \"ffi_pcre2_match\")   ;; NOT \"pcre2_match_8\" directly!\n\n  (define-c-lambda ffi-pcre2-match-data-create-from-pattern\n    (pcre2-code*) pcre2-match-data*\n    \"ffi_pcre2_match_data_create_from_pattern\")\n\n  (define-c-lambda ffi-pcre2-match-data-create\n    (unsigned-int32) pcre2-match-data*\n    \"ffi_pcre2_match_data_create\")\n\n  (define-c-lambda ffi-pcre2-jit-match\n    (pcre2-code* char-string size_t size_t unsigned-int32 pcre2-match-data*)\n    int\n    \"ffi_pcre2_jit_match\"))",
+    "notes": "Rule: if a C function has more parameters than you want to expose (context/stack/etc), always write a C shim and reference it in define-c-lambda. The error 'too few arguments to function' at C compilation time is the symptom. Affects: pcre2_match_8 (7 args, needs match_context), pcre2_match_data_create_from_pattern_8 (2 args, needs general_context), pcre2_match_data_create_8 (2 args, needs general_context), pcre2_jit_match_8 (7 args, needs jit_stack).",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "substring-requires-three-args",
+    "title": "substring requires 3 args in Gerbil/Gambit — no 2-arg form",
+    "tags": [
+      "substring",
+      "string",
+      "gambit",
+      "arity",
+      "slice",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; WRONG — Gambit's substring requires exactly 3 args: string, start, end\n;; (substring s start)           ; ERROR: wrong number of arguments\n\n;; CORRECT — always supply the end index\n(def s \"hello world\")\n(substring s 6 (string-length s))   ; => \"world\"\n(substring s 0 5)                    ; => \"hello\"\n\n;; If you just want \"from start to end of string\":\n(substring s 6 (string-length s))   ; explicit\n\n;; Alternative using string-copy (also works):\n(string-copy s 6)                    ; 2-arg form IS valid for string-copy",
+    "notes": "Unlike R7RS which allows (substring s start) as an optional-end shorthand, Gambit's substring is strictly 3-arity. When porting from Racket or R7RS code that uses (substring s start) without an end, replace with (substring s start (string-length s)). string-copy does accept 2 args and can be used instead.",
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "qt-open-process-no-process-status",
+    "title": "Avoid process-status in Qt executables — SIGCHLD handler races with Gambit waitpid",
+    "tags": [
+      "qt",
+      "process",
+      "sigchld",
+      "process-status",
+      "waitpid",
+      "race",
+      "open-process",
+      "hang",
+      "subprocess",
+      "deadlock"
+    ],
+    "imports": [],
+    "code": ";; WRONG in Qt executables — hangs indefinitely:\n(def (run-git-qt args dir)\n  (let* ((p (open-process (list path: \"/usr/bin/git\"\n                                arguments: args\n                                directory: dir\n                                stdout-redirection: #t\n                                stderr-redirection: #t)))\n         (output (read-line p #f)))\n    (process-status p)    ;; <-- DANGER: races with Qt's SIGCHLD handler\n    (close-port p)\n    (or output \"\")))\n\n;; CORRECT in Qt executables — omit process-status:\n(def (run-git-qt args dir)\n  \"Run a git command in DIR and return stdout as a string.\n   NOTE: intentionally omits (process-status p) to avoid a race with Qt's\n   SIGCHLD handler. Qt installs a handler that calls waitpid(-1,...,WNOHANG)\n   reaping ALL child zombies. If Qt's handler reaps the child before Gambit's\n   waitpid(pid,...) in process-status runs, Gambit blocks indefinitely on ECHILD.\n   (read-line p #f) already blocks until stdout EOF, which happens when the\n   process exits and closes its write end of the pipe — so process-status is\n   redundant. The zombie is reaped by Qt's handler or OS on process exit.\"\n  (with-catch\n    (lambda (e) \"\")\n    (lambda ()\n      (let* ((p (open-process (list path: \"/usr/bin/git\"\n                                    arguments: args\n                                    directory: dir\n                                    stdout-redirection: #t\n                                    stderr-redirection: #t)))\n             (output (read-line p #f)))\n        (close-port p)\n        (or output \"\")))))\n\n;; For multi-step subprocess setup in Qt tests: use a single /bin/sh -c script\n;; instead of multiple open-process calls to minimize SIGCHLD events.\n(def (qt-setup-git-repo! dir)\n  (let ((script (string-append\n                  \"git init -q \" dir \" && \"\n                  \"git -C \" dir \" config user.email test@example.com && \"\n                  \"git -C \" dir \" commit -m 'init'\")))\n    (let ((p (open-process (list path: \"/bin/sh\"\n                                 arguments: (list \"-c\" script)\n                                 stdout-redirection: #t\n                                 stderr-redirection: #t))))\n      (read-line p #f)   ;; drain stdout, blocks until process exits\n      (close-port p))))  ;; omit process-status for same reason as above",
+    "notes": "Root cause: Qt installs a SIGCHLD handler via QCoreApplication that calls waitpid(-1, &status, WNOHANG) to reap ALL child zombie processes. When a Qt executable spawns subprocesses via Gambit's open-process and then calls (process-status p), there is a race: if Qt's handler runs first and reaps the child, Gambit's internal waitpid(pid, ...) call (inside process-status) gets ECHILD and blocks indefinitely. This affects ANY Qt Gambit executable (gemacs-qt, qt-functional-test, etc.) that spawns subprocesses and calls process-status. The fix is to simply omit process-status — (read-line p #f) suffices to wait for the process to finish because stdout EOF only happens when all write ends of the pipe are closed, which occurs when the process exits. The zombie cleanup is handled by Qt or OS on exit. For TUI binaries (without Qt), process-status works normally and should be retained.",
+    "related": [
+      "open-process-capture-output",
+      "run-process-subprocess"
+    ],
+    "gerbil_version": "v0.18.1-173"
+  },
+  {
+    "id": "gerbil-test-sigsegv-cleanup-makefile",
+    "title": "Handle gerbil test SIGSEGV-on-success in Makefile (Qt FFI module cleanup crash)",
+    "tags": [
+      "test",
+      "makefile",
+      "segfault",
+      "sigsegv",
+      "exit-code",
+      "139",
+      "cleanup",
+      "gambit",
+      "ffi",
+      "qt",
+      "gerbil-test"
+    ],
+    "imports": [],
+    "code": "# Makefile fix for gerbil test SIGSEGV on clean exit\n#\n# Problem: when `gerbil test` runs in a project that imports Qt/FFI modules,\n# Gambit's runtime cleanup (finalizers, GC) can segfault after all tests pass.\n# The segfault only happens on the SUCCESS path because:\n#   - gerbil test calls (exit 42) immediately on test FAILURE, bypassing cleanup\n#   - on SUCCESS, it falls through and Gambit runs cleanup → SIGSEGV → exit 139\n# So exit 139 (SIGSEGV) is a reliable indicator that all tests PASSED.\n#\ntest: build\n\t@# Exit 139 (SIGSEGV) = Gambit cleanup crash after all tests pass (pre-existing\n\t@# Qt FFI module finalization issue in interpreter mode). Only the success path\n\t@# reaches Gambit cleanup; failures exit 42 cleanly via gerbil test's (exit 42).\n\tgerbil test; EC=$$?; [ $$EC -eq 139 ] && exit 0 || exit $$EC",
+    "notes": "This pattern is safe because gerbil test exits with code 42 when any test fails (via an explicit (exit 42) call in gxtest.ss), bypassing Gambit's cleanup code entirely. Only when ALL tests pass does gerbil test fall through to normal process exit, triggering Gambit's cleanup routines which crash when Qt FFI modules have been loaded in interpreter mode (they have undefined-variable references to Qt symbols that cause problems during module finalization). The '[ $EC -eq 139 ]' check specifically matches SIGSEGV exit code and treats it as success. All other non-zero exit codes (42 = test failure, 137 = SIGKILL, 143 = SIGTERM, etc.) propagate as failures.",
+    "gerbil_version": "v0.18.1-173"
+  },
+  {
+    "id": "ffi-define-const-unsigned-int32-overflow",
+    "title": "Fix define-const unsigned int32 overflow when passing to FFI",
+    "tags": [
+      "ffi",
+      "define-const",
+      "unsigned-int32",
+      "overflow",
+      "bitwise-and",
+      "mask",
+      "PCRE2_ANCHORED",
+      "uint32"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Problem: define-const loads C unsigned constants like 0x80000000\n;; as signed fixnums (-2147483648). When passed to unsigned-int32\n;; FFI parameters, Gambit rejects the negative value:\n;;   \"Can't convert to C unsigned-int32\"\n;;\n;; Example: PCRE2_ANCHORED = 0x80000000u → loaded as -2147483648\n;; (bitwise-ior PCRE2_ANCHORED PCRE2_ENDANCHORED) → -1610612736\n;; Passing this to (c-lambda ... unsigned-int32 ...) crashes.\n\n;; Fix: mask to 32-bit unsigned before FFI calls\n(def (u32 n) (bitwise-and n #xFFFFFFFF))\n\n;; Usage in FFI calls:\n;; (ffi-pcre2-match code subject slen start (u32 options) md)\n;; (ffi-pcre2-compile pattern plen (u32 options))\n\n;; Verification:\n;; (u32 -2147483648) → 2147483648 (correct unsigned value)\n;; (u32 (bitwise-ior -2147483648 #x20000000)) → 2684354560",
+    "notes": "This affects ANY C constant with bit 31 set (>= 0x80000000) loaded via define-const inside begin-ffi. On 64-bit systems, Gambit fixnums have enough range to hold the unsigned value after masking. Always apply u32 at the FFI call boundary, not at define-const time, so bitwise operations in Scheme work correctly with negative fixnums.",
+    "related": [
+      "ffi-two-module-export-t",
+      "ffi-pcre2-context-null-wrappers"
+    ]
+  },
+  {
+    "id": "ffi-ovector-bounds-check",
+    "title": "Always bounds-check ovector/array index in C FFI shims",
+    "tags": [
+      "ffi",
+      "bounds-check",
+      "ovector",
+      "array",
+      "security",
+      "out-of-bounds",
+      "C-shim",
+      "pcre2"
+    ],
+    "imports": [],
+    "code": "/* C shim pattern: bounds-check before array access.\n * Scheme callers can pass arbitrary indices — always validate.\n *\n * BAD: no bounds check, OOB read from Scheme triggers UB\n */\nstatic size_t ffi_ovector_start_UNSAFE(pcre2_match_data_8* md, uint32_t idx) {\n    PCRE2_SIZE* ov = pcre2_get_ovector_pointer_8(md);\n    return ov[2*idx];  /* UB if idx >= count */\n}\n\n/* GOOD: validate idx against known count */\nstatic size_t ffi_ovector_start(pcre2_match_data_8* md, uint32_t idx) {\n    uint32_t count = pcre2_get_ovector_count_8(md);\n    if (idx >= count) return PCRE2_UNSET;  /* safe sentinel */\n    PCRE2_SIZE* ov = pcre2_get_ovector_pointer_8(md);\n    return ov[2*idx];\n}\n\n/* Same pattern for is-unset check */\nstatic int ffi_ovector_is_unset(pcre2_match_data_8* md, uint32_t idx) {\n    uint32_t count = pcre2_get_ovector_count_8(md);\n    if (idx >= count) return 1;  /* treat OOB as unset */\n    PCRE2_SIZE* ov = pcre2_get_ovector_pointer_8(md);\n    return ov[2*idx] == PCRE2_UNSET;\n}",
+    "notes": "Any C shim that accepts an index from Scheme and accesses an array MUST validate bounds. Scheme callers are untrusted — a wrong group index from user code should not cause undefined behavior. Return a safe sentinel value (PCRE2_UNSET, 0, NULL) for out-of-bounds access rather than crashing."
+  },
+  {
+    "id": "ffi-thread-safe-match-data-per-call",
+    "title": "Allocate FFI match-data per call for thread safety",
+    "tags": [
+      "ffi",
+      "thread-safety",
+      "match-data",
+      "per-call",
+      "pcre2",
+      "mutex",
+      "concurrent"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Problem: sharing a single match-data across all calls to a compiled\n;; regex is NOT thread-safe. Concurrent matches corrupt results silently.\n;;\n;; BAD: shared match-data per regex\n;; (def (do-match rx subject start options)\n;;   (let* ((md (my-regex-match-data rx))  ;; shared!\n;;          (rc (ffi-match code subject slen start options md)))\n;;     ...))\n;;\n;; GOOD: allocate per-call match-data, optionally accept from caller for loops\n(def (do-match rx subject start options (md #f))\n  (let* ((code (my-regex-code rx))\n         (md   (or md (ffi-match-data-create-from-pattern code)))\n         (rc   (ffi-match code subject slen start options md)))\n    ...))\n\n;; For iteration functions, allocate once and reuse across the loop:\n(def (fold-matches rx kons knil subject)\n  (let* ((md (ffi-match-data-create-from-pattern (my-regex-code rx))))\n    (let loop ((pos 0) (acc knil))\n      (let ((m (do-match rx subject pos 0 md)))  ;; reuse md\n        ...))))\n\n;; For mutex-protected operations (e.g. substitute with static C buffer),\n;; using the regex's match-data is safe since the mutex serializes access.",
+    "notes": "PCRE2 match-data is cheap to allocate (GC-managed with finalizer). The per-call overhead is negligible compared to the regex match itself. For tight loops (fold, split, find-all), allocate once outside the loop and pass as parameter to avoid repeated allocation. Keep a per-regex match-data only for mutex-protected operations like substitute.",
+    "related": [
+      "mutex-unwind-protect-deadlock-prevention"
+    ]
+  },
+  {
+    "id": "char-membership-memv-not-string-contains",
+    "title": "Use memv on char list instead of string-contains for char membership",
+    "tags": [
+      "memv",
+      "char",
+      "membership",
+      "performance",
+      "string-contains",
+      "string-for-each",
+      "optimization"
+    ],
+    "imports": [],
+    "code": ";; BAD: allocates a new string per character via (string c)\n(def _meta-chars \"\\\\^$.|?*+()[]{}#\")\n(string-for-each\n  (lambda (c)\n    (when (string-contains _meta-chars (string c))  ;; allocates!\n      (write-char #\\\\ p))\n    (write-char c p))\n  str)\n\n;; GOOD: use memv on a pre-built char list — zero allocation per iteration\n(def _meta-chars-list (string->list \"\\\\^$.|?*+()[]{}#\"))\n(string-for-each\n  (lambda (c)\n    (when (memv c _meta-chars-list)  ;; no allocation\n      (write-char #\\\\ p))\n    (write-char c p))\n  str)",
+    "notes": "memv uses eqv? which is correct for char comparison. Pre-compute the char list once at module load time with string->list. For very large character sets, consider a hash-table or char-set (from :std/srfi/14) instead."
+  },
+  {
+    "id": "qt-scintilla-singleton-test-widget",
+    "title": "Singleton QsciScintilla widget pattern for Qt headless test suites",
+    "tags": [
+      "qt",
+      "scintilla",
+      "test",
+      "headless",
+      "singleton",
+      "performance",
+      "offscreen",
+      "widget",
+      "reuse"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Creating a new QsciScintilla widget per test takes 2-5s in headless\n;; (QT_QPA_PLATFORM=offscreen) mode. 50 tests × 3s = 150s of pure overhead.\n;; ALSO: qt-scintilla-destroy! / qt-widget-destroy! can hang without an event loop.\n\n;; SOLUTION: Create one singleton widget, reuse it across all tests.\n\n(def *qt-test-singleton-ed* #f)\n(def *qt-test-singleton-w*  #f)\n\n(def (qt-test-singleton-init!)\n  (unless *qt-test-singleton-ed*\n    (set! *qt-test-singleton-w*  (qt-widget-create))\n    (set! *qt-test-singleton-ed* (qt-scintilla-create parent: *qt-test-singleton-w*))))\n\n;; Create a test app using the singleton widget. Each call gets a fresh\n;; buffer/window/frame/app-state but reuses the underlying Qt widget.\n(def (make-qt-test-app name)\n  (qt-test-singleton-init!)\n  (let* ((ed  *qt-test-singleton-ed*)\n         (doc (sci-send ed SCI_GETDOCPOINTER))\n         (buf (make-buffer name #f doc #f #f #f #f))\n         (win (make-qt-edit-window ed #f buf #f #f #f))\n         (fr  (make-qt-frame #f (list win) 0 #f))\n         (app (new-app-state fr)))\n    (values ed *qt-test-singleton-w* app)))\n\n;; No-op: singleton widget is reused across tests and cleaned up on exit.\n;; Calling qt-scintilla-destroy! / qt-widget-destroy! without a running event\n;; loop hangs indefinitely in headless mode.\n(def (destroy-qt-test-app! ed w)\n  (void))\n\n;; Usage in test suite:\n(def (run-my-test-group)\n  (let-values (((ed w app) (make-qt-test-app \"test.ss\")))\n    ;; test 1 — all tests share the same ed/w\n    (execute-command! app 'forward-char)\n    (pass-or-fail! (= (qt-plain-text-edit-cursor-position ed) 1))\n    ;; test 2\n    (execute-command! app 'beginning-of-buffer)\n    (pass-or-fail! (= (qt-plain-text-edit-cursor-position ed) 0))\n    (destroy-qt-test-app! ed w)))  ; no-op, for symmetry",
+    "notes": "QsciScintilla widget creation is slow in headless mode (~2-5s) because Qt needs to initialize the offscreen renderer and event system for each new widget. Using a singleton reduces N widgets to 1. The destroy function must be a no-op — calling qt-scintilla-destroy! without a running event loop (QApplication::exec()) hangs indefinitely. The singleton is automatically cleaned up when the process exits. Each test still gets a fresh app-state (fresh keymap, buffer state, command registry) by calling new-app-state; only the underlying Qt C++ widget object is shared.",
+    "related": [
+      "qt-with-qt-app-headless-test",
+      "qt-open-process-no-process-status"
+    ],
+    "gerbil_version": "v0.18.1-173"
+  },
+  {
+    "id": "ffi-string-length-byte-length-mismatch",
+    "title": "string-length returns char count, not byte count — use string->bytes for FFI length params",
+    "tags": [
+      "ffi",
+      "string-length",
+      "byte-length",
+      "UTF-8",
+      "char-string",
+      "PCRE2_ZERO_TERMINATED",
+      "string->bytes",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Gambit's char-string FFI type encodes Scheme strings as UTF-8\n;; C strings. But (string-length s) returns the CHARACTER count, not the\n;; BYTE count. For multi-byte UTF-8 text, char-count < byte-count.\n;;\n;; If you pass (string-length s) to a C function expecting byte length,\n;; the C code sees a truncated string. This causes:\n;; - \"UTF-8 error: N byte(s) missing at end\" from libraries validating UTF-8\n;; - Corrupted match/search positions (byte offsets past char-count)\n;; - Buffer over-reads when JIT/optimized code skips validation\n;;\n;; Example:\n;;   (string-length \"café\")       => 4  (characters)\n;;   (u8vector-length (string->bytes \"café\")) => 5  (UTF-8 bytes)\n\n;; SOLUTION 1: Use PCRE2_ZERO_TERMINATED (or equivalent) to let the C\n;; library compute strlen() itself. Best when the API supports it.\n;;\n;; In C shim (c-declare):\n;;   pcre2_compile_8(pattern, PCRE2_ZERO_TERMINATED, options, ...);\n;;\n;; Remove the length parameter from the Scheme-facing c-lambda entirely.\n\n;; SOLUTION 2: Compute byte length in Scheme when C API requires it.\n(def (string-utf8-byte-length s)\n  (u8vector-length (string->bytes s)))\n\n;; Then in the FFI call:\n;; (ffi-my-function subject (string-utf8-byte-length subject))\n\n;; SOLUTION 3: When you need to convert between byte offsets (from C)\n;; and char indices (for Scheme substring):\n(def (utf8-byte-length b)\n  (cond ((&lt; b #x80) 1) ((&lt; b #xE0) 2) ((&lt; b #xF0) 3) (else 4)))\n\n(def (byte-offset->char-index bv byte-off)\n  (let loop ((bi 0) (ci 0))\n    (if (>= bi byte-off) ci\n      (loop (+ bi (utf8-byte-length (u8vector-ref bv bi)))\n            (+ ci 1)))))\n\n(def (char-index->byte-offset bv char-idx)\n  (let loop ((bi 0) (ci 0))\n    (if (>= ci char-idx) bi\n      (loop (+ bi (utf8-byte-length (u8vector-ref bv bi)))\n            (+ ci 1)))))\n\n;; Usage: convert PCRE2/C byte offsets to Scheme char indices\n;; (def bv (string->bytes subject))\n;; (def char-start (byte-offset->char-index bv pcre2-byte-start))\n;; (def char-end   (byte-offset->char-index bv pcre2-byte-end))\n;; (substring subject char-start char-end)  ;; safe!",
+    "notes": "This is a critical gotcha for ANY C library FFI that takes string + length parameters. Gambit's char-string converts to UTF-8 C strings, but string-length returns character count. For ASCII-only strings they're equal, so the bug is invisible until non-ASCII text is used. Always prefer letting the C side compute strlen() via sentinel values (like PCRE2_ZERO_TERMINATED), or use (u8vector-length (string->bytes s)) for the byte count. Pre-compute (string->bytes subject) once and reuse in loops to avoid repeated allocation.",
+    "related": [
+      "ffi-utf8-string-unicode-support",
+      "scintilla-text-based-line-extraction",
+      "ffi-pcre2-context-null-wrappers"
+    ]
+  },
+  {
+    "id": "ffi-thread-local-static-buffer",
+    "title": "Use __thread for thread-safe static C buffers in c-declare",
+    "tags": [
+      "ffi",
+      "thread-local",
+      "__thread",
+      "c-declare",
+      "static",
+      "buffer",
+      "thread-safety",
+      "mutex"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; PROBLEM: Static C buffers in c-declare are shared across all Scheme\n;; threads. If two threads call the same FFI function concurrently,\n;; one can overwrite the buffer while the other is reading it.\n;;\n;; Common pattern that's NOT thread-safe:\n;;   static char errbuf[512];\n;;   static const char* get_error(int code) {\n;;       format_error(code, errbuf, sizeof(errbuf));\n;;       return errbuf;  // <-- race condition!\n;;   }\n;;\n;; SOLUTION: Use __thread (GCC/Clang extension) for thread-local storage.\n;; Each thread gets its own copy of the buffer.\n\n(begin-ffi (my-get-error)\n  (c-declare #&lt;&lt;END\n#include &lt;string.h&gt;\n\n/* __thread gives each OS thread its own buffer — no races */\nstatic __thread char _errbuf[512];\n\nstatic const char* my_get_error(int code) {\n    snprintf(_errbuf, sizeof(_errbuf), \"Error %d\", code);\n    return _errbuf;\n}\nEND\n  )\n  (define-c-lambda my-get-error (int) char-string \"my_get_error\")\n)\n\n;; Gambit's char-string return type copies the C string into a Scheme\n;; string before the c-lambda returns, so the __thread buffer is read\n;; within the same thread — no cross-thread access.",
+    "notes": "__thread is supported on GCC, Clang, and MSVC (__declspec(thread)). For C11 standard compliance, use _Thread_local instead. Both work in Gambit's c-declare blocks since the C compiler processes them normally. Alternative: protect with a Scheme mutex if __thread is not available, but __thread has zero overhead per call vs mutex lock/unlock.",
+    "related": [
+      "ffi-c-shim-static-return-buffer"
+    ]
+  },
+  {
+    "id": "ffi-distinguish-nomatch-from-real-errors",
+    "title": "Distinguish NOMATCH from real errors in C library return codes",
+    "tags": [
+      "ffi",
+      "error-handling",
+      "NOMATCH",
+      "pcre2",
+      "substitute",
+      "replace",
+      "silent-failure",
+      "negative-return"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: Many C libraries use negative return codes for BOTH \"not found\"\n;; (benign) and real errors (bad input, OOM, etc.). If you treat all\n;; negative codes the same, real errors are silently swallowed.\n;;\n;; BAD — silently returns original on ALL errors:\n;; (if (< rc 0) subject (get-result))\n;;\n;; GOOD — distinguish no-match from real errors:\n;; (cond\n;;   ((>= rc 0) (get-result))           ; success\n;;   ((= rc ERROR_NOMATCH) subject)     ; benign: no match found\n;;   (else (raise-my-error 'fn rc)))    ; real error: bad pattern, OOM, etc.\n\n;; Example: PCRE2 substitute returns:\n;;   >= 0  : number of replacements made\n;;   -1    : PCRE2_ERROR_NOMATCH (no match, return original)\n;;   -35   : PCRE2_ERROR_BADREPLACE (bad replacement syntax)\n;;   -48   : PCRE2_ERROR_NOMEMORY (allocation failed)\n;; Only NOMATCH should silently return the original string.\n\n;; Pattern for Gerbil FFI wrappers:\n(def (my-replace rx subject replacement)\n  (let ((rc (ffi-do-replace rx subject replacement)))\n    (cond\n      ((>= rc 0)\n       (begin0 (ffi-get-result) (ffi-free-result)))\n      ((= rc MY_ERROR_NOMATCH) subject)\n      (else (error \"replacement failed\" (ffi-get-error-message rc))))))",
+    "notes": "This pattern applies to PCRE2, SQLite, zlib, and many other C libraries that use negative return codes. The key insight: 'not found' is a valid result that should return a default, but other negative codes indicate real problems that must be surfaced to the caller. Always check the C library's error code documentation to identify which negative code means 'not found' vs real error."
+  },
+  {
+    "id": "srfi-115-regexp-fold-signature",
+    "title": "SRFI-115 regexp-fold kons and finish take 4 arguments",
+    "tags": [
+      "srfi-115",
+      "regexp-fold",
+      "fold",
+      "regex",
+      "accumulator",
+      "arity"
+    ],
+    "imports": [
+      ":std/srfi/115"
+    ],
+    "code": ";; regexp-fold signature:\n;;   (regexp-fold rx kons knil str [finish [start [end]]])\n;; kons:   (lambda (i match str acc) ...) — 4 args, NOT 2!\n;; finish: (lambda (i match str acc) ...) — also 4 args\n;;\n;; i = current index, match = SRE match object or #f (for finish),\n;; str = the subject string, acc = accumulator\n\n(import :std/srfi/115)\n\n;; Sum all digit sequences in a string\n(def (sum-digits str)\n  (regexp-fold\n    '(+ digit)                              ;; SRE pattern\n    (lambda (i m s acc)                     ;; kons: 4 args\n      (+ acc (string->number (regexp-match-submatch m 0))))\n    0                                       ;; initial accumulator\n    str\n    (lambda (i m s acc) acc)))              ;; finish: 4 args\n\n(sum-digits \"1 plus 2 plus 3\")  ;; => 6",
+    "notes": "Common mistake: passing a 2-arg lambda (match acc) to regexp-fold. The kons and finish callbacks both require exactly 4 arguments: (index match-or-false string accumulator). The finish callback receives #f for the match argument.",
+    "related": [
+      "srfi-115-basic-match"
+    ]
+  },
+  {
+    "id": "gerbil-format-fixed-point-workaround",
+    "title": "Manual fixed-point number formatting (workaround for missing ~,Nf)",
+    "tags": [
+      "format",
+      "number",
+      "fixed-point",
+      "decimal",
+      "printf",
+      "float"
+    ],
+    "imports": [
+      ":std/format"
+    ],
+    "code": ";; Gerbil's :std/format does NOT support ~,1f or ~va format specifiers.\n;; Use this manual formatter for fixed-point decimal output.\n\n(def (fmt-fixed n decimals)\n  \"Format number n with exactly `decimals` decimal places.\"\n  (let* ((factor (expt 10 decimals))\n         (scaled (inexact->exact (round (* (abs n) factor))))\n         (int-part (quotient scaled factor))\n         (frac-part (remainder scaled factor))\n         (frac-str (number->string frac-part))\n         ;; Pad fractional part with leading zeros\n         (frac-padded (string-append\n                        (make-string (- decimals (string-length frac-str)) #\\0)\n                        frac-str))\n         (sign (if (< n 0) \"-\" \"\")))\n    (string-append sign (number->string int-part) \".\" frac-padded)))\n\n(fmt-fixed 3.14159 2)   ;; => \"3.14\"\n(fmt-fixed 0.5 3)       ;; => \"0.500\"\n(fmt-fixed 100.0 1)     ;; => \"100.0\"",
+    "notes": "Gerbil's :std/format is based on SRFI-48 and lacks Common Lisp-style ~,Nf (fixed-point float) and ~va (variable-width alignment). For tabular output, also write a manual pad-right: (def (pad-right s w) (string-append s (make-string (max 0 (- w (string-length s))) #\\space)))"
+  },
+  {
+    "id": "let-values-underscore-rebind",
+    "title": "let-values: cannot reuse _ for multiple ignored bindings",
+    "tags": [
+      "let-values",
+      "underscore",
+      "rebind",
+      "destructuring",
+      "values",
+      "ignore"
+    ],
+    "imports": [],
+    "code": ";; WRONG — causes \"Bad binding; rebind conflict\" error:\n;; (let-values (((wall _ _ _) (##process-statistics)))\n;;   wall)\n\n;; CORRECT — use distinct variable names for ignored values:\n(let-values (((wall _cpu _gc _gcs) (##process-statistics)))\n  wall)\n\n;; Alternative: use values with receive (but that's more verbose)\n;; Or destructure only what you need with call-with-values",
+    "notes": "In Gerbil/Gambit, _ is NOT a wildcard pattern in let-values — it's a real binding. Using _ more than once in the same binding form triggers 'Bad binding; rebind conflict'. Use distinct throwaway names like _a, _b or _cpu, _gc instead."
+  },
+  {
+    "id": "qt-exe-open-process-thread-io-hangs",
+    "title": "open-process pipe reads in background threads hang in compiled Qt executables",
+    "tags": [
+      "qt",
+      "open-process",
+      "thread",
+      "pipe",
+      "hang",
+      "scheduler",
+      "gambit",
+      "exe",
+      "io",
+      "lsp"
+    ],
+    "imports": [],
+    "code": "\n;; PROBLEM: In a Gerbil exe compiled with Qt (linking :gerbil-qt/qt),\n;; background Gambit green threads that call read-line on an open-process\n;; pipe NEVER get scheduled to receive responses. The thread blocks forever.\n;;\n;; This affects any code that:\n;;   (thread-start! (make-thread (lambda () (read-line proc)) 'reader))\n;;   (wait-for (lambda () result) \"response\" 20000)  ; TIMES OUT\n;;\n;; Root cause: Qt's event dispatcher (QEventDispatcherPoll / epoll-based)\n;; interferes with Gambit's internal pipe fd I/O readiness scheduling.\n;; When Qt's processEvents() runs, it consumes I/O readiness signals that\n;; Gambit's thread scheduler was waiting for.\n;;\n;; CONFIRMED: The same code works perfectly in gxi interpreter (5ms response).\n;; CONFIRMED: gerbil-lsp subprocess does respond — it logs the initialize request —\n;; but our reader thread never gets woken up to read the response.\n;;\n;; WORKAROUNDS:\n;;\n;; Option A: Run LSP/subprocess I/O tests OUTSIDE with-qt-app context.\n;; Split into two test files: one for protocol tests (gerbil test, no Qt)\n;; and one for Qt dispatch tests.\n;;\n;; Option B: Use pseudo-terminal instead of pipe for subprocess I/O.\n;; PTYs use a different fd mechanism that may not be affected.\n;;\n;; Option C: Use a native OS thread (not Gambit green thread) for reading.\n;; See Gambit docs on ##make-thread with os-thread options.\n\n;; DIAGNOSTIC: Test if subprocess I/O + threads work in your exe:\n(def (test-subprocess-io-in-exe)\n  (def result #f)\n  (def proc (open-process (list path: \"/bin/echo\"\n                                arguments: '(\"hello\")\n                                stdin-redirection: #f\n                                stdout-redirection: #t\n                                stderr-redirection: #f)))\n  (thread-start!\n    (make-thread\n      (lambda () (set! result (read-line proc)))\n      'test-reader))\n  ;; Poll for 3 seconds\n  (let loop ((i 0))\n    (when (and (< i 30) (not result))\n      (thread-sleep! 0.1)\n      (loop (+ i 1))))\n  ;; If result is still #f after 3s, Qt is interfering\n  result)\n\n;; SAFE PATTERN for subprocess I/O in Qt exe:\n;; Use open-process WITHOUT background thread — call read-line directly\n;; from the main thread (synchronously) immediately after writing:\n(def (run-subprocess-sync cmd args input)\n  \"Run a subprocess synchronously, write input, read all output.\"\n  (let ((proc (open-process\n               (list path: cmd arguments: args\n                     stdin-redirection: #t\n                     stdout-redirection: #t\n                     stderr-redirection: #f))))\n    (when input\n      (display input proc)\n      (force-output proc))\n    ;; Read synchronously on main thread — works in Qt exe\n    (let ((output (read-line proc #f)))\n      (close-port proc)\n      output)))\n",
+    "notes": "Confirmed in gemacs LSP integration tests. gerbil-lsp responds in ~5ms from gxi but the Qt exe binary's reader thread never processes the response even after 20s. The `qt-app-process-events!` call in the polling loop did NOT fix it. The `thread-sleep!` cooperative yield also did NOT fix it. Only workaround is to avoid background thread pipe I/O in Qt exe context entirely — run sync on main thread or test outside with-qt-app scope. See also: qt-exe-process-status-detector feature suggestion for the related SIGCHLD deadlock issue."
+  },
+  {
+    "id": "gambit-process-port-char-byte-buffer-conflict",
+    "title": "Avoid mixing read-line (char) with read-subu8vector (byte) on process ports",
+    "tags": [
+      "gambit",
+      "process",
+      "port",
+      "read-line",
+      "read-subu8vector",
+      "read-string",
+      "char",
+      "byte",
+      "buffer",
+      "conflict",
+      "crash",
+      "open-process"
+    ],
+    "imports": [],
+    "code": ";; WRONG: mixing character I/O (read-line) with byte I/O (read-subu8vector)\n;; on the same port crashes with \"Input port character buffer is not empty\"\n(let ((proc (open-process (list path: \"some-cmd\" stdin-redirection: #t\n                                stdout-redirection: #t stderr-redirection: #f))))\n  (let ((header-line (read-line proc)))           ;; char I/O — buffers ahead\n    (let* ((n 100) (buf (make-u8vector n 0)))\n      ;; CRASH: read-subu8vector fails because char buffer is not empty\n      (read-subu8vector buf 0 n proc))))\n\n;; RIGHT: use read-string instead of read-subu8vector after read-line\n(let ((proc (open-process (list path: \"some-cmd\" stdin-redirection: #t\n                                stdout-redirection: #t stderr-redirection: #f))))\n  (let ((header-line (read-line proc)))           ;; char I/O\n    (let ((body (read-string 100 proc)))          ;; also char I/O — no conflict\n      body)))\n\n;; NOTE: write-subu8vector on the OUTPUT side is fine — the conflict is only\n;; on the INPUT side. You can mix write-subu8vector with read-line/read-string.",
+    "notes": "Gambit's port buffering uses separate char and byte buffers for input. read-line reads ahead into the char buffer; read-subu8vector then finds the byte buffer empty and crashes. The fix is to stay in char-I/O mode: use read-string instead of read-subu8vector. For protocols like LSP JSON-RPC where Content-Length is in bytes but content is ASCII, read-string works because 1 char = 1 byte for ASCII. For binary protocols with non-ASCII, you need a fully byte-based approach (read-u8 in a loop for headers too). Output side (write-subu8vector) is unaffected.",
+    "related": [
+      "open-process-stdin-write-read",
+      "open-process-undocumented-settings"
+    ],
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "gambit-green-thread-process-pipe-not-scheduled",
+    "title": "Gambit green threads DO work for process pipe I/O — beware silent exceptions",
+    "tags": [
+      "gambit",
+      "thread",
+      "green-thread",
+      "process",
+      "pipe",
+      "read-line",
+      "with-catch",
+      "silent",
+      "open-process",
+      "scheduler",
+      "debugging"
+    ],
+    "imports": [],
+    "code": ";; Gambit green threads CAN read from process pipes — the scheduler works.\n;; If your reader thread appears \"stuck\", the likely cause is a silent exception\n;; caught by with-catch that terminates the loop without any visible error.\n\n;; DANGEROUS pattern: silent exception swallowing in reader thread\n(thread-start!\n  (make-thread\n    (lambda ()\n      (with-catch\n        (lambda (e) (void))        ;; <-- BUG: silently hides all errors\n        (lambda ()\n          (let loop ()\n            (let ((msg (read-msg proc)))  ;; if this throws, loop dies silently\n              (when msg (process msg) (loop)))))))\n    'reader))\n\n;; SAFE pattern: log exceptions from reader threads\n(thread-start!\n  (make-thread\n    (lambda ()\n      (with-catch\n        (lambda (e)\n          (displayln \"reader thread error: \" e)  ;; always log thread errors\n          (force-output (current-output-port)))\n        (lambda ()\n          (let loop ()\n            (let ((msg (read-msg proc)))\n              (when msg (process msg) (loop)))))))\n    'reader))",
+    "notes": "Initially appeared that Gambit's green thread scheduler doesn't wake threads blocked on process pipe I/O. Investigation revealed the thread WAS running but crashing silently due to a char/byte buffer conflict (read-line then read-subu8vector on same port). The with-catch handler returned (void), which made the thread exit silently — appearing as if it never ran. LESSON: Never use (lambda (e) (void)) in background threads. Always log the exception.",
+    "related": [
+      "gambit-process-port-char-byte-buffer-conflict",
+      "open-process-stdin-write-read"
+    ],
+    "valid_for": [
+      "v0.18.1-173"
+    ]
+  },
+  {
+    "id": "test-command-invocation-not-just-registration",
+    "title": "Test command dispatch by invoking it and asserting observable effects, not just checking registration",
+    "tags": [
+      "command",
+      "test",
+      "dispatch",
+      "find-command",
+      "registration",
+      "echo",
+      "silent-failure",
+      "functional-test"
+    ],
+    "imports": [],
+    "code": ";; BAD — only proves the symbol is in the registry, not that the function works.\n;; A function that crashes at runtime (e.g. unbound variable) still passes this.\n(if (find-command 'toggle-lsp)\n  (pass! \"toggle-lsp registered\")\n  (fail! \"toggle-lsp registered\" #f \"procedure\"))\n\n;; GOOD — call the command, then assert on its observable side-effect (echo message).\n;; A silently-crashing function produces no echo; this check catches it.\n(def (call-cmd! app name)\n  (let ((cmd (find-command name)))\n    (if cmd\n      (cmd app)\n      (fail! (string-append (symbol->string name) \" found\") #f \"procedure\")))\n  (echo-state-message (app-state-echo app)))  ; return echo message\n\n;; Example: toggle-lsp should always echo something visible (start message, stop\n;; message, or \"no project root found\") — never silently return void.\n(let ((msg (call-cmd! app 'toggle-lsp)))\n  (check-true! \"toggle-lsp produces a non-empty echo (not a silent no-op)\"\n    (and (string? msg) (> (string-length msg) 0))))\n\n;; Example: commands gated on (lsp-running?) should echo \"not running\" when server is off.\n(for-each\n  (lambda (name)\n    (let ((msg (call-cmd! app name)))\n      (check-string-contains!\n        (string-append (symbol->string name) \" shows 'not running' error\")\n        msg \"not running\")))\n  '(lsp-goto-definition lsp-hover lsp-completion lsp-rename lsp-format-buffer))",
+    "notes": "The canonical failure mode: `cmd-toggle-lsp` in qt/commands-shell.ss called `lsp-find-project-root` and `lsp-install-handlers!` which were defined in qt/commands-lsp.ss but not imported. In a compiled Gambit exe, the unbound variable error is silently swallowed by an outer `with-catch`, so the command appears to \"do nothing\". A registration-only test (`find-command` returning non-#f) cannot catch this — the function pointer exists, it just crashes at runtime before producing any observable output. Fix: move the function to the module where its dependencies live, and add execution tests that assert on echo output."
+  },
+  {
+    "id": "gambit-unbound-silent-in-compiled-exe",
+    "title": "Gambit compiled exes silently swallow unbound variable errors caught by with-catch",
+    "tags": [
+      "gambit",
+      "compiled",
+      "exe",
+      "unbound",
+      "with-catch",
+      "silent-failure",
+      "module-scope",
+      "debugging"
+    ],
+    "imports": [],
+    "code": ";; SYMPTOM: A command is registered and callable but \"does nothing\" in a compiled exe.\n;; No error is printed, no echo message appears, execution just silently returns.\n;;\n;; ROOT CAUSE PATTERN:\n;; Module A (e.g. commands-shell.ss) defines a function that calls symbols\n;; from module B (e.g. commands-lsp.ss), but module A does NOT import module B.\n;;\n;; In gxi (interpreter), this raises an \"Unbound variable\" error immediately.\n;; In a compiled exe, if the call is wrapped in (with-catch ...) anywhere in\n;; the call stack, the exception is silently consumed and execution continues.\n\n;; EXAMPLE — commands-shell.ss (does NOT import commands-lsp.ss):\n(def (cmd-toggle-lsp app)\n  ;; lsp-find-project-root and lsp-install-handlers! are in commands-lsp.ss\n  ;; and are NOT imported here. In a compiled exe this silently crashes.\n  (if (lsp-running?)\n    (lsp-stop!)\n    (let* ((root (lsp-find-project-root ...)))  ; UNBOUND in this module!\n      (lsp-install-handlers! app)               ; UNBOUND in this module!\n      ...)))\n\n;; FIX: Move the function to the module where all its dependencies are defined.\n;; Here, cmd-toggle-lsp belongs in commands-lsp.ss where lsp-find-project-root\n;; and lsp-install-handlers! are in scope.\n\n;; DIAGNOSTIC: If a command does nothing in a compiled exe but works in gxi,\n;; check gerbil_cross_module_check to find unresolved symbol references.\n;; Also check that the module importing order in the chain is correct.",
+    "notes": "This is distinct from the `execute-command!` / closure-identity issue in compiled exes. That affects command lookup; this affects command execution. The tell: `find-command` returns a procedure, calling it produces no echo and no error. Diagnosis: run `gerbil_cross_module_check` on the project, or grep for functions that call symbols not in their import list. The fix is always to move the function to the module that owns its dependencies, not to add redundant imports to a downstream module."
+  },
+  {
+    "id": "per-group-test-error-isolation",
+    "title": "Isolate test group errors with per-group with-catch so one crash doesn't abort all groups",
+    "tags": [
+      "test",
+      "with-catch",
+      "error-isolation",
+      "test-group",
+      "crash",
+      "functional-test",
+      "exe"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; BAD — single with-catch wraps ALL groups.\n;; If Group 9 crashes, Group 10 never runs. The crash is reported but\n;; you lose all subsequent test results, making failures hard to diagnose.\n(with-catch\n  (lambda (e) (displayln \"ERROR: \" e))\n  (lambda ()\n    (run-group-1!)\n    (run-group-9!)     ; crash here...\n    (run-group-10!)))  ; ...means this never runs\n\n;; GOOD — per-group isolation: each group gets its own catch.\n;; A crash in one group increments *failures* and prints the error,\n;; but all remaining groups still run.\n(def *passes* 0)\n(def *failures* 0)\n\n(def (run-group! name thunk)\n  (with-catch\n    (lambda (e)\n      (set! *failures* (+ *failures* 1))\n      (displayln \"  CRASH in \" name \": \" e)\n      (force-output (current-output-port)))\n    thunk))\n\n(run-group! \"Group 1\" run-group-1!)\n(run-group! \"Group 9\" run-group-9!)\n(run-group! \"Group 10\" run-group-10!)\n\n;; Report totals\n(displayln \"Results: \" *passes* \" passed, \" *failures* \" failed\")",
+    "notes": "This pattern is especially important for compiled exe functional tests where test groups have independent setup (different Qt widgets, different buffer states). A crash in group N shouldn't prevent groups N+1..M from producing useful diagnostic information. The `run-group!` helper counts a crash as one failure, ensuring the exit code is non-zero even when the crash swallows individual check-true!/check! calls that would have incremented *failures*."
   }
 ]
