@@ -71,25 +71,6 @@
     "votes": 1
   },
   {
-    "id": "dispatch-sequence-coverage-analysis",
-    "title": "Detect test coverage gaps for command dispatch sequences",
-    "description": "A tool that analyzes functional test files to detect coverage gaps for multi-command interaction sequences. Many bugs only appear when commands are chained in specific orders (e.g. split → other-window → split), but tests often only exercise commands in isolation. The tool would: (1) extract all execute-command! call sequences from test files, (2) identify which commands are tested alone vs which are tested in combination with other commands, (3) suggest missing interaction sequences based on common patterns (e.g. if split-right and other-window are both tested, but never sequenced together), (4) optionally analyze the source code to detect state-dependent dispatch logic that would benefit from sequence testing.",
-    "impact": "high",
-    "tags": [
-      "test",
-      "coverage",
-      "dispatch",
-      "sequence",
-      "interaction",
-      "functional-test",
-      "command-chain"
-    ],
-    "use_case": "When maintaining functional test suites for command-driven applications (editors, REPLs, UIs). Helps identify scenarios where individual commands work but their combinations fail due to state management bugs.",
-    "example_scenario": "gemacs window split bug: tests exercised split-right and split-below individually, and tested other-window in simple cases, but never tested split → other-window → split sequences. The bug (flat window list not being rebuilt from tree after nested split) passed all 119 existing tests but broke on the first real user interaction. Had to manually analyze the code to realize what sequence wasn't being tested, then add 4 new tests for split navigation scenarios. A sequence coverage tool would have flagged: 'split-right tested in 3 cases, other-window tested in 2 cases, but never sequenced together — suggest testing split + navigation + split patterns.'",
-    "estimated_token_reduction": "~2000 tokens per test suite audit — eliminates the manual analysis of 'what scenarios aren't we testing' and the debug cycle of finding bugs in production that tests should have caught",
-    "votes": 0
-  },
-  {
     "id": "build-verify-detect-stale-artifacts",
     "title": "Detect stale .ssi artifacts when gerbil_verify reports \"cannot find library module\"",
     "description": "When gerbil_verify (or gerbil_compile_check) reports \"cannot find library module :package/module\", the actual cause is often a stale .ssi file in .gerbil/lib/ or ~/.gerbil/lib/ that was compiled before recent changes. The error message is misleading because the module exists and compiles fine in isolation - it's just that the importing module is using a stale precompiled interface file. A heuristic detector could: (1) parse the \"cannot find library module :foo/bar\" error, (2) check if foo/bar.ss exists in the project or dependency, (3) check if foo/bar.ssi exists and its mtime is older than foo/bar.ss source, (4) if yes, append a diagnostic hint: \"Note: found stale foo/bar.ssi (older than source). Run 'make clean' or 'rm .gerbil/lib/foo/bar.ssi' and rebuild.\"",
