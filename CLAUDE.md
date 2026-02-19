@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 481 tests must pass before considering any change complete. The test suite covers:
+All 498 tests must pass before considering any change complete (497 passing + 1 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -193,6 +193,8 @@ All 481 tests must pass before considering any change complete. The test suite c
 - FFI UTF-8 byte length audit (gerbil_ffi_utf8_byte_length_audit: detect string-length vs byte-length mismatches)
 - Build modules_only option (gerbil_build_and_report skip exe targets, filterExeTargets)
 - Cross-package diff tool (gerbil_cross_package_diff: compare signatures/arities across modules)
+- Macro expansion size checker (gerbil_macro_expansion_size: analyze expansion ratio, warn on explosive macros)
+- Macro template library (gerbil_macro_template_library: generate templates for 6 patterns with examples and expansions, parameter validation)
 
 
 ### MANDATORY: Update Documentation After Every Change

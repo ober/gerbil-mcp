@@ -6946,4 +6946,121 @@ END-C
     }, 10000);
   });
 
+
+  describe('gerbil_macro_expansion_size', () => {
+    it('analyzes macro expansion size', async () => {
+      const result = await client.callTool('gerbil_macro_expansion_size', {
+        expression: '(when #t (+ 1 2))',
+        imports: [':std/sugar'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Expansion Size Analysis');
+      expect(result.text).toContain('Source:');
+      expect(result.text).toContain('Expanded:');
+      expect(result.text).toContain('Expansion Ratio:');
+    }, 10000);
+
+    it('warns on explosive expansion', async () => {
+      // A simple macro that should have reasonable expansion
+      const result = await client.callTool('gerbil_macro_expansion_size', {
+        expression: '(let ((x 1)) x)',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Expansion Ratio:');
+    }, 10000);
+  });
+
+  describe('gerbil_macro_template_library', () => {
+    it('generates hash-accessors template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'hash-accessors',
+        prefix: 'config',
+        fields: ['host', 'port', 'debug'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: hash-accessors');
+      expect(result.text).toContain('def-config-getter');
+      expect(result.text).toContain('(config-host obj)');
+      expect(result.text).toContain('hash-ref');
+    }, 10000);
+
+    it('generates method-delegation template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'method-delegation',
+        delegate_field: 'inner',
+        methods: ['read', 'write', 'close'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: method-delegation');
+      expect(result.text).toContain('def-delegate');
+      expect(result.text).toContain('inner');
+      expect(result.text).toContain('apply');
+    }, 10000);
+
+    it('generates validation-guards template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'validation-guards',
+        checks: [
+          { name: 'port', predicate: 'number?' },
+          { name: 'host', predicate: 'string?' },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: validation-guards');
+      expect(result.text).toContain('def-validator');
+      expect(result.text).toContain('validate-port');
+      expect(result.text).toContain('number?');
+    }, 10000);
+
+    it('generates enum-constants template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'enum-constants',
+        enum_name: 'status',
+        fields: ['PENDING', 'RUNNING', 'DONE'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: enum-constants');
+      expect(result.text).toContain('def-status-enum');
+      expect(result.text).toContain('PENDING');
+      expect(result.text).toContain('RUNNING');
+    }, 10000);
+
+    it('generates event-handlers template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'event-handlers',
+        event_type: 'ui',
+        methods: ['click', 'hover', 'keypress'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: event-handlers');
+      expect(result.text).toContain('def-event-handler');
+      expect(result.text).toContain('handle-click');
+      expect(result.text).toContain('event-type');
+    }, 10000);
+
+    it('generates type-setters template', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'type-setters',
+        prefix: 'user',
+        typed_fields: [
+          { name: 'age', type: 'number?' },
+          { name: 'name', type: 'string?' },
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Template: type-setters');
+      expect(result.text).toContain('def-user-setter');
+      expect(result.text).toContain('set-user-age!');
+      expect(result.text).toContain('hash-put!');
+    }, 10000);
+
+    it('requires appropriate parameters for each pattern', async () => {
+      const result = await client.callTool('gerbil_macro_template_library', {
+        pattern: 'hash-accessors',
+        // Missing required prefix and fields
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('requires');
+    }, 10000);
+  });
 });

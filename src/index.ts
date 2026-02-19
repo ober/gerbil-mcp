@@ -129,6 +129,8 @@ import { registerDispatchCoverageTool } from './tools/dispatch-coverage.js';
 import { registerMacroPatternDetectorTool } from './tools/macro-pattern-detector.js';
 import { registerBoilerplateConverterTool } from './tools/boilerplate-converter.js';
 import { registerSignalTraceTool } from './tools/signal-trace.js';
+import { registerMacroExpansionSizeTool } from './tools/macro-expansion-size.js';
+import { registerMacroTemplateLibraryTool } from './tools/macro-template-library.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -149,6 +151,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To detect repetitive code patterns: use gerbil_macro_pattern_detector to find boilerplate that could be replaced with macros. Identifies repeated functions, hash accessors, and method wrappers.
 - To convert boilerplate to macros: use gerbil_boilerplate_converter with 2+ similar expressions to generate a macro definition automatically. Extracts the pattern and creates defrule with invocations.
 - To debug signal handling: use gerbil_signal_trace to generate instrumentation code for tracing signal delivery and trap execution. Logs when signals are received, handlers execute, and exceptions occur.
+- To check macro expansion size: use gerbil_macro_expansion_size to analyze macro invocations and detect accidentally explosive expansions. Reports expansion ratio and warns if a macro expands to >10x or >50x the source size.
+- To generate macro templates: use gerbil_macro_template_library to create reusable macro patterns (hash-accessors, method-delegation, validation-guards, enum-constants, event-handlers, type-setters). Returns working defrule definitions ready to customize for your project.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
 
@@ -441,6 +445,8 @@ registerDispatchCoverageTool(server);
 registerMacroPatternDetectorTool(server);
 registerBoilerplateConverterTool(server);
 registerSignalTraceTool(server);
+registerMacroExpansionSizeTool(server);
+registerMacroTemplateLibraryTool(server);
 
 registerPrompts(server);
 registerResources(server);
