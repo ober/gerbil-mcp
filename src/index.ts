@@ -126,6 +126,7 @@ import { registerQtTestRunnerTool } from './tools/qt-test-runner.js';
 import { registerPkgLinkSyncTool } from './tools/pkg-link-sync.js';
 import { registerCrossPackageDiffTool } from './tools/cross-package-diff.js';
 import { registerDispatchCoverageTool } from './tools/dispatch-coverage.js';
+import { registerMacroPatternDetectorTool } from './tools/macro-pattern-detector.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -143,6 +144,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files. Use modules_only: true to skip exe linking targets and only compile library modules (dramatically faster when iterating on code).
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths.
 - To analyze test coverage for command sequences: use gerbil_dispatch_coverage_analysis to detect gaps in functional test suites. Identifies commands tested individually but never in combination, helping catch state management bugs.
+- To detect repetitive code patterns: use gerbil_macro_pattern_detector to find boilerplate that could be replaced with macros. Identifies repeated functions, hash accessors, and method wrappers.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
 
@@ -432,6 +434,7 @@ registerQtTestRunnerTool(server);
 registerPkgLinkSyncTool(server);
 registerCrossPackageDiffTool(server);
 registerDispatchCoverageTool(server);
+registerMacroPatternDetectorTool(server);
 
 registerPrompts(server);
 registerResources(server);

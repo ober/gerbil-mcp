@@ -6878,4 +6878,25 @@ END-C
     }, 10000);
   });
 
+
+  describe('Macro pattern detector', () => {
+    it('detects repetitive hash-ref accessor patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Macro Pattern Detection');
+      expect(result.text).toContain('hash-ref-accessors');
+      expect(result.text).toContain('def-getter');
+      expect(result.text).toContain('Code reduction');
+    }, 10000);
+
+    it('reports no patterns when none found', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/simple-no-pattern.ss',
+      });
+      expect(result.text).toContain('No repetitive patterns detected');
+    }, 10000);
+  });
+
 });

@@ -12764,5 +12764,25 @@
     "imports": [],
     "code": ";; Problem: Process group signals (kill -HUP -$$) fail with \"No such process\"\n;; when running scripts from non-interactive shells or make.\n;;\n;; Solution: Run with setsid to create a new session and process group.\n\n;; In Makefile or shell script:\n;; BAD - process group signals will fail:\n;;   ./script-that-uses-pg-signals\n;;\n;; GOOD - creates proper process group:\n;;   setsid ./script-that-uses-pg-signals\n\n;; Example: Running shellbench (which uses process group signals for sync)\nbench: install\n\t@cd $(SHELLBENCH_DIR) && setsid ./shellbench -s gsh,bash sample/*\n\n;; Without setsid: kill -HUP \"-$$\" returns \"No such process\"\n;; With setsid: Process becomes process group leader, signals work correctly\n\n;; From Scheme code, you can't directly call setsid after fork,\n;; but you can launch a shell that does:\n(open-process [path: \"/bin/sh\"\n               arguments: [\"-c\" \"setsid ./my-program\"]])",
     "notes": "setsid creates a new session and makes the process the session leader and process group leader. This is necessary when scripts use kill -SIG -$$ to signal their own process group for synchronization. Common in testing harnesses like shellbench. The issue occurs because processes started from make or non-interactive contexts may not have proper process group setup. setsid ensures $$ equals PGID, making kill -HUP -$$ work correctly."
+  },
+  {
+    "id": "qt-qprocess-subprocess-safe",
+    "title": "Use QProcess for safe subprocess handling in Qt executables",
+    "tags": [
+      "qt",
+      "qprocess",
+      "subprocess",
+      "process",
+      "safe",
+      "sigchld",
+      "gerbil-qt",
+      "spawn",
+      "command"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; SAFE: Use Qt's QProcess API instead of Gambit's open-process\n;; to avoid SIGCHLD race conditions in Qt executables.\n;; QProcess handles its own process lifecycle management and is\n;; immune to SIGCHLD handler conflicts.\n\n(def (run-command-qt program args)\n  \"Run a command with QProcess and return stdout as string.\n   Returns #f on error.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (qt-process-wait-for-finished proc) ;; Blocks until process completes\n        (let* ((output (qt-process-read-stdout proc))\n               (status (qt-process-exit-code proc)))\n          (qt-process-destroy! proc)\n          (if (zero? status)\n              output\n              #f))))))\n\n;; Example: run git command\n(def (git-status-qt repo-dir)\n  (run-command-qt \"git\" [\"-C\" repo-dir \"status\" \"--short\"]))\n\n;; For stderr too:\n(def (run-command-qt-with-stderr program args)\n  (with-catch\n    (lambda (e) (values #f #f #f))\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (qt-process-wait-for-finished proc)\n        (let* ((stdout (qt-process-read-stdout proc))\n               (stderr (qt-process-read-stderr proc))\n               (status (qt-process-exit-code proc)))\n          (qt-process-destroy! proc)\n          (values stdout stderr status))))))\n\n;; With timeout (milliseconds):\n(def (run-command-qt-timeout program args timeout-ms)\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (let (finished? (qt-process-wait-for-finished proc timeout: timeout-ms))\n          (if finished?\n              (let ((output (qt-process-read-stdout proc)))\n                (qt-process-destroy! proc)\n                output)\n              (begin\n                (qt-process-kill! proc)\n                (qt-process-wait-for-finished proc) ;; cleanup\n                (qt-process-destroy! proc)\n                #f)))))))",
+    "notes": "QProcess is Qt's native subprocess API and is completely safe in Qt executables because it uses Qt's own process management instead of Gambit's open-process. Unlike open-process + process-status (which can deadlock due to SIGCHLD race), QProcess handles all lifecycle events internally. The gerbil-qt bindings provide: qt-process-create (parent: optional), qt-process-start! (program args: list), qt-process-wait-for-finished (timeout: optional-ms), qt-process-read-stdout/stderr (returns string), qt-process-exit-code (returns int), qt-process-kill!/terminate!, qt-process-destroy!. Always call qt-process-destroy! when done. For Qt apps, prefer QProcess over open-process to avoid subtle race conditions."
   }
 ]
