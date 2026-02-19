@@ -6899,4 +6899,29 @@ END-C
     }, 10000);
   });
 
+
+  describe('Boilerplate to macro converter', () => {
+    it('generates macro from similar expressions', async () => {
+      const result = await client.callTool('gerbil_boilerplate_converter', {
+        examples: [
+          '(def (get-name obj) (hash-ref obj "name"))',
+          '(def (get-age obj) (hash-ref obj "age"))',
+          '(def (get-email obj) (hash-ref obj "email"))',
+        ],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Generated Macro Definition');
+      expect(result.text).toContain('defrule');
+      expect(result.text).toContain('Replacement Invocations');
+      expect(result.text).toContain('Code reduction');
+    }, 10000);
+
+    it('requires minimum: 2', async () => {
+      const result = await client.callTool('gerbil_boilerplate_converter', {
+        examples: ['(def (foo x) (+ x 1))'],
+      });
+      expect(result.isError).toBe(true);
+    }, 10000);
+  });
+
 });

@@ -146,6 +146,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths.
 - To analyze test coverage for command sequences: use gerbil_dispatch_coverage_analysis to detect gaps in functional test suites. Identifies commands tested individually but never in combination, helping catch state management bugs.
 - To detect repetitive code patterns: use gerbil_macro_pattern_detector to find boilerplate that could be replaced with macros. Identifies repeated functions, hash accessors, and method wrappers.
+- To convert boilerplate to macros: use gerbil_boilerplate_converter with 2+ similar expressions to generate a macro definition automatically. Extracts the pattern and creates defrule with invocations.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
 
