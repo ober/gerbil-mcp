@@ -16,6 +16,7 @@ interface ConflictDiagnostic {
   severity: 'error' | 'warning';
   code: string;
   message: string;
+  suggestion?: string;
 }
 
 /**
@@ -175,11 +176,12 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
     {
       title: 'Import Conflict Detector',
       description:
-        'Detect import conflicts before build. Checks if locally defined symbols ' +
+        'Detect import conflicts before build and suggest fixes. Checks if locally defined symbols ' +
         'conflict with imported module exports (causing cryptic "Bad binding; import ' +
         'conflict" errors), and if multiple imports export the same symbol. ' +
         'Resolves standard library exports at runtime and project-local exports statically. ' +
-        'Handles only-in filtered imports. Provide either file_path or project_path.',
+        'Handles only-in filtered imports. For each conflict, suggests fixes using (only-in) or (except-in). ' +
+        'Provide either file_path or project_path for batch checking.',
       annotations: {
         readOnlyHint: true,
         idempotentHint: true,
@@ -403,6 +405,7 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
                   severity: 'error',
                   code: 'import-conflict',
                   message: `Local definition "${sym}" conflicts with import from ${modPath}`,
+                  suggestion: `Use (except-in ${modPath} ${sym}) to exclude the conflicting symbol from the import`,
                 });
               }
             }
@@ -413,12 +416,14 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
         for (const [sym, modules] of importedSymbols) {
           const unique = [...new Set(modules)];
           if (unique.length > 1) {
+            const suggestedExcepts = unique.map(m => `(except-in ${m} ${sym})`).slice(1);
             diagnostics.push({
               file: f.path,
               line: f.analysis.imports[0]?.line ?? null,
               severity: 'warning',
               code: 'cross-import-conflict',
               message: `Symbol "${sym}" is exported by multiple imports: ${unique.join(', ')}`,
+              suggestion: `Use (except-in ...) to exclude "${sym}" from all but one module, e.g., ${suggestedExcepts.join(' or ')}`,
             });
           }
         }
@@ -471,12 +476,14 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
             for (const [sym, modules] of collisions) {
               const importedColliders = modules.filter((m) => importedModules.has(m));
               if (importedColliders.length > 1) {
+                const suggestedExcepts = importedColliders.map(m => `(except-in ${m} ${sym})`).slice(1);
                 diagnostics.push({
                   file: f.path,
                   line: f.analysis.imports[0]?.line ?? null,
                   severity: 'error',
                   code: 'cross-module-export-collision',
                   message: `Symbol "${sym}" exported by ${importedColliders.join(' and ')} — will conflict when both are imported`,
+                  suggestion: `Use (except-in ...) to exclude "${sym}" from all but one module, e.g., ${suggestedExcepts.join(' or ')}`,
                 });
               }
             }
@@ -519,6 +526,9 @@ export function registerCheckImportConflictsTool(server: McpServer): void {
         sections.push(
           `  [${d.severity.toUpperCase()}] ${loc} (${d.code}): ${d.message}`,
         );
+        if (d.suggestion) {
+          sections.push(`    Fix: ${d.suggestion}`);
+        }
       }
 
       return {

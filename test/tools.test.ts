@@ -4106,6 +4106,8 @@ END-C
       expect(result.text).toContain('read-json');
       expect(result.text).toContain('import-conflict');
       expect(result.text).toContain(':std/text/json');
+      expect(result.text).toContain('Fix:');
+      expect(result.text).toContain('except-in');
     }, 30000);
 
     it('passes for clean file with no conflicts', async () => {
@@ -4132,6 +4134,8 @@ END-C
       // main.ss imports mod-a and mod-b which both export 'helper'
       expect(result.text).toContain('helper');
       expect(result.text).toContain('cross-import-conflict');
+      expect(result.text).toContain('Fix:');
+      expect(result.text).toContain('except-in');
     }, 30000);
 
     it('requires file_path or project_path', async () => {
