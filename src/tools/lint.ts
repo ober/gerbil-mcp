@@ -74,6 +74,7 @@ export function registerLintTool(server: McpServer): void {
         'SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, ' +
         'byte/char port type mismatch (fdopen with char I/O), ' +
         'pregexp inline flag detection ((?i)/(?m)/(?s) cause runtime crashes), ' +
+        'char/byte I/O mixing on same port (nonempty-input-port-character-buffer-exception), ' +
         'and compilation errors via gxc.',
       annotations: {
         readOnlyHint: true,
@@ -117,6 +118,7 @@ export function registerLintTool(server: McpServer): void {
       checkUnsafeMutexPattern(lines, diagnostics);
       checkPortTypeMismatch(lines, diagnostics);
       checkPregexpInlineFlags(lines, diagnostics);
+      checkCharByteIOMixing(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -1053,6 +1055,126 @@ function checkPregexpInlineFlags(
       }
 
       j++;
+    }
+  }
+}
+
+/**
+ * Detect when both character I/O and byte I/O functions are used on the same port.
+ * Gambit raises nonempty-input-port-character-buffer-exception when byte I/O follows
+ * char I/O on the same port, because read-line consumes bytes into the character buffer.
+ * Common in HTTP/LSP Content-Length framed protocols where headers use read-line and
+ * body uses read-subu8vector.
+ */
+function checkCharByteIOMixing(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  const CHAR_IO_FUNCTIONS = new Set([
+    'display', 'displayln', 'write', 'write-char', 'read-char',
+    'read-line', 'newline', 'print', 'println', 'pretty-print',
+    'write-string', 'read-string', 'read',
+  ]);
+
+  const BYTE_IO_FUNCTIONS = new Set([
+    'read-subu8vector', 'write-subu8vector', 'read-u8', 'write-u8',
+    'read-u8vector', 'write-u8vector',
+  ]);
+
+  const defBoundary = /^\s*\(\s*(def\b|def\*|defmethod|defclass|defstruct)/;
+
+  // Track I/O usages per variable within each function scope
+  // Map: function start line → Map of variable → usage array
+  const scopes = new Map<number, Map<string, Array<{line: number; type: 'char' | 'byte'; fn: string}>>>();
+  let currentScopeStart = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+    const lineNum = i + 1;
+
+    // Skip comments
+    if (trimmed.startsWith(';')) continue;
+
+    // Track function boundaries
+    if (defBoundary.test(trimmed)) {
+      currentScopeStart = i;
+      scopes.set(currentScopeStart, new Map());
+    }
+
+    // Get current scope map
+    const scopeMap = scopes.get(currentScopeStart);
+    if (!scopeMap) continue;
+
+    // Check for char I/O functions on this line
+    for (const fn of CHAR_IO_FUNCTIONS) {
+      if (trimmed.includes(fn)) {
+        const fnIdx = trimmed.indexOf(fn);
+        // Verify word boundary
+        const leftOk = fnIdx === 0 || /[\s([\]{}'`,;]/.test(trimmed[fnIdx - 1]);
+        const rightIdx = fnIdx + fn.length;
+        const rightOk = rightIdx >= trimmed.length || /[\s)[\]{}'`,;]/.test(trimmed[rightIdx]);
+        if (leftOk && rightOk) {
+          // Extract potential port variable names from the line
+          const vars = trimmed.match(/\b[a-zA-Z_][-a-zA-Z0-9_]*/g) || [];
+          for (const v of vars) {
+            // Skip function names and common keywords
+            if (v === fn || v === 'let' || v === 'def' || v === 'lambda') continue;
+            if (!scopeMap.has(v)) {
+              scopeMap.set(v, []);
+            }
+            scopeMap.get(v)!.push({line: lineNum, type: 'char', fn});
+          }
+          break;
+        }
+      }
+    }
+
+    // Check for byte I/O functions on this line
+    for (const fn of BYTE_IO_FUNCTIONS) {
+      if (trimmed.includes(fn)) {
+        const fnIdx = trimmed.indexOf(fn);
+        // Verify word boundary
+        const leftOk = fnIdx === 0 || /[\s([\]{}'`,;]/.test(trimmed[fnIdx - 1]);
+        const rightIdx = fnIdx + fn.length;
+        const rightOk = rightIdx >= trimmed.length || /[\s)[\]{}'`,;]/.test(trimmed[rightIdx]);
+        if (leftOk && rightOk) {
+          // Extract potential port variable names from the line
+          const vars = trimmed.match(/\b[a-zA-Z_][-a-zA-Z0-9_]*/g) || [];
+          for (const v of vars) {
+            // Skip function names and common keywords
+            if (v === fn || v === 'let' || v === 'def' || v === 'lambda') continue;
+            if (!scopeMap.has(v)) {
+              scopeMap.set(v, []);
+            }
+            scopeMap.get(v)!.push({line: lineNum, type: 'byte', fn});
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Check each scope for mixed usage
+  for (const [scopeLine, varMap] of scopes) {
+    for (const [varName, usages] of varMap) {
+      const charUsages = usages.filter(u => u.type === 'char');
+      const byteUsages = usages.filter(u => u.type === 'byte');
+
+      if (charUsages.length > 0 && byteUsages.length > 0) {
+        const charUsage = charUsages[0];
+        const byteUsage = byteUsages[0];
+
+        diagnostics.push({
+          line: Math.min(charUsage.line, byteUsage.line),
+          severity: 'error',
+          code: 'char-byte-io-mixing',
+          message:
+            `Port variable "${varName}" uses both character I/O (${charUsage.fn} at L${charUsage.line}) ` +
+            `and byte I/O (${byteUsage.fn} at L${byteUsage.line}). ` +
+            'Mixing char and byte I/O on the same port causes nonempty-input-port-character-buffer-exception. ' +
+            'Use only char I/O or only byte I/O, or create separate ports.',
+        });
+      }
     }
   }
 }

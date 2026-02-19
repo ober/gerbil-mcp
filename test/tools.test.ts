@@ -3806,6 +3806,84 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  describe('Char/byte I/O mixing detection', () => {
+    it('gerbil_lint detects char I/O followed by byte I/O on same port', async () => {
+      const testFile = join(TEST_DIR, 'char-byte-mix.ss');
+      writeFileSync(
+        testFile,
+        `(import :std/sugar)
+(def (read-message port)
+  (let* ((headers (read-line port))
+         (body-len 100)
+         (body (make-u8vector body-len)))
+    (read-subu8vector body 0 body-len port)
+    body))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('char-byte-io-mixing');
+      expect(result.text).toContain('read-line');
+      expect(result.text).toContain('read-subu8vector');
+      expect(result.text).toContain('nonempty-input-port-character-buffer-exception');
+    });
+
+    it('gerbil_lint does not warn when only char I/O is used', async () => {
+      const testFile = join(TEST_DIR, 'char-only.ss');
+      writeFileSync(
+        testFile,
+        `(def (read-text port)
+  (let ((line1 (read-line port))
+        (line2 (read-line port)))
+    (string-append line1 line2)))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).not.toContain('char-byte-io-mixing');
+    });
+
+    it('gerbil_lint does not warn when only byte I/O is used', async () => {
+      const testFile = join(TEST_DIR, 'byte-only.ss');
+      writeFileSync(
+        testFile,
+        `(def (read-binary port size)
+  (let ((buf1 (make-u8vector 10))
+        (buf2 (make-u8vector size)))
+    (read-subu8vector buf1 0 10 port)
+    (read-subu8vector buf2 0 size port)
+    buf2))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).not.toContain('char-byte-io-mixing');
+    });
+
+    it('gerbil_lint detects mixing with open-process port', async () => {
+      const testFile = join(TEST_DIR, 'process-mix.ss');
+      writeFileSync(
+        testFile,
+        `(def (run-cmd)
+  (let* ((proc (open-process "git status"))
+         (out (process-port proc))
+         (header (read-line out))
+         (data (make-u8vector 100)))
+    (read-u8vector data out)
+    data))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).toContain('char-byte-io-mixing');
+      expect(result.text).toContain('out');
+    });
+  });
+
   describe('FFI callback debug tool', () => {
     it('gerbil_ffi_callback_debug finds matched c-define/extern', async () => {
       const result = await client.callTool('gerbil_ffi_callback_debug', {

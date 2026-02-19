@@ -145,25 +145,6 @@
     "votes": 0
   },
   {
-    "id": "lint-char-byte-io-mixing",
-    "title": "Lint rule: detect char/byte I/O mixing on same port",
-    "description": "A lint rule that detects when both character I/O functions (read-line, read-char, read-string, write-string) and byte I/O functions (read-subu8vector, write-subu8vector, read-u8, write-u8) are used on the same port variable within a function or module. Gambit raises nonempty-input-port-character-buffer-exception when byte I/O follows char I/O on the same port, because read-line consumes bytes into the character buffer. This is a common bug in HTTP/LSP Content-Length framed protocol implementations where headers use read-line and body uses read-subu8vector.",
-    "impact": "high",
-    "tags": [
-      "lint",
-      "port",
-      "char-io",
-      "byte-io",
-      "read-subu8vector",
-      "read-line",
-      "gambit"
-    ],
-    "use_case": "When writing protocol implementations that mix text headers with binary bodies on the same port — LSP JSON-RPC, HTTP, or any Content-Length framed protocol.",
-    "example_scenario": "lsp-client.ss read headers with read-line (char I/O) then read body with read-subu8vector (byte I/O) on the same process port. This crashed with nonempty-input-port-character-buffer-exception inside a background thread. The with-catch handler swallowed the exception silently, making the thread appear stuck. A lint rule detecting read-subu8vector and read-line on the same port variable would have caught this immediately.",
-    "estimated_token_reduction": "~5000+ tokens — this bug took multiple sessions to diagnose; a lint warning would catch it at code review time",
-    "votes": 0
-  },
-  {
     "id": "dispatch-sequence-coverage-analysis",
     "title": "Detect test coverage gaps for command dispatch sequences",
     "description": "A tool that analyzes functional test files to detect coverage gaps for multi-command interaction sequences. Many bugs only appear when commands are chained in specific orders (e.g. split → other-window → split), but tests often only exercise commands in isolation. The tool would: (1) extract all execute-command! call sequences from test files, (2) identify which commands are tested alone vs which are tested in combination with other commands, (3) suggest missing interaction sequences based on common patterns (e.g. if split-right and other-window are both tested, but never sequenced together), (4) optionally analyze the source code to detect state-dependent dispatch logic that would benefit from sequence testing.",
@@ -312,6 +293,63 @@
     "use_case": "When adding new imports to existing files or when refactoring module structure. The compilation error \"Bad binding; import conflict\" appears only after a full build attempt, and the error message doesn't always clearly indicate which symbols conflict or which modules are involved.",
     "example_scenario": "During theme system implementation, added :gemacs/persist import to qt/commands-shell.ss which already imported :gemacs/qt/commands-vcs. Build failed with \"Bad binding; import conflict\" for symbols like recent-files-load!, *delete-trailing-whitespace-on-save*. Had to manually trace through which modules export which symbols, then fix with selective imports. This happened multiple times across different files (qt/commands-config.ss had similar conflicts). A batch checker would have caught all 3 import conflicts upfront with specific symbol names and suggested (only-in :gemacs/persist theme-settings-save! custom-faces-save!) fixes.",
     "estimated_token_reduction": "~1500 tokens per build session with import changes — eliminates multiple compile-fail-fix-recompile cycles (typically 3-5 import conflicts per refactoring), each requiring a full build attempt to discover the next conflict",
+    "votes": 0
+  },
+  {
+    "id": "build-progress-monitor",
+    "title": "Monitor long-running gerbil build progress in real-time",
+    "description": "A tool that monitors an ongoing gerbil build (started as a background task) and reports compilation progress in real-time. Would parse the build output stream and extract: (1) current phase (compile, link), (2) current module being compiled, (3) estimated progress (N of M modules), (4) any errors/warnings so far, (5) total elapsed time. Could be invoked periodically to check status without blocking on build completion.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "monitor",
+      "progress",
+      "async",
+      "background",
+      "gxc"
+    ],
+    "use_case": "When starting a long build (30+ seconds) as a background task and wanting to check progress without waiting for completion. Useful for large projects where builds take 1-3 minutes.",
+    "example_scenario": "Started a clean build that deletes .gerbil directory. Build is running in background. Want to know: is it still compiling modules or is it stuck? How far along is it? Has it reached the linking phase yet? Currently must either wait for completion or manually tail the output file and parse it visually.",
+    "estimated_token_reduction": "~300 tokens per build check — eliminates manual tail/grep of output files and mental parsing of build phase",
+    "votes": 0
+  },
+  {
+    "id": "signal-trap-execution-trace",
+    "title": "Trace signal delivery and trap execution for debugging",
+    "description": "A debugging tool that instruments signal handlers and trap execution to trace: (1) when signals are received and queued, (2) when trap processing functions are called, (3) what trap commands execute, (4) whether trap execution raises exceptions, (5) where in the code signals are being processed (loop iterations, command boundaries). Would output a timestamped trace log showing the signal flow.",
+    "impact": "high",
+    "tags": [
+      "signal",
+      "trap",
+      "debug",
+      "trace",
+      "TERM",
+      "INT",
+      "SIGCHLD",
+      "handler"
+    ],
+    "use_case": "When debugging why signals aren't being processed correctly - why CTRL-C doesn't work, why traps don't execute, why processes hang instead of terminating. Critical for shell and REPL development.",
+    "example_scenario": "Shell process hangs when TERM signal is sent during a while loop with command substitution. Need to know: (1) Is TERM signal being received and queued? (2) Is pending-signals! being called? (3) Is the trap function being invoked? (4) Where in the code execution is signal processing being skipped? Currently requires manually adding fprintf debug statements, rebuilding, testing, and removing them. This session required multiple rebuild cycles to trace signal flow.",
+    "estimated_token_reduction": "~2000 tokens per signal debugging session — eliminates multiple Edit->rebuild->test cycles with debug instrumentation",
+    "votes": 0
+  },
+  {
+    "id": "detect-parallel-build-conflicts",
+    "title": "Detect and prevent conflicting parallel gerbil build invocations",
+    "description": "A tool that detects when multiple gerbil build processes are running on the same project directory simultaneously and warns about potential conflicts. Would: (1) check for existing gerbil build processes using ps/pgrep, (2) check for lock files in .gerbil/, (3) compare working directories of running builds, (4) warn if conflicts detected with suggestion to kill old builds first. Could also implement a lock file mechanism to prevent parallel builds.",
+    "impact": "medium",
+    "tags": [
+      "build",
+      "parallel",
+      "conflict",
+      "lock",
+      "race",
+      "gxc",
+      "concurrent"
+    ],
+    "use_case": "When launching multiple build commands (via background tasks, make, or different terminals) that conflict with each other. Parallel builds on the same project can corrupt .gerbil/ artifacts, cause lock errors, or produce inconsistent binaries.",
+    "example_scenario": "Started a build as background task. Forgot it was running and started another build. Multiple gerbil build processes competed for .gerbil/lib/ files, causing intermittent lock errors and 'Text file busy' errors during install. Had to manually kill all gerbil processes and clean build. A detector would have warned: 'Warning: gerbil build already running (PID 12345) on this directory. Kill it first with: kill 12345'",
+    "estimated_token_reduction": "~500 tokens per occurrence — eliminates manual ps/grep/kill cycles and clean rebuilds due to corrupted artifacts",
     "votes": 0
   }
 ]
