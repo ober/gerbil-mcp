@@ -54,25 +54,6 @@
     "votes": 0
   },
   {
-    "id": "qt-exe-process-status-detector",
-    "title": "Detect process-status calls in Qt exe targets that will cause SIGCHLD deadlocks",
-    "description": "Qt executables install a SIGCHLD handler that calls waitpid(-1,...,WNOHANG) reaping ALL child processes. When Gambit's open-process is used in a Qt exe and (process-status p) is called afterward, there is a race: Qt may reap the child first, causing Gambit's waitpid to block indefinitely (ECHILD). A tool that detects (process-status ...) calls inside files that are compiled into Qt exe targets (or any file that imports from :gerbil-qt/qt) would catch this hazard before it manifests as a hard-to-diagnose hang in CI or headless testing. The tool should: (1) identify which source files are compiled into Qt exe targets by reading build.ss exe target definitions, (2) scan those files and their transitive imports for (process-status ...) call sites, (3) report file/line/function context with a note that process-status is unsafe in Qt executables and read-line is sufficient for waiting.",
-    "impact": "medium",
-    "tags": [
-      "qt",
-      "process-status",
-      "sigchld",
-      "deadlock",
-      "exe",
-      "subprocess",
-      "hang"
-    ],
-    "use_case": "When writing or reviewing code that spawns subprocesses (git commands, shell scripts) inside a Qt executable. The SIGCHLD race is silent — no error message, just an indefinite hang that only manifests in CI headless testing with real subprocess calls.",
-    "example_scenario": "In gemacs-qt, magit-run-git called (process-status proc) after (read-line proc #f). All tests passed with mocked git (no actual subprocess), but adding real git integration tests in Group 9 caused qt-functional-test to hang indefinitely. Root cause took 2 sessions to diagnose: Qt's SIGCHLD handler raced with Gambit's waitpid. A static detector on qt/commands-ide.ss and its Qt exe imports would have flagged the process-status call immediately.",
-    "estimated_token_reduction": "~3000 tokens saved per occurrence — the root cause diagnosis took 2 full sessions with multiple gerbil_eval, bash, and gerbil_qt_test_runner calls to isolate",
-    "votes": 1
-  },
-  {
     "id": "security-scan-suppress-inline",
     "title": "Support inline suppression comments for security scanner false positives",
     "description": "Allow suppressing specific security scanner findings with inline comments like `;; gerbil-security: suppress ffi-pointer-void-type-mismatch` or `;; security-ok: reason`. The scanner currently has no suppression mechanism, so confirmed false positives (like a null-guard `if (!table)` being flagged as an `#ifdef` stub, or `open-output-string` flagged as a resource leak) generate noise on every scan. The tool should: (1) recognize suppression comments on the same or preceding line, (2) skip the finding for the specific rule ID, (3) optionally report suppressed findings in a separate section for audit purposes.",
