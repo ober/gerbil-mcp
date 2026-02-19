@@ -199,5 +199,119 @@
     "example_scenario": "Added face.ss to project, modified core.ss to import :gemacs/face. Running gerbil_verify on core.ss failed with \"cannot find library module :gemacs/face\" even though gerbil_verify on face.ss passed. Tried multiple times, confused because face.ss existed and compiled. Actual fix: ran 'make clean' to remove stale core.ssi. A diagnostic hint would have saved 15+ minutes of debugging.",
     "estimated_token_reduction": "~800 tokens per occurrence - eliminates multiple rounds of gerbil_verify, gerbil_compile_check, gxc -S attempts, and eventually discovering the clean solution via trial and error",
     "votes": 0
+  },
+  {
+    "id": "macro-pattern-detector",
+    "title": "Detect repetitive code patterns that could be replaced with macros",
+    "description": "A tool that analyzes a Gerbil source file and identifies repetitive code patterns that could be replaced with macros. It would detect: (1) repeated function definitions with similar structure (same template, different names/args), (2) repeated method definitions wrapping the same boilerplate, (3) repeated import+export blocks, (4) repeated validation/check patterns, (5) repeated struct accessor patterns. For each detected pattern, it would suggest a macro definition and show the before/after code size.",
+    "impact": "high",
+    "tags": [
+      "macro",
+      "boilerplate",
+      "pattern",
+      "detection",
+      "code-reduction",
+      "static-analysis"
+    ],
+    "use_case": "When Claude generates 50+ lines of repetitive code (like defining 10 similar accessor functions or 20 similar method wrappers), this tool would flag the pattern and suggest a macro that reduces it to 5 lines.",
+    "example_scenario": "File has 15 functions of the form `(def (get-FOO obj) (hash-ref obj \"FOO\"))` with different FOO values. Tool detects the pattern and suggests: `(defrule (def-getter name key) (def (name obj) (hash-ref obj key)))` plus the compact invocations.",
+    "estimated_token_reduction": "~2000-5000 tokens per file with repetitive patterns — eliminates both the repetitive code generation and the review/debugging of that code",
+    "votes": 1
+  },
+  {
+    "id": "macro-expansion-size-check",
+    "title": "Check macro expansion size to catch accidentally explosive macros",
+    "description": "A tool that expands a macro invocation and reports the size (number of forms/tokens) of the expanded code compared to the source. Would flag macros that expand to unexpectedly large code (e.g., a 1-line macro call expanding to 100+ forms). This helps catch: (1) macros that accidentally expand recursively, (2) macros that generate more code than expected, (3) cases where a function would be more appropriate than a macro.",
+    "impact": "medium",
+    "tags": [
+      "macro",
+      "expansion",
+      "size",
+      "check",
+      "debug",
+      "compile-time",
+      "bloat"
+    ],
+    "use_case": "When writing new macros or using unfamiliar macros, to verify the expansion is reasonable and not accidentally quadratic.",
+    "example_scenario": "`(define-all-methods MyClass (m1 m2 m3 m4 m5))` might expand to 500 lines if each method generates a large body. Tool would show: \"Source: 1 form, 8 tokens. Expansion: 47 forms, 523 tokens. Ratio: 65x\"",
+    "estimated_token_reduction": "~500 tokens per macro debugging session — eliminates manual gerbil_expand_macro + counting",
+    "votes": 0
+  },
+  {
+    "id": "boilerplate-to-macro-converter",
+    "title": "Convert repetitive code blocks into a macro definition automatically",
+    "description": "Given 2-3 similar code blocks, this tool would automatically extract the common pattern and generate a macro definition (defrule/defrules) that captures it. It would: (1) align the code blocks to find varying vs constant parts, (2) assign pattern variables to the varying parts, (3) generate a defrule with ellipsis if the blocks differ in list length, (4) output both the macro definition and the replacement invocations.",
+    "impact": "high",
+    "tags": [
+      "macro",
+      "convert",
+      "refactor",
+      "boilerplate",
+      "automation",
+      "code-reduction",
+      "generate"
+    ],
+    "use_case": "When Claude has already generated repetitive code and the user wants to refactor it. Instead of manually writing the macro, this tool extracts the pattern automatically.",
+    "example_scenario": "Given three functions: `(def (get-name obj) (hash-ref obj \"name\" \"\"))`, `(def (get-age obj) (hash-ref obj \"age\" 0))`, `(def (get-email obj) (hash-ref obj \"email\" \"\"))` — the tool generates: `(defrule (def-hash-getter name key default) (def (name obj) (hash-ref obj key default)))` plus the three invocations.",
+    "estimated_token_reduction": "~1000-3000 tokens per refactoring — eliminates the manual analysis and macro writing",
+    "votes": 1
+  },
+  {
+    "id": "macro-aware-code-review",
+    "title": "Code review mode that suggests macro usage from stdlib sugar",
+    "description": "A lint-like tool that scans Gerbil code for patterns that could be simplified using existing stdlib macros from :std/sugar and related modules. It would detect: (1) `(let (x expr) (when x ...))` suggesting `awhen`, (2) `(let (x expr) (if x then else))` suggesting `if-let`, (3) nested lets feeding into each other suggesting `chain`, (4) `(let ((a (hash-ref h \"a\")) (b (hash-ref h \"b\")))` suggesting `let-hash`, (5) repeated `(hash-ref obj \"key\")` suggesting using/struct access, (6) manual `try/finally` around resources suggesting `with-destroy`. Would report line numbers, the current code, and the suggested replacement.",
+    "impact": "high",
+    "tags": [
+      "macro",
+      "review",
+      "sugar",
+      "suggestion",
+      "stdlib",
+      "code-reduction",
+      "lint"
+    ],
+    "use_case": "When Claude generates verbose code that does not use available sugar macros. Claude often defaults to explicit let/when/if patterns instead of using the sugar macros that Gerbil provides.",
+    "example_scenario": "Code has `(let ((v (hash-get config \"debug\"))) (when v (set! debug-mode #t)))`. Tool suggests: `(awhen (v (hash-get config \"debug\")) (set! debug-mode #t))` — saves 1 line and is more idiomatic.",
+    "estimated_token_reduction": "~500-1500 tokens per file — reduces generated code size and makes it more idiomatic",
+    "votes": 0
+  },
+  {
+    "id": "macro-template-library",
+    "title": "Library of reusable macro templates for common patterns",
+    "description": "A tool that generates project-local macro definitions for common patterns. Given a pattern name (e.g., \"hash-accessors\", \"method-delegation\", \"validation-guards\", \"enum-constants\", \"event-handlers\"), it generates a tested, working defrule/defsyntax definition that the user can include in their project. Unlike cookbook recipes, these would be generated with project-specific naming conventions and immediately usable.",
+    "impact": "medium",
+    "tags": [
+      "macro",
+      "template",
+      "library",
+      "pattern",
+      "scaffold",
+      "generate",
+      "common"
+    ],
+    "use_case": "When starting a new module that will have repetitive patterns. Instead of writing the boilerplate or the macro from scratch, generate the macro template and fill in the specifics.",
+    "example_scenario": "`gerbil_macro_template \"hash-accessors\" prefix: \"config\" fields: [\"host\" \"port\" \"debug\"]` generates a defrule and the invocations that define config-host, config-port, config-debug accessor functions.",
+    "estimated_token_reduction": "~800-1200 tokens per macro creation — eliminates researching how to write the macro and testing it",
+    "votes": 0
+  },
+  {
+    "id": "batch-import-conflict-checker",
+    "title": "Batch import conflict checker before compilation",
+    "description": "A tool that analyzes all imports in a file (or project) and detects potential symbol conflicts before compilation. Would scan each file's import declarations, resolve which symbols each module exports (using runtime introspection + static analysis), and report conflicts where: (1) multiple imports export the same symbol, (2) a locally defined symbol conflicts with an imported symbol. For each conflict, suggest a fix using (only-in :module symbol1 symbol2) or (except-in :module conflicting-symbol). Could batch-check an entire project directory to find all import conflicts at once.",
+    "impact": "high",
+    "tags": [
+      "import",
+      "conflict",
+      "only-in",
+      "except-in",
+      "batch",
+      "compile",
+      "check",
+      "symbols"
+    ],
+    "use_case": "When adding new imports to existing files or when refactoring module structure. The compilation error \"Bad binding; import conflict\" appears only after a full build attempt, and the error message doesn't always clearly indicate which symbols conflict or which modules are involved.",
+    "example_scenario": "During theme system implementation, added :gemacs/persist import to qt/commands-shell.ss which already imported :gemacs/qt/commands-vcs. Build failed with \"Bad binding; import conflict\" for symbols like recent-files-load!, *delete-trailing-whitespace-on-save*. Had to manually trace through which modules export which symbols, then fix with selective imports. This happened multiple times across different files (qt/commands-config.ss had similar conflicts). A batch checker would have caught all 3 import conflicts upfront with specific symbol names and suggested (only-in :gemacs/persist theme-settings-save! custom-faces-save!) fixes.",
+    "estimated_token_reduction": "~1500 tokens per build session with import changes — eliminates multiple compile-fail-fix-recompile cycles (typically 3-5 import conflicts per refactoring), each requiring a full build attempt to discover the next conflict",
+    "votes": 0
   }
 ]

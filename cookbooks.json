@@ -11995,5 +11995,713 @@
     ],
     "code": ";; Pattern: Persist hash table to tab-separated file (one row per key)\n\n;; Save hash table to tab-separated file\n(def (save-hash-to-tsv! ht file-path)\n  \"Save hash table HT to FILE-PATH as tab-separated rows.\n   Format: key TAB value1 TAB value2 ...\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (call-with-output-file file-path\n        (lambda (port)\n          (hash-for-each\n            (lambda (key val)\n              ;; Build row: key TAB val1 TAB val2 ...\n              (let ((row (string-append (symbol->string key) \"\\t\" val)))\n                (displayln row port)))\n            ht))\n        #t))))\n\n;; Load hash table from tab-separated file\n(def (load-hash-from-tsv file-path)\n  \"Load hash table from FILE-PATH (tab-separated format).\n   Returns hash table or #f on error.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (if (file-exists? file-path)\n        (let ((ht (make-hash-table-eq)))\n          (call-with-input-file file-path\n            (lambda (port)\n              (let loop ()\n                (let ((line (read-line port)))\n                  (unless (eof-object? line)\n                    ;; Split on tab\n                    (let* ((parts (string-split line #\\tab))\n                           (key (and (pair? parts) (string->symbol (car parts))))\n                           (vals (cdr parts)))\n                      (when key\n                        ;; Reconstruct value from remaining fields\n                        (hash-put! ht key vals))\n                      (loop)))))))\n          ht)\n        #f))))\n\n;; Example with structured values:\n(def (save-custom-faces! faces-ht file-path)\n  \"Save faces hash table with structured values.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (call-with-output-file file-path\n        (lambda (port)\n          (hash-for-each\n            (lambda (face-name customizations)\n              (let ((line (string-append (symbol->string face-name))))\n                ;; Add each customization as key:value\n                (when (hash-key? customizations 'fg)\n                  (set! line (string-append line \"\\tfg:\" (hash-get customizations 'fg))))\n                (when (hash-key? customizations 'bold)\n                  (set! line (string-append line \"\\tbold:\"\n                                            (if (hash-get customizations 'bold) \"true\" \"false\"))))\n                (displayln line port)))\n            faces-ht)))\n      #t)))\n\n;; Load with structured parsing:\n(def (load-custom-faces! file-path)\n  \"Load faces hash table with structured values.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let ((ht (make-hash-table-eq)))\n        (when (file-exists? file-path)\n          (call-with-input-file file-path\n            (lambda (port)\n              (let loop ()\n                (let ((line (read-line port)))\n                  (unless (eof-object? line)\n                    (let* ((parts (string-split line #\\tab))\n                           (face-name (and (pair? parts) (string->symbol (car parts)))))\n                      (when face-name\n                        (let ((customizations (make-hash-table-eq)))\n                          ;; Parse key:value pairs\n                          (for-each\n                            (lambda (attr-str)\n                              (let ((colon-idx (string-index attr-str #\\:)))\n                                (when colon-idx\n                                  (let ((key (string->symbol (substring attr-str 0 colon-idx)))\n                                        (val (substring attr-str (+ colon-idx 1) (string-length attr-str))))\n                                    (hash-put! customizations key val)))))\n                            (cdr parts))\n                          (hash-put! ht face-name customizations)))\n                      (loop))))))))\n        ht))))\n",
     "notes": "Tab-separated format is simple and human-readable. Use hash-for-each to iterate hash tables. For complex values, encode them as key:value pairs in additional columns. Always use with-catch for file I/O. Use call-with-output-file and call-with-input-file for automatic port cleanup. This pattern is used by gemacs for custom face persistence."
+  },
+  {
+    "id": "defrule-simple-pattern",
+    "title": "defrule: simple pattern-matching macro (one clause)",
+    "tags": [
+      "defrule",
+      "macro",
+      "pattern",
+      "simple",
+      "boilerplate",
+      "syntax-rules",
+      "define"
+    ],
+    "imports": [],
+    "code": ";; defrule defines a simple one-clause pattern macro.\n;; Syntax: (defrule (name pattern ...) template)\n;;\n;; Example: a swap macro that exchanges two variables\n(defrule (swap! a b)\n  (let ((tmp a))\n    (set! a b)\n    (set! b tmp)))\n\n;; Usage:\n(let ((x 10) (y 20))\n  (swap! x y)\n  (displayln \"x=\" x \" y=\" y))\n;; => x=20 y=10\n\n;; Another example: a simple timing macro\n(defrule (time-it label body ...)\n  (let ((start (time->seconds (current-time))))\n    body ...\n    (let ((elapsed (- (time->seconds (current-time)) start)))\n      (displayln label \": \" elapsed \"s\"))))\n\n;; Usage:\n;; (time-it \"loop\" (for-each (lambda (x) x) (iota 1000)))",
+    "notes": "defrule is syntactic sugar for `(defsyntax name (syntax-rules () ((_ pattern ...) template)))`. Use it for simple one-clause pattern macros where you just need pattern substitution. For multi-clause macros, use defrules instead. The _ in the expanded syntax-rules matches the macro name itself. Pattern variables (like a, b in swap!) are automatically hygienic — they won't capture bindings from the use site.",
+    "related": [
+      "defrules-multi-clause",
+      "defrules-vs-syntax-case",
+      "defrule-define-many",
+      "defrule-with-auxiliary-keywords"
+    ]
+  },
+  {
+    "id": "defrules-multi-clause",
+    "title": "defrules: multi-clause pattern macro with optional args",
+    "tags": [
+      "defrules",
+      "macro",
+      "multi-clause",
+      "pattern",
+      "optional",
+      "overloading",
+      "boilerplate"
+    ],
+    "imports": [],
+    "code": ";; defrules defines a macro with multiple pattern clauses.\n;; Syntax: (defrules name (aux-keywords ...) clause ...)\n;; Each clause is: (pattern template)\n;;\n;; Example: a debug macro that handles 1 or 2 arguments\n(defrules dbg ()\n  ((_ expr)\n   (let ((v expr)) (displayln \"  ; \" (quote expr) \" => \" v) v))\n  ((_ label expr)\n   (let ((v expr)) (displayln \"  ; \" label \": \" (quote expr) \" => \" v) v)))\n\n;; Usage with one arg (expression only):\n(dbg (+ 1 2))\n;; prints:   ; (+ 1 2) => 3\n;; returns: 3\n\n;; Usage with two args (label + expression):\n(dbg \"sum\" (+ 1 2))\n;; prints:   ; sum: (+ 1 2) => 3\n;; returns: 3\n\n;; Another example: a flexible `while` loop\n(defrules while ()\n  ((_ test body ...)\n   (let loop ()\n     (when test body ... (loop))))\n  ((_ test => result body ...)\n   (let loop ()\n     (let ((result test))\n       (when result body ... (loop))))))",
+    "notes": "defrules uses syntax-rules under the hood. The first argument after the name is the list of auxiliary keywords — use () for none. Clauses are tried top-to-bottom; the first matching pattern wins. GOTCHA: body ... (with ellipsis) matches ZERO or more items, so if clause ordering is ambiguous, put more-specific patterns first. See recipe defrules-macro-ambiguity-fix for a common pitfall with optional arguments.",
+    "related": [
+      "defrule-simple-pattern",
+      "defrules-vs-syntax-case",
+      "defrules-macro-ambiguity-fix",
+      "defrule-with-auxiliary-keywords"
+    ]
+  },
+  {
+    "id": "defrule-define-many",
+    "title": "defrule with ellipsis: define multiple items at once",
+    "tags": [
+      "defrule",
+      "ellipsis",
+      "macro",
+      "batch",
+      "define",
+      "constants",
+      "boilerplate",
+      "code-generation"
+    ],
+    "imports": [],
+    "code": ";; Use ... (ellipsis) in defrule to process repeated patterns.\n;; In the template, forms containing pattern variables followed by ...\n;; are replicated for each match.\n\n;; Example 1: Define multiple constants at once\n(defrule (define-constants (name value) ...)\n  (begin (def name value) ...))\n\n(define-constants\n  (MAX-RETRIES 3)\n  (TIMEOUT 5000)\n  (DEFAULT-PORT 8080))\n\n(displayln \"MAX-RETRIES=\" MAX-RETRIES\n           \" TIMEOUT=\" TIMEOUT\n           \" DEFAULT-PORT=\" DEFAULT-PORT)\n;; => MAX-RETRIES=3 TIMEOUT=5000 DEFAULT-PORT=8080\n\n;; Example 2: Define multiple aliases at once\n(defrule (define-aliases (new old) ...)\n  (begin (defalias new old) ...))\n\n;; (define-aliases\n;;   (display-line displayln)\n;;   (fmt format))\n\n;; Example 3: Define multiple string constants with a prefix\n(defrule (define-strings prefix (name str) ...)\n  (begin (def name (string-append (symbol->string (quote prefix)) \"/\" str)) ...))\n\n;; (define-strings api\n;;   (USERS-ENDPOINT \"users\")\n;;   (POSTS-ENDPOINT \"posts\"))\n;; USERS-ENDPOINT => \"api/users\"",
+    "notes": "The ... (ellipsis) matches zero or more occurrences of the preceding pattern element. In the template, `(def name value) ...` replicates the `(def name value)` form for each matched (name value) pair. The `begin` wrapper is necessary to splice multiple definitions into a single expression context. This is the key technique for eliminating repetitive top-level definitions.",
+    "related": [
+      "defrule-simple-pattern",
+      "defrules-multi-clause",
+      "defrule-with-auxiliary-keywords"
+    ]
+  },
+  {
+    "id": "defrule-with-auxiliary-keywords",
+    "title": "defrules with auxiliary keywords for mini-DSLs",
+    "tags": [
+      "defrules",
+      "auxiliary",
+      "keyword",
+      "DSL",
+      "macro",
+      "domain-specific",
+      "pattern"
+    ],
+    "imports": [],
+    "code": ";; Auxiliary keywords are listed after the macro name.\n;; They are matched LITERALLY in patterns, not as pattern variables.\n;; This lets you create readable mini-DSL syntax.\n;;\n;; Syntax: (defrules name (aux-kw1 aux-kw2 ...) clause ...)\n\n;; Example 1: for-each-indexed with `in` as auxiliary keyword\n(defrules for-each-indexed (in)\n  ((_ (i x in lst) body ...)\n   (let loop ((idx 0) (rest lst))\n     (unless (null? rest)\n       (let ((i idx) (x (car rest)))\n         body ...\n         (loop (fx+ idx 1) (cdr rest)))))))\n\n(for-each-indexed (i x in '(a b c))\n  (displayln i \": \" x))\n;; => 0: a\n;; => 1: b\n;; => 2: c\n\n;; Example 2: `define-handler` with `for` and `do` as auxiliary keywords\n(defrules define-handler (for do)\n  ((_ name for event-type do body ...)\n   (def (name event)\n     (when (eq? (car event) (quote event-type))\n       body ...))))\n\n(define-handler on-click for click do\n  (displayln \"clicked!\"))\n\n;; on-click is now: (def (on-click event) (when (eq? (car event) 'click) (displayln \"clicked!\")))",
+    "notes": "Auxiliary keywords (listed in the parenthesized list after the macro name) are treated as literal identifiers in patterns, not as pattern variables. Without them, `in` in `(i x in lst)` would just be another pattern variable. With `in` listed as auxiliary, it must appear literally at the use site. This is identical to the auxiliary literals list in R7RS syntax-rules. Use this technique to make macro invocations read like natural language or DSL syntax.",
+    "related": [
+      "defrule-simple-pattern",
+      "defrules-multi-clause",
+      "defrules-vs-syntax-case"
+    ]
+  },
+  {
+    "id": "defrule-validation-macro",
+    "title": "defrule for inline validation/assertion macros",
+    "tags": [
+      "defrule",
+      "validate",
+      "assert",
+      "check",
+      "guard",
+      "macro",
+      "boilerplate",
+      "error"
+    ],
+    "imports": [],
+    "code": ";; Use defrule to create validation macros that reduce repetitive argument checking.\n;; (quote who) captures the function name at compile time for better error messages.\n\n;; Example 1: Check a single argument with a predicate\n(defrule (check-arg pred val who what)\n  (unless (pred val)\n    (error (quote who) (string-append \"expected \" what) val)))\n\n(def (process-data data size)\n  (check-arg list? data process-data \"list\")\n  (check-arg fixnum? size process-data \"fixnum\")\n  ;; actual logic here\n  data)\n\n(displayln (process-data '(1 2 3) 42))\n;; => (1 2 3)\n;; (process-data \"bad\" 42) => ERROR: process-data \"expected list\" \"bad\"\n\n;; Example 2: Check a value is within a range\n(defrule (check-range val lo hi who)\n  (unless (and (>= val lo) (<= val hi))\n    (error (quote who)\n           (string-append \"value out of range [\"\n                          (number->string lo) \", \"\n                          (number->string hi) \"]\")\n           val)))\n\n;; Example 3: Check a value is not #f (useful for hash lookups)\n(defrule (check-found val msg who)\n  (unless val\n    (error (quote who) msg)))",
+    "notes": "Validation macros capture the common pattern of checking a predicate and raising a descriptive error. Using (quote who) captures the function name as a symbol at compile time, so error messages automatically include which function failed. This avoids repeating the function name as a string in every check. For more powerful assertion macros with sub-expression diagnostics, see :std/assert.",
+    "related": [
+      "defrule-simple-pattern",
+      "assert-with-diagnostics",
+      "defrules-multi-clause"
+    ]
+  },
+  {
+    "id": "macro-defmethod-generator",
+    "title": "Macro to generate multiple method definitions from a spec",
+    "tags": [
+      "defrules",
+      "defmethod",
+      "macro",
+      "boilerplate",
+      "method",
+      "class",
+      "generate",
+      "code-reduction"
+    ],
+    "imports": [],
+    "code": ";; Define a macro that generates method definitions for a class.\n;; Pattern from :std/io/port — the => is an auxiliary keyword.\n(defrules defport-method (=>)\n  ;; Simple delegation to a primitive\n  ((_ klass (name port args ...) => primitive)\n   (defmethod {name klass}\n     (lambda (self args ...)\n       (let (port (&raw-port-port self))\n         (primitive args ... port)))))\n  ;; Custom body\n  ((_ klass (name port args ...) body ...)\n   (defmethod {name klass}\n     (lambda (self args ...)\n       (let (port (&raw-port-port self))\n         body ...)))))\n\n;; Usage: one macro call generates a full method definition\n;; (defport-method raw-input-port (close port) => close-input-port)\n;; (defport-method raw-binary-input-port (read-u8 port) => read-u8)\n;; (defport-method raw-binary-input-port (peek-u8 port) => peek-u8)\n;;\n;; Custom body version:\n;; (defport-method raw-binary-input-port (read port u8v start end need)\n;;   (let (rd (read-subu8vector u8v start end port (if (fx> need 0) need 1)))\n;;     (if (fx< rd need)\n;;       (raise-premature-end-of-input raw-binary-input-port)\n;;       rd)))",
+    "notes": "This pattern is taken from the Gerbil stdlib :std/io/port.ss. The `=>` is declared as an auxiliary keyword in the defrules form. Each invocation generates a full defmethod with the boilerplate of unwrapping `self` into a port via `(&raw-port-port self)`. Without this macro, each method would need 4+ lines of boilerplate. The real stdlib defines ~40 methods this way. To adapt this pattern for your own classes: (1) replace `&raw-port-port` with your accessor, (2) rename the macro, (3) define your own delegation and custom-body clauses. The `{name klass}` syntax is Gerbil's method binding notation.",
+    "related": [
+      "defrules-vs-syntax-case",
+      "interface-method-dispatch",
+      "generic-multi-dispatch"
+    ]
+  },
+  {
+    "id": "macro-defraise-meta-macro",
+    "title": "Meta-macro: defrules that generates defrules (macro-generating macros)",
+    "tags": [
+      "defrules",
+      "meta-macro",
+      "macro",
+      "generate",
+      "error",
+      "raise",
+      "boilerplate",
+      "abstraction"
+    ],
+    "imports": [],
+    "code": ";; A macro that DEFINES other macros — the ultimate boilerplate eliminator.\n;; From :std/error — defraise/context generates complete defrules definitions.\n(defrules defraise/context ()\n  ((_ (rule where args ...) (Klass message irritants: irritants))\n   (defrules rule ()\n     ((_ where args ...)\n      (raise (Klass message\n               where: (exception-context where)\n               irritants: (cons 'where irritants)))))))\n\n;; Each line below DEFINES A NEW MACRO:\n;; (defraise/context (raise-io-error where message irritants ...)\n;;   (IOError message irritants: [irritants ...]))\n;;\n;; (defraise/context (raise-premature-end-of-input where irritants ...)\n;;   (PrematureEndOfInput \"premature end of input\" irritants: [irritants ...]))\n;;\n;; (defraise/context (raise-timeout where message irritants ...)\n;;   (Timeout message irritants: [irritants ...]))\n;;\n;; Now you can use the generated macros anywhere:\n;;   (raise-io-error my-function \"file not found\" filename)\n;;   (raise-premature-end-of-input my-reader)\n;;   (raise-timeout my-handler \"connection timed out\" host port)",
+    "notes": "This is one of the most powerful macro patterns in Gerbil. A single defraise/context call expands into a complete defrules definition. The generated macros automatically capture the call site context via `exception-context`. The actual :std/error defines 10+ error-raising macros this way (raise-io-error, raise-premature-end-of-input, raise-io-closed, raise-timeout, raise-context-error, raise-unsupported-method, raise-contract-violation, raise-bad-argument, raise-unbound-key, raise-bug). Each would otherwise need ~10 lines. The actual stdlib version also wraps the raise in `abort!` for stack trace control. To use the real versions, import :std/error — this recipe shows the pattern for creating your own meta-macros.",
+    "related": [
+      "deferror-class-defraise",
+      "defrules-vs-syntax-case",
+      "error-handling"
+    ]
+  },
+  {
+    "id": "macro-deflib-entire-module",
+    "title": "Module-generating macro: one line generates an entire module",
+    "tags": [
+      "defsyntax",
+      "macro",
+      "module",
+      "generate",
+      "entire",
+      "code-generation",
+      "deflib",
+      "srfi",
+      "stx-identifier"
+    ],
+    "imports": [],
+    "code": ";; This is the ultimate macro pattern: generate an ENTIRE MODULE from one line.\n;; From :std/srfi/160 — deflib generates complete typed vector modules.\n;;\n;; Each type-specific file (u8.ss, s16.ss, f64.ss, ...) is literally one line:\n;;   (import ./base ./macros)\n;;   (deflib u8)\n;;\n;; This single line generates 50+ exports: make-u8vector, u8vector-length,\n;; u8vector-ref, u8vector-set!, u8vector->list, list->u8vector, etc.\n;; 14 type files are each a single line, with the macro generating hundreds\n;; of lines per type.\n;;\n;; Your own version for a simpler case — generate accessors from a spec:\n\n(defsyntax (def-accessors stx)\n  (syntax-case stx ()\n    ((_ type-name (field ...))\n     (with-syntax (((getter ...) (map (lambda (f)\n                                        (stx-identifier f #'type-name \"-\" f))\n                                      (syntax->list #'(field ...))))\n                   ((setter ...) (map (lambda (f)\n                                        (stx-identifier f #'type-name \"-\" f \"-set!\"))\n                                      (syntax->list #'(field ...)))))\n       #'(begin\n           (def (getter obj) (slot-ref obj 'field)) ...\n           (def (setter obj val) (slot-set! obj 'field val)) ...)))))\n\n;; One macro call generates all accessors:\n;; (def-accessors point (x y z))\n;; Expands to:\n;;   (def (point-x obj) (slot-ref obj 'x))\n;;   (def (point-x-set! obj val) (slot-set! obj 'x val))\n;;   (def (point-y obj) (slot-ref obj 'y))\n;;   (def (point-y-set! obj val) (slot-set! obj 'y val))\n;;   (def (point-z obj) (slot-ref obj 'z))\n;;   (def (point-z-set! obj val) (slot-set! obj 'z val))",
+    "notes": "The SRFI-160 deflib pattern is the most extreme example of code reduction in the Gerbil stdlib — 14 type files are each a single line `(deflib TYPE)`, with the macro generating hundreds of lines per type. The key technique is `stx-identifier` which creates new identifiers by concatenating syntax objects and strings at macro expansion time. This is essential for hygienic identifier generation. The `(syntax->list #'(field ...))` call converts the ellipsis-matched syntax into a list that can be mapped over. The `with-syntax` form binds the generated identifier lists back into template variables that can be used with `...` ellipsis in the output. When writing project code, look for opportunities to parameterize entire modules with a single macro call.",
+    "related": [
+      "with-id-identifier-generation",
+      "defrules-vs-syntax-case",
+      "syntax-case-macro-writing"
+    ]
+  },
+  {
+    "id": "macro-with-resource-pattern",
+    "title": "with-resource macro pattern for automatic cleanup",
+    "tags": [
+      "defrule",
+      "with",
+      "resource",
+      "cleanup",
+      "unwind-protect",
+      "try",
+      "finally",
+      "macro",
+      "pattern",
+      "raii"
+    ],
+    "imports": [],
+    "code": ";; Generic resource management macro — acquire, use, cleanup\n(defrule (with-resource (var acquire-expr) cleanup-expr body ...)\n  (let ((var acquire-expr))\n    (try body ...\n         (finally cleanup-expr))))\n\n;; Specialized versions for common cases:\n(defrule (with-output-file (port path) body ...)\n  (let ((port (open-output-file path)))\n    (try body ...\n         (finally (close-output-port port)))))\n\n(defrule (with-input-file (port path) body ...)\n  (let ((port (open-input-file path)))\n    (try body ...\n         (finally (close-input-port port)))))\n\n;; Usage:\n;; (with-output-file (port \"/tmp/test.txt\")\n;;   (display \"hello\" port)\n;;   (newline port))\n;;\n;; (with-input-file (port \"/tmp/test.txt\")\n;;   (read-line port))\n;;\n;; More general usage:\n;; (with-resource (conn (connect-db \"localhost\"))\n;;   (disconnect conn)\n;;   (query conn \"SELECT 1\"))\n;;\n;; With multiple resources, nest them:\n;; (with-input-file (in \"source.txt\")\n;;   (with-output-file (out \"dest.txt\")\n;;     (let loop ()\n;;       (let (line (read-line in))\n;;         (unless (eof-object? line)\n;;           (display line out)\n;;           (newline out)\n;;           (loop))))))",
+    "notes": "The with-resource pattern ensures cleanup even on exceptions. Define one per resource type and never worry about forgetting try/finally. The stdlib uses this pattern extensively in :std/io and FFI code. Note: `try`/`finally` is a core Gerbil form (no imports needed). For stdlib alternatives, see: `with-destroy` from :std/sugar (calls the `{destroy}` method), `with-lock` from :std/misc/lock, `with-exception-handler` from core. The generic `with-resource` form is useful when the cleanup expression references the bound variable directly, while specialized versions like `with-output-file` hide all resource management details.",
+    "related": [
+      "with-destroy-raii",
+      "ffi-lifecycle-macro-with-resource",
+      "error-handling"
+    ]
+  },
+  {
+    "id": "macro-defalias-bulk-rename",
+    "title": "defalias for bulk renaming/re-exporting without wrapper overhead",
+    "tags": [
+      "defalias",
+      "alias",
+      "rename",
+      "re-export",
+      "macro",
+      "bulk",
+      "boilerplate",
+      "zero-overhead"
+    ],
+    "imports": [],
+    "code": ";; defalias creates a compile-time alias — zero runtime overhead.\n;; Perfect for providing alternative names or re-exporting with different names.\n\n;; Single alias:\n(defalias my-hash-get hash-ref)\n\n;; Bulk aliasing pattern using defrule:\n(defrule (define-aliases (new old) ...)\n  (begin (defalias new old) ...))\n\n;; Re-export with consistent naming convention:\n;; From :std/misc/bytes.ss — provides R6RS bytevector names for Gerbil u8vectors:\n;;\n;; (define-aliases\n;;   (bytevector-u8-ref  u8vector-ref)\n;;   (bytevector-u8-set! u8vector-set!)\n;;   (bytevector-length  u8vector-length)\n;;   (bytevector-copy    u8vector-copy)\n;;   (bytevector-copy!   u8vector-copy!))\n;;\n;; This is MUCH better than wrapper functions:\n;; BAD:  (def (bytevector-u8-ref v i) (u8vector-ref v i))  ;; runtime overhead\n;; GOOD: (defalias bytevector-u8-ref u8vector-ref)          ;; zero overhead\n;;\n;; The compiler substitutes the original directly — no indirection at all.\n;; Don't forget to export the aliases if they need to be public:\n;; (export bytevector-u8-ref bytevector-u8-set! ...)",
+    "notes": "defalias is a core Gerbil form (not from :std/sugar or any import). It creates a compile-time binding alias — the compiler substitutes the original directly, so there is zero runtime overhead. The bulk aliasing pattern using define-aliases eliminates repetitive defalias calls. The real :std/misc/bytes.ss uses individual defalias calls to provide R6RS-compatible bytevector names for Gerbil's u8vector functions (20+ aliases). Important: defalias works for any binding — functions, macros, and values. The alias has the same identity as the original. Remember to export aliases explicitly if they need to be visible to importers.",
+    "related": [
+      "defmethod-alias-multi-name",
+      "reexport-convenience-module",
+      "export-t-does-not-reexport-imports"
+    ]
+  },
+  {
+    "id": "macro-prefer-sugar-over-verbose",
+    "title": "Prefer :std/sugar macros over verbose code — quick reference",
+    "tags": [
+      "sugar",
+      "macro",
+      "prefer",
+      "verbose",
+      "concise",
+      "idiomatic",
+      "guide",
+      "best-practice",
+      "code-reduction"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": "(import :std/sugar)\n\n;; VERBOSE → CONCISE using :std/sugar macros\n;; Setup for examples:\n(def ht (hash (\"name\" \"Alice\") (\"age\" 30)))\n(def config (hash (\"name\" \"myapp\") (\"port\" 8080)))\n\n;; 1. awhen — bind + conditional\n;; VERBOSE: (let ((v (hash-get ht \"name\"))) (when v (string-upcase v)))\n;; CONCISE:\n(awhen (v (hash-get ht \"name\"))\n  (string-upcase v))\n;; => \"ALICE\"\n\n;; 2. if-let — bind + branch\n;; VERBOSE: (let ((v (find odd? '(2 4 5 6)))) (if v (* v 10) 0))\n;; CONCISE:\n(if-let (v (find odd? '(2 4 5 6)))\n  (* v 10)\n  0)\n;; => 50\n\n;; 3. when-let — bind + when\n;; VERBOSE: (let ((v (assoc 'a '((a . 1) (b . 2))))) (when v (cdr v)))\n;; CONCISE:\n(when-let (v (assoc 'a '((a . 1) (b . 2))))\n  (cdr v))\n;; => 1\n\n;; 4. chain — pipeline processing\n;; VERBOSE: (string-join (map number->string (filter odd? '(1 2 3 4 5))) \", \")\n;; CONCISE:\n(chain '(1 2 3 4 5) (filter odd? <>) (map number->string <>) (string-join <> \", \"))\n;; => \"1, 3, 5\"\n\n;; 5. is — predicate factory\n;; VERBOSE: (filter (lambda (x) (> x 10)) '(5 10 15 20))\n;; CONCISE:\n(filter (is <> > 10) '(5 10 15 20))\n;; => (15 20)\n\n;; 6. let-hash — hash destructuring\n;; VERBOSE: (let ((n (hash-ref config \"name\")) (p (hash-ref config \"port\"))) (list n p))\n;; CONCISE:\n(let-hash config\n  (list .name .port))\n;; => (\"myapp\" 8080)\n\n;; 7. with-destroy — automatic cleanup\n;; VERBOSE: (let ((p (open-output-string))) (try (display \"hi\" p) (finally (close-port p))))\n;; CONCISE (with-destroy calls destroy method; for ports use try/finally):\n;; For objects with a destroy method:\n;; (with-destroy (r (acquire-resource))\n;;   (use r))",
+    "notes": "Always prefer :std/sugar macros over hand-written let/when/if/lambda combinations. Each macro eliminates 1-3 lines of boilerplate and makes intent clearer. The biggest wins: awhen (very common null-check pattern), chain (eliminates deeply nested function calls), let-hash (eliminates repetitive hash-ref calls). Import :std/sugar in every module.",
+    "related": [
+      "is-predicate-factory",
+      "chain-advanced-pipeline",
+      "alet-star-anaphoric-let",
+      "with-destroy-cleanup",
+      "awhen-anaphoric-when",
+      "if-let-when-let-sugar"
+    ]
+  },
+  {
+    "id": "macro-match-over-nested-cond",
+    "title": "Use match instead of nested cond/if for data dispatch",
+    "tags": [
+      "match",
+      "pattern",
+      "dispatch",
+      "cond",
+      "if",
+      "nested",
+      "concise",
+      "macro",
+      "destructure"
+    ],
+    "imports": [],
+    "code": ";; VERBOSE — nested cond with type checks:\n;; (cond\n;;   ((null? data) '())\n;;   ((pair? data) (process (car data) (cdr data)))\n;;   ((string? data) (process-string data))\n;;   ((number? data) (process-number data))\n;;   (else (error \"unknown\" data)))\n\n;; CONCISE — match destructures and dispatches:\n(def (process-data data)\n  (match data\n    ([] '())\n    ([head . tail] (list 'pair head tail))\n    ((? string? s) (string-append \"str:\" s))\n    ((? number? n) (* n 2))\n    (else (error \"unknown\" data))))\n\n;; match with nested structure:\n(def (handle-response response)\n  (match response\n    ([200 body] (list 'ok body))\n    ([(? (lambda (s) (>= s 400)) status) body] (list 'error status body))\n    ([301 location] (list 'redirect location))\n    (_ (error \"unexpected response\" response))))\n\n;; match in recursive function (tree depth):\n(def (tree-depth tree)\n  (match tree\n    ((? not tree) 0)\n    ([_ left right] (+ 1 (max (tree-depth left) (tree-depth right))))\n    (_ 1)))",
+    "notes": "match is a core Gerbil macro that combines type checking, destructuring, and dispatch. It replaces nested cond/if/type-check patterns with cleaner syntax. Patterns: [] for null, [a . b] for pairs, (? pred) for predicates, (? pred var) for binding, [a b c] for fixed-length lists, _ for wildcard. match compiles to efficient code — it is not slower than hand-written conditionals. Use match whenever you have 3+ branches doing type-based or structure-based dispatch.",
+    "related": [
+      "match-pattern-matching"
+    ]
+  },
+  {
+    "id": "macro-for-over-manual-loop",
+    "title": "Use for/for-each/for/collect instead of manual loops",
+    "tags": [
+      "for",
+      "iteration",
+      "loop",
+      "collect",
+      "fold",
+      "macro",
+      "sugar",
+      "concise",
+      "map"
+    ],
+    "imports": [
+      ":std/iter"
+    ],
+    "code": "(import :std/iter)\n\n;; VERBOSE — manual loop with named let:\n;; (let loop ((i 0) (acc []))\n;;   (if (< i 10)\n;;     (loop (+ i 1) (cons (* i i) acc))\n;;     (reverse acc)))\n\n;; CONCISE — for/collect:\n(for/collect ((i (in-range 10))) (* i i))\n\n;; VERBOSE — nested loop:\n;; (let loop1 ((i 0))\n;;   (when (< i 3)\n;;     (let loop2 ((j 0))\n;;       (when (< j 3)\n;;         (displayln i \",\" j)\n;;         (loop2 (+ j 1))))\n;;     (loop1 (+ i 1))))\n\n;; CONCISE — for with multiple ranges:\n(for ((i (in-range 3))\n      (j (in-range 3)))\n  (displayln i \",\" j))\n\n;; VERBOSE — hash table iteration:\n;; (hash-for-each (lambda (k v) (displayln k \"=\" v)) ht)\n\n;; CONCISE — for with in-hash:\n(def ht (hash (\"a\" 1) (\"b\" 2)))\n(for ((values k v) (in-hash ht))\n  (displayln k \"=\" v))\n\n;; Filtering with for/collect + when:\n(for/collect ((x (in-range 20))\n              (when (zero? (modulo x 3))))\n  (* x x))\n;; => (0 9 36 81 144 225 324)\n\n;; Folding:\n(for/fold (sum 0) ((x (in-range 1 101)))\n  (+ sum x))\n;; => 5050",
+    "notes": ":std/iter provides for, for/collect (map+filter), for/fold (reduce), and iterators like in-range, in-hash, in-list, in-string, in-indexed, in-iota, in-naturals, in-coroutine. Always prefer these over manual named-let loops. for/collect replaces map+filter combinations. for/fold replaces manual accumulators. These compile efficiently and handle multiple sequences with automatic early termination.",
+    "related": [
+      "for-collect",
+      "for-fold",
+      "for-fold-accumulation",
+      "named-let-loop",
+      "iterate-hash",
+      "custom-iterator-protocol"
+    ]
+  },
+  {
+    "id": "macro-def-star-and-sugar-forms",
+    "title": "defvalues, let-values, and def* for concise multi-value and multi-arity bindings",
+    "tags": [
+      "def-star",
+      "defvalues",
+      "let-values",
+      "sugar",
+      "binding",
+      "multiple",
+      "values",
+      "concise",
+      "multi-arity"
+    ],
+    "imports": [],
+    "code": ";; defvalues — bind multiple return values at top level\n;; VERBOSE:\n;; (def quot #f)\n;; (def rem #f)\n;; (let-values (((q r) (floor/ 17 5)))\n;;   (set! quot q) (set! rem r))\n\n;; CONCISE:\n(defvalues (quot rem) (floor/ 17 5))\n;; quot => 3, rem => 2\n\n;; let-values for local multiple-value binding:\n(let-values (((q r) (floor/ 17 5)))\n  (displayln \"quotient=\" q \" remainder=\" r))\n\n;; Multiple bindings in one let-values:\n(let-values (((a b) (values 1 2))\n             ((c d) (values 3 4)))\n  (+ a b c d))\n;; => 10\n\n;; Combining with match for structured returns:\n(def (parse-header line)\n  (match (string-split line #\\:)\n    ([key val] (values (string-trim key) (string-trim val)))\n    (_ (values line \"\"))))\n\n(defvalues (key val) (parse-header \"Content-Type: text/html\"))\n\n;; def* — multi-arity function (case-lambda style)\n;; VERBOSE:\n;; (def connect\n;;   (case-lambda\n;;     ((host) (connect host 80))\n;;     ((host port) (connect host port #f))\n;;     ((host port ssl?) (list host port ssl?))))\n\n;; CONCISE:\n(def* connect\n  ((host) (connect host 80))\n  ((host port) (connect host port #f))\n  ((host port ssl?) (list host port ssl?)))\n\n;; def* for optional-arg dispatch:\n(def* greet\n  (() (greet \"World\"))\n  ((name) (string-append \"Hello, \" name \"!\")))",
+    "notes": "defvalues destructures multiple return values at the top level — cleaner than receive when you need the bindings as module-level definitions. let-values is the local equivalent. def* is NOT a pipeline/threading form — it defines multi-arity functions like case-lambda but with cleaner syntax. Each clause has its own parameter list. Use def* when different arities have fundamentally different behavior, and use chain (from :std/sugar) when you want to pipe a value through transformations.",
+    "related": [
+      "receive-multiple-values",
+      "def-star-multi-arity",
+      "values-multiple-return",
+      "chain-advanced-pipeline"
+    ]
+  },
+  {
+    "id": "macro-using-for-typed-access",
+    "title": "using: zero-overhead typed struct access instead of repeated slot-ref",
+    "tags": [
+      "using",
+      "typed",
+      "struct",
+      "access",
+      "slot",
+      "zero-overhead",
+      "macro",
+      "optimize"
+    ],
+    "imports": [],
+    "code": ";; VERBOSE — repeated accessor calls:\n;; (def (point-distance p1 p2)\n;;   (let ((dx (- (point-x p2) (point-x p1)))\n;;         (dy (- (point-y p2) (point-y p1))))\n;;     (sqrt (+ (* dx dx) (* dy dy)))))\n\n;; CONCISE — typed access with using:\n(defstruct point (x y) transparent: #t)\n\n(def (point-distance p1 p2)\n  (using (p1 :- point)\n  (using (p2 :- point)\n    (let ((dx (- p2.x p1.x))\n          (dy (- p2.y p1.y)))\n      (sqrt (+ (* dx dx) (* dy dy)))))))\n\n;; using enables dot-syntax: obj.field\n;; It compiles to direct struct access — ZERO runtime overhead\n\n;; Multiple fields in one using:\n(def (point-translate p dx dy)\n  (using (p :- point)\n    (make-point (+ p.x dx) (+ p.y dy))))\n\n;; using with method calls:\n(defstruct rect (x y width height) transparent: #t)\n\n(def (rect-area r)\n  (using (r :- rect)\n    (* r.width r.height)))\n\n(def (rect-contains? r px py)\n  (using (r :- rect)\n    (and (>= px r.x) (< px (+ r.x r.width))\n         (>= py r.y) (< py (+ r.y r.height)))))",
+    "notes": "using is a macro that enables dot-syntax access to struct fields. It compiles to direct accessor calls at zero runtime cost. The pattern (using (obj :- type) body) lets you write obj.field instead of (type-field obj) throughout the body. This is especially valuable with deeply nested struct access. Always use using when accessing multiple fields of the same struct — it is both shorter and more readable. Pair with final: #t on defstruct for best optimization. Unlike (@ obj slot), using is compile-time checked.",
+    "related": [
+      "using-typed-struct-access",
+      "using-typed-access",
+      "struct-basics"
+    ]
+  },
+  {
+    "id": "defsyntax-stx-identifier-generation",
+    "title": "defsyntax + stx-identifier: generate computed identifier names at macro time",
+    "tags": [
+      "defsyntax",
+      "stx-identifier",
+      "with-syntax",
+      "identifier",
+      "generate",
+      "computed",
+      "macro",
+      "boilerplate",
+      "code-reduction",
+      "accessor"
+    ],
+    "imports": [],
+    "code": "\n;; Use defsyntax + syntax-case + with-syntax + stx-identifier to generate\n;; identifiers with computed names. stx-identifier concatenates syntax objects\n;; and strings to form new identifiers at compile time.\n;;\n;; Pattern: (def-getter name field) => (def (get-name obj) (hash-ref obj field))\n\n(defsyntax (def-getter stx)\n  (syntax-case stx ()\n    ((_ name field)\n     ;; stx-identifier takes a context syntax object + parts (strings/syntax)\n     ;; and produces a new identifier in the same lexical context\n     (with-syntax ((getter-id (stx-identifier #'name \"get-\" #'name)))\n       #'(def (getter-id obj) (hash-ref obj field))))))\n\n;; Instead of writing 10 repetitive accessor functions:\n;;   (def (get-host config) (hash-ref config \"host\"))\n;;   (def (get-port config) (hash-ref config \"port\"))\n;;   ... etc ...\n;; Write 10 one-liners:\n(def-getter host \"host\")\n(def-getter port \"port\")\n(def-getter name \"name\")\n\n;; Usage:\n;; (get-host (hash (\"host\" \"localhost\"))) => \"localhost\"\n;; (get-port (hash (\"port\" 8080)))       => 8080\n",
+    "notes": "stx-identifier is the key function for computed identifiers. First arg is the lexical context (use a pattern variable like #'name), remaining args are strings or syntax objects to concatenate into the new identifier name. This is the most common way to reduce boilerplate — define N things with a single macro that generates predictable names. Compare with :std/sugar with-id which provides a simpler syntax for the same pattern in non-macro code.",
+    "related": [
+      "with-id-identifier-generation",
+      "defrule-define-many",
+      "macro-defmethod-generator"
+    ]
+  },
+  {
+    "id": "defsyntax-syntax-case-list-processing",
+    "title": "syntax-case with map: process pattern element lists to generate bulk definitions",
+    "tags": [
+      "defsyntax",
+      "syntax-case",
+      "map",
+      "syntax->list",
+      "ellipsis",
+      "bulk",
+      "generate",
+      "constants",
+      "macro",
+      "code-reduction"
+    ],
+    "imports": [],
+    "code": "\n;; Use map over (syntax->list #'(name ...)) to transform each pattern element\n;; individually, then re-bind as ellipsis pattern for the template.\n;;\n;; Pattern: (def-constants prefix (name val) ...)\n;;       => (begin (def prefix-name val) ...)\n\n(defsyntax (def-constants stx)\n  (syntax-case stx ()\n    ((_ prefix (name val) ...)\n     ;; Convert ellipsis pattern to a list, map over it to build computed ids,\n     ;; then re-bind as ellipsis pattern variable for the template\n     (with-syntax (((const-id ...)\n                    (map (lambda (n) (stx-identifier n #'prefix \"-\" n))\n                         (syntax->list #'(name ...)))))\n       #'(begin (def const-id val) ...)))))\n\n;; Instead of writing 6 constant definitions:\n;;   (def color-red 1) (def color-green 2) (def color-blue 3)\n;;   (def http-status-ok 200) (def http-status-not-found 404) ...\n;; Write compact grouped declarations:\n(def-constants color\n  (red 1) (green 2) (blue 3))\n\n(def-constants http-status\n  (ok 200) (not-found 404) (server-error 500))\n\n;; color-red => 1, http-status-not-found => 404\n",
+    "notes": "The key technique is: (1) use (syntax->list #'(pattern ...)) to get a Scheme list of syntax objects, (2) map a lambda over that list to transform each element (e.g. building computed identifiers), (3) rebind the result as ((new-id ...) (map ...)) in with-syntax so the template can use new-id with ellipsis. This is the standard way to process each element of a macro's variadic arguments individually. The ellipsis in the with-syntax binding (( const-id ...) expr) destructures the list back into an ellipsis pattern variable.",
+    "related": [
+      "defsyntax-stx-identifier-generation",
+      "defrule-define-many",
+      "macro-deflib-entire-module"
+    ]
+  },
+  {
+    "id": "macro-with-syntax-star-sequential",
+    "title": "with-syntax* for sequential pattern bindings in macros (getter/setter pairs)",
+    "tags": [
+      "with-syntax*",
+      "sequential",
+      "defsyntax",
+      "macro",
+      "accessor",
+      "getter",
+      "setter",
+      "pair",
+      "datum->syntax",
+      "boilerplate"
+    ],
+    "imports": [],
+    "code": "\n;; with-syntax* is like with-syntax but bindings are sequential (like let*),\n;; so later bindings can refer to earlier ones. Essential when you need to\n;; compute multiple related identifiers or derive values step by step.\n;;\n;; Pattern: (def-accessor-pair name)\n;;       => (def (name-ref h) ...) + (def (name-set! h v) ...)\n\n(defsyntax (def-accessor-pair stx)\n  (syntax-case stx ()\n    ((_ name)\n     (with-syntax*\n       ;; Step 1: convert symbol to string at compile time\n       ((name-str (datum->syntax #'name\n                    (symbol->string (syntax->datum #'name))))\n        ;; Step 2: build getter id (could reference name-str if needed)\n        (getter-id (stx-identifier #'name #'name \"-ref\"))\n        ;; Step 3: build setter id\n        (setter-id (stx-identifier #'name #'name \"-set!\")))\n       #'(begin\n           (def (getter-id h) (hash-ref h name-str))\n           (def (setter-id h v) (hash-put! h name-str v)))))))\n\n;; Instead of writing getter AND setter for each field (2N functions):\n;;   (def (host-ref h) (hash-ref h \"host\"))\n;;   (def (host-set! h v) (hash-put! h \"host\" v))\n;;   (def (port-ref h) (hash-ref h \"port\"))\n;;   (def (port-set! h v) (hash-put! h \"port\" v))\n;; Write N one-liners:\n(def-accessor-pair host)\n(def-accessor-pair port)\n\n;; (host-ref (hash (\"host\" \"localhost\"))) => \"localhost\"\n",
+    "notes": "with-syntax* (note the star) provides sequential bindings like let*. Use it when: (1) you need to compute a value from the syntax and use it in a later binding, (2) you need datum->syntax to convert runtime values to syntax objects (e.g. symbol->string), (3) you need multiple identifiers that share a common computed base. without the star, all bindings are parallel (like let) and cannot reference each other. datum->syntax takes a context syntax object and a datum, returning a syntax object — essential for injecting computed strings/symbols into templates.",
+    "related": [
+      "defsyntax-stx-identifier-generation",
+      "macro-defalias-bulk-rename",
+      "syntax-case-macro-writing"
+    ]
+  },
+  {
+    "id": "macro-begin-syntax-compile-time",
+    "title": "begin-syntax: define compile-time helper functions for use in macros",
+    "tags": [
+      "begin-syntax",
+      "compile-time",
+      "phase",
+      "helper",
+      "defsyntax",
+      "macro",
+      "reuse",
+      "abstraction",
+      "code-reduction"
+    ],
+    "imports": [],
+    "code": "\n;; begin-syntax defines functions at compile time (phase 1).\n;; These helpers are available to defsyntax transformers but NOT at runtime.\n;; Use this to factor out repeated logic across multiple macros.\n\n;; Define compile-time helpers shared by multiple macros\n(begin-syntax\n  ;; Helper: build a \"check-<name>\" identifier\n  (def (make-checker-id name)\n    (stx-identifier name \"check-\" name))\n  ;; Helper: build a \"validate-<name>\" identifier\n  (def (make-validator-id name)\n    (stx-identifier name \"validate-\" name)))\n\n;; Macro 1: uses make-checker-id\n(defsyntax (def-checked stx)\n  (syntax-case stx ()\n    ((_ name pred)\n     (with-syntax ((checker (make-checker-id #'name)))\n       #'(def (checker x)\n           (if (pred x) #t (error \"check failed\" 'name x)))))))\n\n;; Macro 2: also uses make-checker-id + make-validator-id\n(defsyntax (def-validated stx)\n  (syntax-case stx ()\n    ((_ name pred transform)\n     (with-syntax ((checker (make-checker-id #'name))\n                   (validator (make-validator-id #'name)))\n       #'(begin\n           (def (checker x) (pred x))\n           (def (validator x) (if (pred x) (transform x) (error \"invalid\" 'name x))))))))\n\n;; Usage — one-liner per type check:\n(def-checked positive number?)\n(def-checked nonempty (lambda (s) (and (string? s) (> (string-length s) 0))))\n\n;; (check-positive 42) => #t\n;; (check-positive \"hi\") => error\n",
+    "notes": "begin-syntax runs its body at compile time (phase 1). Functions defined inside are available to ALL macros in the same module but do NOT exist at runtime. This is how you share logic between macros without duplicating code. Key rules: (1) begin-syntax must appear at top level, before the macros that use its definitions; (2) you can use all Gerbil/Gambit functions inside begin-syntax; (3) for heavier compile-time logic, you can import modules inside begin-syntax with (import ...); (4) begin-syntax is the Gerbil equivalent of Racket's begin-for-syntax.",
+    "related": [
+      "defsyntax-stx-identifier-generation",
+      "syntax-eval-compile-time",
+      "syntax-case-macro-writing"
+    ]
+  },
+  {
+    "id": "macro-quasiquote-datum-codegen",
+    "title": "datum->syntax + quasiquote: generate code from computed data at macro time",
+    "tags": [
+      "datum->syntax",
+      "quasiquote",
+      "code-generation",
+      "defsyntax",
+      "macro",
+      "enum",
+      "computed",
+      "iota",
+      "boilerplate",
+      "advanced"
+    ],
+    "imports": [],
+    "code": "\n;; For the most flexible code generation, use datum->syntax with quasiquote\n;; to build arbitrary code forms from computed data. This goes beyond simple\n;; pattern templates — you can use any Scheme computation at compile time.\n;;\n;; Pattern: (def-enum name val ...) => (def name-val0 0) (def name-val1 1) ...\n\n(defsyntax (def-enum stx)\n  (syntax-case stx ()\n    ((_ name val ...)\n     (let ((vals (syntax->list #'(val ...))))\n       (with-syntax\n         ;; Build a list of (def name-val index) forms using quasiquote\n         (((def-form ...)\n           (map (lambda (v i)\n                  ;; datum->syntax converts a raw s-expression into syntax\n                  ;; using #'name as the lexical context\n                  (datum->syntax #'name\n                    `(def ,(string->symbol\n                             (string-append\n                               (symbol->string (syntax->datum #'name))\n                               \"-\"\n                               (symbol->string (syntax->datum v))))\n                       ,i)))\n                vals\n                (iota (length vals)))))\n         #'(begin def-form ...))))))\n\n;; Instead of manually numbering enum values:\n;;   (def status-ok 0) (def status-error 1)\n;;   (def status-pending 2) (def status-timeout 3)\n;; Write a single declaration:\n(def-enum status ok error pending timeout)\n\n;; status-ok => 0, status-error => 1, status-pending => 2, status-timeout => 3\n",
+    "notes": "datum->syntax is the escape hatch when syntax templates aren't flexible enough. It converts a plain Scheme datum (list, symbol, number, etc.) into a syntax object. The first argument provides lexical context — use a pattern variable like #'name so the generated code is in the right scope. Common pattern: (1) extract data from syntax with syntax->datum, (2) compute new data with regular Scheme (map, string-append, iota, etc.), (3) convert back with datum->syntax and quasiquote. CAUTION: datum->syntax bypasses hygiene — the generated identifiers are in the context of the first argument, not the macro definition site. This is usually what you want for code generation but be aware of potential name clashes.",
+    "related": [
+      "defsyntax-syntax-case-list-processing",
+      "macro-deflib-entire-module",
+      "macro-begin-syntax-compile-time"
+    ]
+  },
+  {
+    "id": "arithmetic-shift-gambit-primitive",
+    "title": "Bitwise shift using arithmetic-shift (Gambit primitive)",
+    "tags": [
+      "bitwise",
+      "shift",
+      "arithmetic-shift",
+      "gambit",
+      "primitive",
+      "no-import",
+      "left-shift",
+      "right-shift"
+    ],
+    "imports": [],
+    "code": ";; arithmetic-shift is a Gambit primitive - no import needed\n;; Positive shift = left shift (multiply by 2^n)\n;; Negative shift = right shift (divide by 2^n)\n\n;; Left shift: shift << 8\n(arithmetic-shift 1 8)     ; => 256 (1 << 8)\n(arithmetic-shift 5 2)     ; => 20  (5 << 2)\n\n;; Right shift: shift >> 3\n(arithmetic-shift 256 -8)  ; => 1   (256 >> 8)\n(arithmetic-shift 20 -2)   ; => 5   (20 >> 2)\n\n;; Common use: RGB color packing from components\n(let ((r 0xd8) (g 0xd8) (b 0xd8))\n  (+ (arithmetic-shift r 16)\n     (arithmetic-shift g 8)\n     b))  ; => #xd8d8d8 (RGB 24-bit integer)",
+    "notes": "The `<<` and `>>` operators do NOT exist in Gerbil - use arithmetic-shift instead. This is a Gambit primitive (works without any imports). For more advanced bitwise operations (bitwise-and, bitwise-ior, bit-count, etc.), import :scheme/bitwise (SRFI-151).",
+    "related": [
+      "scheme-bitwise-r7rs"
+    ]
+  },
+  {
+    "id": "qt-echo-read-string-vs-tui",
+    "title": "Qt echo read functions: qt-echo-read-string vs app-read-string (TUI)",
+    "tags": [
+      "qt",
+      "tui",
+      "echo",
+      "read-string",
+      "minibuffer",
+      "input",
+      "completion",
+      "prompt"
+    ],
+    "imports": [
+      ":gemacs/qt/echo"
+    ],
+    "code": ";; TUI uses app-read-string (from :gemacs/echo)\n;; Qt uses qt-echo-read-string and qt-echo-read-string-with-completion\n\n;; Simple string input (Qt):\n(qt-echo-read-string app \"Prompt: \")\n;; Returns: string or #f if cancelled\n\n;; String input with completion (Qt):\n(let ((choices '(\"foo\" \"bar\" \"baz\")))\n  (qt-echo-read-string-with-completion app \"Choose: \" choices))\n;; Returns: string or #f if cancelled\n;; Note: Pass a LIST of completion strings, NOT a lambda\n\n;; WRONG (will cause arity mismatch):\n(qt-echo-read-string app \"Font: \"\n  completion: (lambda (prefix) ...))  ; ❌ No completion: keyword arg\n\n;; RIGHT:\n(qt-echo-read-string-with-completion app \"Font: \" font-list)  ; ✅",
+    "notes": "Qt and TUI have different echo/minibuffer APIs. TUI uses app-read-string from :gemacs/echo. Qt uses qt-echo-read-string (simple) and qt-echo-read-string-with-completion (with completions). The completion function takes a pre-computed LIST of strings, NOT a lambda. For TUI code, use app-read-string; for Qt code, use qt-echo-read-string variants."
+  },
+  {
+    "id": "refactor-identify-macro-candidates",
+    "title": "Refactoring: identify macro-worthy repetition (decision tree)",
+    "tags": [
+      "refactor",
+      "macro",
+      "identify",
+      "candidate",
+      "repetition",
+      "boilerplate",
+      "decision-tree",
+      "defrule",
+      "defsyntax",
+      "code-reduction"
+    ],
+    "imports": [],
+    "code": ";; MACRO REFACTORING DECISION TREE\n;; Step 1: Identify the pattern. Look for:\n;;   - 3+ function/method definitions with identical structure\n;;   - Repeated let* extracting the same state variables\n;;   - N calls to the same function with sequential data (batch registration)\n;;   - Data tables: N definitions with identical shape but different values\n;;   - Verbose wrappers: same function call with common leading args\n\n;; Step 2: Classify varying parts\n;;   - Only identifiers vary? → defrule (simplest)\n;;   - List length varies? → defrule with ellipsis (...)\n;;   - Computed identifiers needed? → defsyntax + stx-identifier\n;;   - Could be done at runtime? → maybe use a function instead\n\n;; === EXAMPLE: Before (3 similar definitions) ===\n(def (cmd-goto-line app)\n  (let* ((ed (current-editor app)) (buf (editor-buffer ed)))\n    (buffer-goto-line! buf)))\n\n(def (cmd-goto-col app)\n  (let* ((ed (current-editor app)) (buf (editor-buffer ed)))\n    (buffer-goto-col! buf)))\n\n(def (cmd-goto-end app)\n  (let* ((ed (current-editor app)) (buf (editor-buffer ed)))\n    (buffer-goto-end! buf)))\n\n;; === Step 3: Identify what varies ===\n;; Only the function name suffix and action function vary.\n;; Structure is 100% identical otherwise → perfect defrule candidate.\n\n;; === After: defrule macro + 3 invocations ===\n(defrule (def-buffer-cmd (name action))\n  (def (name app)\n    (let* ((ed (current-editor app)) (buf (editor-buffer ed)))\n      (action buf))))\n\n(def-buffer-cmd (cmd-goto-line buffer-goto-line!))\n(def-buffer-cmd (cmd-goto-col  buffer-goto-col!))\n(def-buffer-cmd (cmd-goto-end  buffer-goto-end!))\n;; Before: 12 lines → After: 7 lines (42% reduction, scales linearly)",
+    "notes": "Decision tree for when to use macros vs functions: (1) If the pattern involves only runtime values, use a higher-order function. (2) If the pattern involves identifiers (function names, variable names), you need a macro. (3) If only simple substitution is needed, use defrule. (4) If you need computed identifiers (e.g., make-FOO from FOO), use defsyntax + stx-identifier. (5) The threshold is 3+ repetitions — below that, duplication is acceptable. See related recipes for specific refactoring patterns.",
+    "related": [
+      "refactor-extract-defrule-step-by-step",
+      "refactor-batch-registration",
+      "refactor-command-template",
+      "refactor-context-binding",
+      "refactor-data-table-to-macro",
+      "refactor-shorthand-wrapper",
+      "refactor-near-duplicate-functions",
+      "defrule-simple-pattern",
+      "defrules-vs-syntax-case"
+    ]
+  },
+  {
+    "id": "refactor-extract-defrule-step-by-step",
+    "title": "Refactoring: extract defrule from similar functions (step-by-step)",
+    "tags": [
+      "refactor",
+      "macro",
+      "defrule",
+      "extract",
+      "step-by-step",
+      "similar",
+      "functions",
+      "pattern",
+      "before-after",
+      "pair-insert"
+    ],
+    "imports": [],
+    "code": ";; STEP-BY-STEP: Extract a defrule from similar code\n;;\n;; BEFORE: 4 functions for inserting paired characters\n(def (cmd-insert-parens app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-insert! buf \"(\")\n    (buffer-insert! buf \")\")\n    (buffer-move-cursor! buf -1)))\n\n(def (cmd-insert-brackets app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-insert! buf \"[\")\n    (buffer-insert! buf \"]\")\n    (buffer-move-cursor! buf -1)))\n\n(def (cmd-insert-braces app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-insert! buf \"{\")\n    (buffer-insert! buf \"}\")\n    (buffer-move-cursor! buf -1)))\n\n(def (cmd-insert-quotes app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-insert! buf \"\\\"\")\n    (buffer-insert! buf \"\\\"\")\n    (buffer-move-cursor! buf -1)))\n\n;; Step 1: Align and find what varies:\n;;   name:  cmd-insert-parens  | cmd-insert-brackets | cmd-insert-braces  | cmd-insert-quotes\n;;   open:  \"(\"               | \"[\"                | \"{\"               | \"\\\"\"\n;;   close: \")\"               | \"]\"                | \"}\"               | \"\\\"\"\n;; Everything else is IDENTICAL.\n\n;; Step 2: Write the defrule, replacing varying parts with pattern vars:\n(defrule (def-pair-insert (name open close))\n  (def (name app)\n    (let* ((ed (current-editor app))\n           (buf (editor-buffer ed)))\n      (buffer-insert! buf open)\n      (buffer-insert! buf close)\n      (buffer-move-cursor! buf -1))))\n\n;; Step 3: Replace originals with invocations:\n(def-pair-insert (cmd-insert-parens   \"(\" \")\"))\n(def-pair-insert (cmd-insert-brackets \"[\" \"]\"))\n(def-pair-insert (cmd-insert-braces   \"{\" \"}\"))\n(def-pair-insert (cmd-insert-quotes   \"\\\"\" \"\\\"\"))\n;; Before: 28 lines → After: 11 lines (61% reduction)",
+    "notes": "The 3-step process works for any similar-function refactoring: (1) Align the functions and highlight what differs — these become pattern variables. (2) Write the defrule template with pattern variables replacing the varying parts. (3) Replace all originals with macro invocations. Key insight: defrule pattern variables can match ANY syntax — identifiers, strings, numbers, even nested expressions. The parentheses around (name open close) in the pattern are grouping, not function call syntax.",
+    "related": [
+      "refactor-identify-macro-candidates",
+      "defrule-simple-pattern",
+      "refactor-command-template",
+      "refactor-near-duplicate-functions"
+    ]
+  },
+  {
+    "id": "refactor-batch-registration",
+    "title": "Refactoring: batch registration calls with ellipsis macro",
+    "tags": [
+      "refactor",
+      "macro",
+      "batch",
+      "registration",
+      "ellipsis",
+      "register",
+      "command",
+      "bulk",
+      "defrule",
+      "begin"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: N repeated registration calls (1,557 in a real project)\n;; (register-command! 'forward-char  cmd-forward-char)\n;; (register-command! 'backward-char cmd-backward-char)\n;; (register-command! 'next-line     cmd-next-line)\n;; (register-command! 'previous-line cmd-previous-line)\n;; (register-command! 'delete-char   cmd-delete-char)\n;; ... 1,552 more lines ...\n\n;; AFTER: Batch registration macro with ellipsis\n(defrule (register-commands! (name handler) ...)\n  (begin (register-command! 'name handler) ...))\n\n;; One form replaces N lines:\n(register-commands!\n  (forward-char  cmd-forward-char)\n  (backward-char cmd-backward-char)\n  (next-line     cmd-next-line)\n  (previous-line cmd-previous-line)\n  (delete-char   cmd-delete-char))\n;; Each entry is 1 line instead of a full function call.\n;; For 1,557 registrations: saves ~3,000+ tokens.\n;; The ellipsis (...) means any number of (name handler) pairs.",
+    "notes": "This pattern applies whenever you have N calls to the same function with sequential data: register-command!, register-handler!, add-hook!, hash-put!, etc. The key is the ellipsis (...) after the pattern — it tells Gerbil to repeat the template for each match. The (begin ...) wrapper is required because a macro must expand to a single form, but we need N expressions. Wrap with 'name to auto-quote identifiers. This pattern also works for hash-table initialization: (define-entries! ht (key val) ...) → (begin (hash-put! ht 'key val) ...)",
+    "related": [
+      "refactor-identify-macro-candidates",
+      "defrule-define-many",
+      "defsyntax-syntax-case-list-processing",
+      "refactor-data-table-to-macro"
+    ]
+  },
+  {
+    "id": "refactor-command-template",
+    "title": "Refactoring: command template macro for boilerplate extraction",
+    "tags": [
+      "refactor",
+      "macro",
+      "command",
+      "template",
+      "boilerplate",
+      "editor",
+      "defrule",
+      "body",
+      "ellipsis",
+      "wrapper"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: Commands that vary in only 1-2 values\n(def (cmd-forward-char app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-move-point! buf 1)))\n\n(def (cmd-backward-char app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-move-point! buf -1)))\n\n(def (cmd-forward-word app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-forward-word! buf)))\n\n(def (cmd-backward-word app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-backward-word! buf)))\n\n;; AFTER: Command template macro\n;; Pattern: all commands share context-extraction boilerplate,\n;; only the name and the action-on-buffer expression differ.\n(defrule (def-editor-command name body ...)\n  (def (name app)\n    (let* ((ed (current-editor app))\n           (buf (editor-buffer ed)))\n      body ...)))\n\n;; Clean, declarative definitions:\n(def-editor-command cmd-forward-char\n  (buffer-move-point! buf 1))\n\n(def-editor-command cmd-backward-char\n  (buffer-move-point! buf -1))\n\n(def-editor-command cmd-forward-word\n  (buffer-forward-word! buf))\n\n(def-editor-command cmd-backward-word\n  (buffer-backward-word! buf))\n;; Before: 20 lines → After: 16 lines per 4 commands\n;; At scale (500 commands): ~60% reduction",
+    "notes": "This differs from def-buffer-cmd (which takes a single action function) because the body uses ellipsis (...) to accept arbitrary expressions. The body can reference `app`, `ed`, and `buf` because the macro introduces them in scope. This is technically unhygienic but intentional — the macro's purpose IS to provide those bindings. Document which identifiers the macro introduces. This pattern is ideal when commands share setup boilerplate but have varying-complexity bodies (some are 1 line, others 5+). Compare with refactor-context-binding which is the same idea applied as a with- form instead of a def- form.",
+    "related": [
+      "refactor-identify-macro-candidates",
+      "refactor-context-binding",
+      "refactor-extract-defrule-step-by-step",
+      "defrule-simple-pattern"
+    ]
+  },
+  {
+    "id": "refactor-context-binding",
+    "title": "Refactoring: repeated let* bindings into with-context macro",
+    "tags": [
+      "refactor",
+      "macro",
+      "context",
+      "let",
+      "binding",
+      "with",
+      "state",
+      "extraction",
+      "defrule",
+      "scope"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: Repeated let* extracting the same state (500+ occurrences)\n(def (cmd-save-buffer app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed))\n         (echo (app-echo app)))\n    (buffer-save! buf)\n    (echo-message! echo \"Buffer saved.\")))\n\n(def (cmd-undo app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed))\n         (echo (app-echo app)))\n    (buffer-undo! buf)\n    (echo-message! echo \"Undo.\")))\n\n(def (cmd-redo app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed))\n         (echo (app-echo app)))\n    (buffer-redo! buf)\n    (echo-message! echo \"Redo.\")))\n\n;; AFTER: Context-binding macro\n;; Extracts the common let* bindings into a reusable form.\n;; The macro introduces `ed`, `buf`, `echo` into scope.\n(defrule (with-editor-context app body ...)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed))\n         (echo (app-echo app)))\n    body ...))\n\n;; Clean definitions — focus on what each command does:\n(def (cmd-save-buffer app)\n  (with-editor-context app\n    (buffer-save! buf)\n    (echo-message! echo \"Buffer saved.\")))\n\n(def (cmd-undo app)\n  (with-editor-context app\n    (buffer-undo! buf)\n    (echo-message! echo \"Undo.\")))\n\n(def (cmd-redo app)\n  (with-editor-context app\n    (buffer-redo! buf)\n    (echo-message! echo \"Redo.\")))\n;; Before: 21 lines → After: 16 lines for 3 commands\n;; At scale (500 commands): removes 1,500 lines of let* bindings",
+    "notes": "The with- naming convention signals that the macro introduces bindings into scope (like with-exception-handler, with-input-from-file). Document which names it introduces (ed, buf, echo) in comments near the macro definition. This is intentionally unhygienic — the whole point is to inject bindings. If you need different subsets of bindings (some commands don't need echo), consider nested macros: with-editor (introduces ed, buf) and with-editor+echo (adds echo). This is the most impactful refactoring pattern when the same state extraction appears hundreds of times.",
+    "related": [
+      "refactor-command-template",
+      "refactor-identify-macro-candidates",
+      "macro-with-resource-pattern",
+      "refactor-shorthand-wrapper"
+    ]
+  },
+  {
+    "id": "refactor-data-table-to-macro",
+    "title": "Refactoring: data table definitions into batch macro",
+    "tags": [
+      "refactor",
+      "macro",
+      "data",
+      "table",
+      "batch",
+      "define",
+      "themes",
+      "faces",
+      "ellipsis",
+      "configuration"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: 10 theme definitions, each 85 lines of identical structure\n(def default-theme\n  (make-theme\n    name: \"default\"\n    fg: \"white\" bg: \"black\"\n    cursor-fg: \"black\" cursor-bg: \"white\"\n    selection-fg: \"white\" selection-bg: \"blue\"\n    comment-fg: \"gray\" keyword-fg: \"cyan\"\n    string-fg: \"green\" number-fg: \"magenta\"))\n\n(def dark-theme\n  (make-theme\n    name: \"dark\"\n    fg: \"#d4d4d4\" bg: \"#1e1e1e\"\n    cursor-fg: \"#1e1e1e\" cursor-bg: \"#d4d4d4\"\n    selection-fg: \"#d4d4d4\" selection-bg: \"#264f78\"\n    comment-fg: \"#6a9955\" keyword-fg: \"#569cd6\"\n    string-fg: \"#ce9178\" number-fg: \"#b5cea8\"))\n\n;; ... 8 more themes, same structure ...\n\n;; AFTER: Batch definition macro\n(defrule (define-themes (var-name name-str\n                         fg bg cursor-fg cursor-bg\n                         sel-fg sel-bg\n                         comment-fg keyword-fg\n                         string-fg number-fg) ...)\n  (begin\n    (def var-name\n      (make-theme\n        name: name-str\n        fg: fg bg: bg\n        cursor-fg: cursor-fg cursor-bg: cursor-bg\n        selection-fg: sel-fg selection-bg: sel-bg\n        comment-fg: comment-fg keyword-fg: keyword-fg\n        string-fg: string-fg number-fg: number-fg))\n    ...))\n\n;; All themes as a compact data table:\n(define-themes\n  (default-theme \"default\"\n    \"white\" \"black\" \"black\" \"white\"\n    \"white\" \"blue\" \"gray\" \"cyan\" \"green\" \"magenta\")\n  (dark-theme \"dark\"\n    \"#d4d4d4\" \"#1e1e1e\" \"#1e1e1e\" \"#d4d4d4\"\n    \"#d4d4d4\" \"#264f78\" \"#6a9955\" \"#569cd6\" \"#ce9178\" \"#b5cea8\"))\n;; Before: 85 lines per theme × 10 = 850 lines\n;; After: macro + 3 lines per theme × 10 = 45 lines (95% reduction)",
+    "notes": "This pattern works for any set of definitions with identical structure: themes, faces, keybindings, configuration presets, protocol messages, etc. The key is that keyword arguments in the constructor become positional arguments in the macro — this makes each entry a compact row in a data table. The ellipsis after the closing paren of each entry means any number of entries. If you also need to register each definition (e.g., add to a global table), add the registration call inside the (begin ...) alongside the def. For very large tables (100+ entries), consider using defsyntax with syntax-case and map for more control.",
+    "related": [
+      "refactor-batch-registration",
+      "refactor-identify-macro-candidates",
+      "defrule-define-many",
+      "defsyntax-syntax-case-list-processing"
+    ]
+  },
+  {
+    "id": "refactor-shorthand-wrapper",
+    "title": "Refactoring: verbose function calls into shorthand macros",
+    "tags": [
+      "refactor",
+      "macro",
+      "shorthand",
+      "wrapper",
+      "verbose",
+      "echo",
+      "message",
+      "defrule",
+      "string-append",
+      "concise"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: Verbose function calls repeated everywhere (1,943 times)\n;; Every command that shows a message does this:\n(def (cmd-copy app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-copy-selection! buf)\n    (echo-message! (app-echo app)\n      (string-append \"Copied \" (number->string (buffer-selection-length buf)) \" chars\"))))\n\n(def (cmd-paste app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-paste! buf)\n    (echo-message! (app-echo app)\n      (string-append \"Pasted at line \" (number->string (buffer-current-line buf))))))\n\n;; AFTER: Shorthand macros for common verbose calls\n(defrule (echo! app msg ...)\n  (echo-message! (app-echo app) (string-append msg ...)))\n\n;; Or combine with the context macro:\n(defrule (with-echo app body ... (message: msg ...))\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    body ...\n    (echo-message! (app-echo app) (string-append msg ...))))\n\n;; Simple shorthand usage:\n(def (cmd-copy app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-copy-selection! buf)\n    (echo! app \"Copied \" (number->string (buffer-selection-length buf)) \" chars\")))\n\n(def (cmd-paste app)\n  (let* ((ed (current-editor app))\n         (buf (editor-buffer ed)))\n    (buffer-paste! buf)\n    (echo! app \"Pasted at line \" (number->string (buffer-current-line buf)))))\n;; Saves 1 line + ~20 chars per message call\n;; At 1,943 occurrences: significant token reduction",
+    "notes": "Shorthand macros are the simplest refactoring — they just reduce verbosity for a common call pattern. Unlike context macros, they don't introduce bindings. The echo! macro does two things: (1) extracts the echo object via (app-echo app), and (2) wraps arguments in string-append. The ellipsis on msg means any number of string arguments are concatenated. This pattern applies to any verbose call: (log-error! (app-logger app) (format ...)) → (log! app ...), or (widget-configure! (frame-status-bar frame) bg: ...) → (status-bar-set! frame bg: ...). Keep shorthands in a project-local macros.ss module so they're available everywhere.",
+    "related": [
+      "refactor-context-binding",
+      "refactor-identify-macro-candidates",
+      "refactor-command-template",
+      "defrule-simple-pattern"
+    ]
+  },
+  {
+    "id": "refactor-near-duplicate-functions",
+    "title": "Refactoring: near-duplicate functions into parameterized macro",
+    "tags": [
+      "refactor",
+      "macro",
+      "duplicate",
+      "near-duplicate",
+      "parameterize",
+      "operator",
+      "defrule",
+      "twin",
+      "mirror",
+      "similar"
+    ],
+    "imports": [],
+    "code": ";; BEFORE: Two functions that are 90%+ identical\n(def (cmd-next-buffer app)\n  (let* ((ed (current-editor app))\n         (bufs (editor-buffers ed))\n         (idx (editor-buffer-index ed))\n         (new-idx (modulo (+ idx 1) (length bufs))))\n    (editor-switch-buffer! ed new-idx)\n    (echo-message! (app-echo app)\n      (string-append \"Buffer: \" (buffer-name (list-ref bufs new-idx))))))\n\n(def (cmd-previous-buffer app)\n  (let* ((ed (current-editor app))\n         (bufs (editor-buffers ed))\n         (idx (editor-buffer-index ed))\n         (new-idx (modulo (- idx 1) (length bufs))))\n    (editor-switch-buffer! ed new-idx)\n    (echo-message! (app-echo app)\n      (string-append \"Buffer: \" (buffer-name (list-ref bufs new-idx))))))\n;; Difference: only (+ idx 1) vs (- idx 1)\n\n;; AFTER: Parameterized macro for near-duplicates\n(defrule (def-buffer-cycle-cmd name direction)\n  (def (name app)\n    (let* ((ed (current-editor app))\n           (bufs (editor-buffers ed))\n           (idx (editor-buffer-index ed))\n           (new-idx (modulo (direction idx 1) (length bufs))))\n      (editor-switch-buffer! ed new-idx)\n      (echo-message! (app-echo app)\n        (string-append \"Buffer: \" (buffer-name (list-ref bufs new-idx)))))))\n\n(def-buffer-cycle-cmd cmd-next-buffer +)\n(def-buffer-cycle-cmd cmd-previous-buffer -)\n;; Before: 16 lines → After: 11 lines (31% reduction)\n;; Key insight: the operator (+/-) is the only varying part,\n;; and it can be passed as a pattern variable since macros\n;; operate on syntax, not values.",
+    "notes": "Near-duplicate functions are the easiest to miss because they often live far apart in the file. To find them: search for functions with identical signatures and similar line counts. The key insight is that macros operate on SYNTAX, not values — so you can pass operators (+, -), accessors (car, cdr), predicates (even?, odd?), or any other identifier as a macro parameter. Common twin pairs: next/previous, up/down, left/right, push/pop, read/write, open/close, first/last. If the varying part is a string (not an identifier), it still works — defrule pattern variables match any syntax. If more than 2 variants exist (e.g., move-up/down/left/right), combine with the command template pattern.",
+    "related": [
+      "refactor-extract-defrule-step-by-step",
+      "refactor-identify-macro-candidates",
+      "refactor-command-template",
+      "defrule-simple-pattern"
+    ]
   }
 ]
