@@ -128,6 +128,7 @@ import { registerCrossPackageDiffTool } from './tools/cross-package-diff.js';
 import { registerDispatchCoverageTool } from './tools/dispatch-coverage.js';
 import { registerMacroPatternDetectorTool } from './tools/macro-pattern-detector.js';
 import { registerBoilerplateConverterTool } from './tools/boilerplate-converter.js';
+import { registerSignalTraceTool } from './tools/signal-trace.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -147,6 +148,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To analyze test coverage for command sequences: use gerbil_dispatch_coverage_analysis to detect gaps in functional test suites. Identifies commands tested individually but never in combination, helping catch state management bugs.
 - To detect repetitive code patterns: use gerbil_macro_pattern_detector to find boilerplate that could be replaced with macros. Identifies repeated functions, hash accessors, and method wrappers.
 - To convert boilerplate to macros: use gerbil_boilerplate_converter with 2+ similar expressions to generate a macro definition automatically. Extracts the pattern and creates defrule with invocations.
+- To debug signal handling: use gerbil_signal_trace to generate instrumentation code for tracing signal delivery and trap execution. Logs when signals are received, handlers execute, and exceptions occur.
 - When looking up any symbol: use gerbil_doc to get type, arity, qualified name, and related symbols.
 - To describe a value: use gerbil_describe to evaluate an expression and get a detailed description of the resulting value's type, structure, and contents. Useful for understanding what functions return or what data structures contain.
 
@@ -438,6 +440,7 @@ registerCrossPackageDiffTool(server);
 registerDispatchCoverageTool(server);
 registerMacroPatternDetectorTool(server);
 registerBoilerplateConverterTool(server);
+registerSignalTraceTool(server);
 
 registerPrompts(server);
 registerResources(server);

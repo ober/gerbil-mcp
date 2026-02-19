@@ -6924,4 +6924,26 @@ END-C
     }, 10000);
   });
 
+
+  describe('Signal trace instrumentation generator', () => {
+    it('generates signal trace code', async () => {
+      const result = await client.callTool('gerbil_signal_trace', {
+        signals: ['SIGTERM', 'SIGINT'],
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Signal Trace Instrumentation Code');
+      expect(result.text).toContain('enable-signal-tracing!');
+      expect(result.text).toContain('dump-signal-trace');
+      expect(result.text).toContain('SIGTERM');
+      expect(result.text).toContain('SIGINT');
+    }, 10000);
+
+    it('requires at least one signal', async () => {
+      const result = await client.callTool('gerbil_signal_trace', {
+        signals: [],
+      });
+      expect(result.isError).toBe(true);
+    }, 10000);
+  });
+
 });
