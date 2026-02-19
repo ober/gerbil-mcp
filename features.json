@@ -73,25 +73,6 @@
     "votes": 1
   },
   {
-    "id": "ffi-utf8-byte-length-audit",
-    "title": "Detect string-length passed to FFI functions expecting byte length",
-    "description": "A static analysis tool that detects when `string-length` is used to compute a length argument passed to a C function via `c-lambda`. In Gambit FFI, `char-string` arguments are UTF-8 encoded, so `string-length` returns character count (e.g. 4 for \"café\") while the C function typically expects byte count (5 for \"café\" in UTF-8). The tool should: (1) scan `c-lambda` declarations for parameters named or typed as length/size, (2) trace call sites where `string-length` feeds into those parameters, (3) flag the mismatch with a suggestion to use `PCRE2_ZERO_TERMINATED`, `strlen()` in the C shim, or `(u8vector-length (string->bytes s))` on the Scheme side.",
-    "impact": "high",
-    "tags": [
-      "ffi",
-      "utf8",
-      "string-length",
-      "byte-length",
-      "char-string",
-      "audit",
-      "static-analysis"
-    ],
-    "use_case": "When writing FFI bindings for any C library that takes string + length parameters. The string-length vs byte-length mismatch is silent until a non-ASCII string is used, at which point it causes truncation, crashes, or incorrect results.",
-    "example_scenario": "In gerbil-pcre, `pcre2-compile` passed `(string-length pattern)` to `ffi-pcre2-compile` which forwarded it to `pcre2_compile_8` as the byte length. Pattern \"(?=é)\" has string-length 4 but UTF-8 byte length 6. PCRE2 saw a truncated pattern and returned 'UTF-8 error: 1 byte missing at end'. The bug was silent for ASCII-only patterns and only manifested with non-ASCII input.",
-    "estimated_token_reduction": "~2000 tokens per FFI project — eliminates the multi-step debugging cycle of gerbil_eval reproducing the bug, tracing through C shims, and discovering the root cause",
-    "votes": 1
-  },
-  {
     "id": "security-scan-suppress-inline",
     "title": "Support inline suppression comments for security scanner false positives",
     "description": "Allow suppressing specific security scanner findings with inline comments like `;; gerbil-security: suppress ffi-pointer-void-type-mismatch` or `;; security-ok: reason`. The scanner currently has no suppression mechanism, so confirmed false positives (like a null-guard `if (!table)` being flagged as an `#ifdef` stub, or `open-output-string` flagged as a resource leak) generate noise on every scan. The tool should: (1) recognize suppression comments on the same or preceding line, (2) skip the finding for the specific rule ID, (3) optionally report suppressed findings in a separate section for audit purposes.",

@@ -5426,6 +5426,70 @@ END-C
     });
   });
 
+  describe('FFI UTF-8 byte length audit tool', () => {
+    it('detects string-length used for C function length parameter', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-utf8-len-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(
+        join(tempDir, 'ffi-string.ss'),
+        `(import :std/foreign)
+(export compile-pattern)
+
+(def (compile-pattern pattern)
+  (ffi-compile pattern (string-length pattern)))
+
+(begin-ffi
+  (define-c-lambda ffi-compile
+    (char-string int) void
+    "/* C code */"))
+`,
+      );
+
+      try {
+        const result = await client.callTool('gerbil_ffi_utf8_byte_length_audit', {
+          file_path: join(tempDir, 'ffi-string.ss'),
+        });
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain('string-length');
+        expect(result.text).toContain('ffi-compile');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('reports clean when no string-length mismatches found', async () => {
+      const tempDir = join(tmpdir(), 'gerbil-mcp-utf8-clean-' + Date.now());
+      mkdirSync(tempDir, { recursive: true });
+      writeFileSync(
+        join(tempDir, 'clean-ffi.ss'),
+        `(import :std/foreign)
+(def (safe-call)
+  (ffi-func "test" 0))
+
+(begin-ffi
+  (define-c-lambda ffi-func
+    (char-string int) void
+    "/* C code */"))
+`,
+      );
+
+      try {
+        const result = await client.callTool('gerbil_ffi_utf8_byte_length_audit', {
+          file_path: join(tempDir, 'clean-ffi.ss'),
+        });
+        expect(result.isError).toBe(false);
+        expect(result.text).toContain('No string-length');
+      } finally {
+        rmSync(tempDir, { recursive: true });
+      }
+    });
+
+    it('requires file_path or project_path', async () => {
+      const result = await client.callTool('gerbil_ffi_utf8_byte_length_audit', {});
+      expect(result.isError).toBe(true);
+    });
+  });
+
   // ── Stack trace decode tool ───────────────────────────────────
 
   describe('Stack trace decode tool', () => {
