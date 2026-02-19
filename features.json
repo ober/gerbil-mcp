@@ -183,26 +183,6 @@
     "votes": 0
   },
   {
-    "id": "batch-import-conflict-checker",
-    "title": "Batch import conflict checker before compilation",
-    "description": "A tool that analyzes all imports in a file (or project) and detects potential symbol conflicts before compilation. Would scan each file's import declarations, resolve which symbols each module exports (using runtime introspection + static analysis), and report conflicts where: (1) multiple imports export the same symbol, (2) a locally defined symbol conflicts with an imported symbol. For each conflict, suggest a fix using (only-in :module symbol1 symbol2) or (except-in :module conflicting-symbol). Could batch-check an entire project directory to find all import conflicts at once.",
-    "impact": "high",
-    "tags": [
-      "import",
-      "conflict",
-      "only-in",
-      "except-in",
-      "batch",
-      "compile",
-      "check",
-      "symbols"
-    ],
-    "use_case": "When adding new imports to existing files or when refactoring module structure. The compilation error \"Bad binding; import conflict\" appears only after a full build attempt, and the error message doesn't always clearly indicate which symbols conflict or which modules are involved.",
-    "example_scenario": "During theme system implementation, added :gemacs/persist import to qt/commands-shell.ss which already imported :gemacs/qt/commands-vcs. Build failed with \"Bad binding; import conflict\" for symbols like recent-files-load!, *delete-trailing-whitespace-on-save*. Had to manually trace through which modules export which symbols, then fix with selective imports. This happened multiple times across different files (qt/commands-config.ss had similar conflicts). A batch checker would have caught all 3 import conflicts upfront with specific symbol names and suggested (only-in :gemacs/persist theme-settings-save! custom-faces-save!) fixes.",
-    "estimated_token_reduction": "~1500 tokens per build session with import changes — eliminates multiple compile-fail-fix-recompile cycles (typically 3-5 import conflicts per refactoring), each requiring a full build attempt to discover the next conflict",
-    "votes": 0
-  },
-  {
     "id": "build-progress-monitor",
     "title": "Monitor long-running gerbil build progress in real-time",
     "description": "A tool that monitors an ongoing gerbil build (started as a background task) and reports compilation progress in real-time. Would parse the build output stream and extract: (1) current phase (compile, link), (2) current module being compiled, (3) estimated progress (N of M modules), (4) any errors/warnings so far, (5) total elapsed time. Could be invoked periodically to check status without blocking on build completion.",
