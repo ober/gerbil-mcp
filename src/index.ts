@@ -127,6 +127,7 @@ import { registerPkgLinkSyncTool } from './tools/pkg-link-sync.js';
 import { registerCrossPackageDiffTool } from './tools/cross-package-diff.js';
 import { registerDispatchCoverageTool } from './tools/dispatch-coverage.js';
 import { registerMacroPatternDetectorTool } from './tools/macro-pattern-detector.js';
+import { registerBoilerplateConverterTool } from './tools/boilerplate-converter.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -435,6 +436,7 @@ registerPkgLinkSyncTool(server);
 registerCrossPackageDiffTool(server);
 registerDispatchCoverageTool(server);
 registerMacroPatternDetectorTool(server);
+registerBoilerplateConverterTool(server);
 
 registerPrompts(server);
 registerResources(server);
