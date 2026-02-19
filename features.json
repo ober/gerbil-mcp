@@ -145,26 +145,6 @@
     "votes": 0
   },
   {
-    "id": "signal-trap-execution-trace",
-    "title": "Trace signal delivery and trap execution for debugging",
-    "description": "A debugging tool that instruments signal handlers and trap execution to trace: (1) when signals are received and queued, (2) when trap processing functions are called, (3) what trap commands execute, (4) whether trap execution raises exceptions, (5) where in the code signals are being processed (loop iterations, command boundaries). Would output a timestamped trace log showing the signal flow.",
-    "impact": "high",
-    "tags": [
-      "signal",
-      "trap",
-      "debug",
-      "trace",
-      "TERM",
-      "INT",
-      "SIGCHLD",
-      "handler"
-    ],
-    "use_case": "When debugging why signals aren't being processed correctly - why CTRL-C doesn't work, why traps don't execute, why processes hang instead of terminating. Critical for shell and REPL development.",
-    "example_scenario": "Shell process hangs when TERM signal is sent during a while loop with command substitution. Need to know: (1) Is TERM signal being received and queued? (2) Is pending-signals! being called? (3) Is the trap function being invoked? (4) Where in the code execution is signal processing being skipped? Currently requires manually adding fprintf debug statements, rebuilding, testing, and removing them. This session required multiple rebuild cycles to trace signal flow.",
-    "estimated_token_reduction": "~2000 tokens per signal debugging session — eliminates multiple Edit->rebuild->test cycles with debug instrumentation",
-    "votes": 0
-  },
-  {
     "id": "detect-parallel-build-conflicts",
     "title": "Detect and prevent conflicting parallel gerbil build invocations",
     "description": "A tool that detects when multiple gerbil build processes are running on the same project directory simultaneously and warns about potential conflicts. Would: (1) check for existing gerbil build processes using ps/pgrep, (2) check for lock files in .gerbil/, (3) compare working directories of running builds, (4) warn if conflicts detected with suggestion to kill old builds first. Could also implement a lock file mechanism to prevent parallel builds.",
