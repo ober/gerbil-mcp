@@ -6859,4 +6859,23 @@ END-C
       }
     });
   });
+  describe('Dispatch sequence coverage analysis', () => {
+    it('analyzes command sequences and detects gaps', async () => {
+      const result = await client.callTool('gerbil_dispatch_coverage_analysis', {
+        test_directory: '/tmp/test-dispatch',
+        min_individual_coverage: 1,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Command Dispatch Sequence Coverage Analysis');
+      expect(result.text).toContain('Total commands found');
+    }, 10000);
+
+    it('handles empty directory', async () => {
+      const result = await client.callTool('gerbil_dispatch_coverage_analysis', {
+        test_directory: '/tmp/empty-dispatch',
+      });
+      expect(result.text).toContain('No .ss files found');
+    }, 10000);
+  });
+
 });
