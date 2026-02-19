@@ -12703,5 +12703,66 @@
       "refactor-command-template",
       "defrule-simple-pattern"
     ]
+  },
+  {
+    "id": "loop-signal-processing",
+    "title": "Process signals during tight loops (for/while/until)",
+    "tags": [
+      "signal",
+      "loop",
+      "trap",
+      "TERM",
+      "INT",
+      "thread-yield",
+      "while",
+      "for",
+      "until",
+      "tight-loop"
+    ],
+    "imports": [
+      ":gsh/environment"
+    ],
+    "code": ";; Problem: Signals (TERM, INT) aren't processed during tight loops,\n;; causing traps to not execute and processes to hang.\n;;\n;; Solution: Add thread-yield! and trap processing at loop start.\n\n(def (execute-while cmd env execute-fn)\n  (with-loop-context\n   (lambda ()\n     (let ((status 0))\n       (let loop ()\n         ;; Yield to signal handlers and process pending signals\n         (thread-yield!)\n         (let ((trap-fn (*process-traps-fn*)))\n           (when trap-fn (trap-fn env)))\n         \n         ;; Now execute loop test and body\n         (let ((test-status (execute-fn (while-command-test cmd) env)))\n           (if (= test-status 0)\n             (begin\n               (set! status (execute-fn (while-command-body cmd) env))\n               (loop))\n             status)))))))\n\n;; Same pattern applies to for and until loops - add signal processing\n;; at the START of each iteration before executing the loop logic.",
+    "notes": "Critical for shells and REPL-like systems where loops may run indefinitely and need to respond to TERM/INT signals. Without this, CTRL-C and trap handlers won't work during loop execution. The (*process-traps-fn*) parameter is set by the main shell to point to the trap processing function. thread-yield! allows Gambit's signal handler threads to run and queue pending signals."
+  },
+  {
+    "id": "forward-signals-to-child-process",
+    "title": "Forward TERM/INT signals to child process group during wait",
+    "tags": [
+      "signal",
+      "child",
+      "process",
+      "wait",
+      "TERM",
+      "INT",
+      "kill",
+      "process-group",
+      "waitpid",
+      "foreground"
+    ],
+    "imports": [
+      ":std/os/signal",
+      ":gsh/signals"
+    ],
+    "code": ";; Problem: When waiting for a child process, TERM/INT signals to parent\n;; are queued but child keeps running, causing hang.\n;;\n;; Solution: Forward terminating signals to child's process group.\n\n(def (wait-for-foreground-process pid proc)\n  (let loop ((delay 0.001))\n    (let ((result (ffi-waitpid-pid pid (bitwise-ior WNOHANG WUNTRACED))))\n      (cond\n        ((> result 0)\n         ;; Process finished - decode status\n         (let ((raw (ffi-waitpid-status)))\n           (values (decode-exit-status raw) #f)))\n        \n        ((= result 0)\n         ;; Still running - check for signals and forward to child\n         (thread-sleep! delay)\n         (thread-yield!)\n         (let ((pending (pending-signals!)))\n           (for-each\n            (lambda (sig-name)\n              (cond\n                ;; TERM or INT: forward to child's process group\n                ((or (string=? sig-name \"TERM\") (string=? sig-name \"INT\"))\n                 (let ((signum (signal-name->number sig-name)))\n                   (when signum\n                     ;; Negative PID sends to process group\n                     (kill (- pid) signum))))\n                ;; Other signals: re-queue for later\n                (else\n                 (set! *pending-signals* (cons sig-name *pending-signals*)))))\n            pending))\n         (loop (min 0.05 (* delay 1.5))))\n        \n        (else\n         ;; ECHILD - process already reaped\n         (values 0 #f))))))\n\n;; Sending to negative PID (e.g., kill -15 -1234) sends signal to\n;; process group 1234, killing all processes in that group.",
+    "notes": "Essential for shell job control and any system that waits for external commands. Without this, CTRL-C won't terminate foreground processes. The child must have its own process group (via setpgid or setsid) for process group signaling to work. This pattern is how real shells handle signal forwarding to foreground jobs."
+  },
+  {
+    "id": "setsid-process-group-signals",
+    "title": "Use setsid for tools that rely on process group signals",
+    "tags": [
+      "setsid",
+      "process-group",
+      "signal",
+      "HUP",
+      "TERM",
+      "kill",
+      "shellbench",
+      "synchronization",
+      "PGID"
+    ],
+    "imports": [],
+    "code": ";; Problem: Process group signals (kill -HUP -$$) fail with \"No such process\"\n;; when running scripts from non-interactive shells or make.\n;;\n;; Solution: Run with setsid to create a new session and process group.\n\n;; In Makefile or shell script:\n;; BAD - process group signals will fail:\n;;   ./script-that-uses-pg-signals\n;;\n;; GOOD - creates proper process group:\n;;   setsid ./script-that-uses-pg-signals\n\n;; Example: Running shellbench (which uses process group signals for sync)\nbench: install\n\t@cd $(SHELLBENCH_DIR) && setsid ./shellbench -s gsh,bash sample/*\n\n;; Without setsid: kill -HUP \"-$$\" returns \"No such process\"\n;; With setsid: Process becomes process group leader, signals work correctly\n\n;; From Scheme code, you can't directly call setsid after fork,\n;; but you can launch a shell that does:\n(open-process [path: \"/bin/sh\"\n               arguments: [\"-c\" \"setsid ./my-program\"]])",
+    "notes": "setsid creates a new session and makes the process the session leader and process group leader. This is necessary when scripts use kill -SIG -$$ to signal their own process group for synchronization. Common in testing harnesses like shellbench. The issue occurs because processes started from make or non-interactive contexts may not have proper process group setup. setsid ensures $$ equals PGID, making kill -HUP -$$ work correctly."
   }
 ]

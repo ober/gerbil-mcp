@@ -339,6 +339,36 @@ export function parseGxcErrors(
   return diagnostics;
 }
 
+/**
+ * Parse C compiler errors from build output.
+ * Matches gcc/clang error format: file.c:45:12: error: message
+ */
+export function parseCCompilerErrors(output: string): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const lines = output.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Pattern: file.c:45:12: error: message
+    // or: file.h:23:5: warning: message
+    // Matches .c, .h, .cpp, .cc, .cxx, .hpp extensions
+    const match = trimmed.match(/^(.+\.[ch](pp|xx|c)?):(\d+):(\d+):\s+(error|warning|note):\s*(.+)$/);
+    if (match) {
+      diagnostics.push({
+        file: match[1],
+        line: parseInt(match[3], 10),
+        column: parseInt(match[4], 10),
+        severity: match[5] === 'warning' ? 'warning' : match[5] === 'note' ? 'info' : 'error',
+        message: match[6],
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
 function classifySeverity(message: string): 'error' | 'warning' | 'info' {
   const lower = message.toLowerCase();
   if (lower.includes('warning')) return 'warning';

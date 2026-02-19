@@ -36,24 +36,6 @@
     "votes": 0
   },
   {
-    "id": "build-report-c-compiler-output",
-    "title": "gerbil_build_and_report: surface raw C compiler errors when gxc C compilation fails",
-    "description": "When gxc compiles a begin-ffi module, it first generates a .c file then invokes the system C compiler (gcc/clang). If the C compiler exits nonzero, gerbil_build_and_report currently returns only a generic \"target compilation or link failed\" message with a ProcessError, losing the actual C compiler output (error: too few arguments to function, type mismatch, undeclared identifier, etc). The tool should capture and include the C compiler's stdout+stderr in the structured diagnostic output when this failure mode is detected. A heuristic: if the build log contains \"compile pcre2/libfoo\" followed by a ProcessError, scan the build output for lines matching \"^.*\\.(c|h):\\d+:\\d+: error:\" and include them as additional diagnostic entries with file, line, column, message.",
-    "impact": "high",
-    "tags": [
-      "build",
-      "ffi",
-      "c-compiler",
-      "diagnostics",
-      "gxc",
-      "begin-ffi"
-    ],
-    "use_case": "When an FFI module's C code has errors — wrong argument count, type mismatches, undeclared identifiers — the structured build report gives no actionable information and forces a raw `gerbil build 2>&1` fallback to see the actual C error lines.",
-    "example_scenario": "pcre2_match_8 called with 6 args instead of 7. gerbil_build_and_report reported: 'target compilation or link failed while compiling libpcre2~0.scm' and a ProcessError. Had to run `gerbil build 2>&1` directly to see 'error: too few arguments to function pcre2_match_8'. Required one extra bash invocation to diagnose a straightforward C arity error.",
-    "estimated_token_reduction": "~400 tokens per FFI build failure — eliminates the raw bash fallback invocation and its large output that must be manually scanned",
-    "votes": 1
-  },
-  {
     "id": "test-assertion-audit",
     "title": "Audit :std/test check assertions for common mistakes",
     "description": "A tool that statically analyzes :std/test files for common assertion mistakes that silently pass: (1) `check x ? #f` which tests if x satisfies predicate #f (always fails silently, prints warning but doesn't fail suite) — should be `check x => #f`; (2) `check x ? values` which tests truthiness but doesn't verify the specific value — flag when comparing against known types (string, list); (3) `check (fn args) => expected` where fn returns a struct but expected is a string/list (type mismatch that equal? silently fails on); (4) using pcre2-match (full match) where pcre2-search was intended (subject doesn't fully match pattern). Static analysis of check forms would catch these before running tests.",

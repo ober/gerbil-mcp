@@ -1,0 +1,74 @@
+
+ ▐▛███▜▌   Claude Code v2.1.44
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/mine/gerbil-mcp
+
+❯ does it make any sense rewritting this repo in gerbil-scheme? what would  
+  be lost?                                                                  
+
+● Great question. Let me think through this concretely based on what the repo
+  actually does.
+
+  What you'd gain
+
+  - Dog-fooding: The MCP server for Gerbil would be written in Gerbil —
+  aesthetic appeal and you'd catch Gerbil issues by using it daily
+  - Direct access to Gerbil internals: Instead of shelling out to gxi/gxc and
+  parsing text output, you could call module-context-export,
+  class-type-slot-list, etc. directly in-process. Many tools currently do string
+   gymnastics to extract structured data from subprocess output
+  - Lower latency: No subprocess spawning for every tool call. The ~100+ tools
+  that invoke runGxi() each spawn a fresh gxi process
+
+  What you'd lose — and this is significant
+
+  1. The MCP SDK ecosystem is TypeScript-first. The @modelcontextprotocol/sdk
+  package handles JSON-RPC framing, tool/resource/prompt registration, and stdio
+   transport. You'd need to reimplement all of that in Gerbil (JSON-RPC over
+  stdin/stdout, the MCP protocol schema, content types, error codes). That's a
+  substantial amount of protocol plumbing.
+
+  2. ~470 tests using Vitest + McpClient. The test harness spawns a real MCP
+  server and talks JSON-RPC. You'd need to rebuild this entire test
+  infrastructure in Gerbil's :std/test.
+
+  3. String processing is a strength of TypeScript here. Many tools do
+  regex-heavy static analysis (lint, arity checking, balanced replace, FFI
+  scaffold, security scan, etc.) — things like checkPregexpInlineFlags,
+  filterExeTargets, checkPortTypeMismatch. TypeScript's regex engine and string
+  methods are mature and well-tested. Gerbil's pregexp is functional but less
+  ergonomic for the volume of pattern matching happening here.
+
+  4. The JSON-heavy data layer. cookbooks.json (401 recipes), features.json,
+  security-rules.json, error-fix mappings, synonym maps, translation rules,
+  behavior cards — all deeply integrated as TypeScript objects/arrays with typed
+   interfaces. Gerbil can handle JSON, but you lose TypeScript's static typing
+  that catches shape mismatches at compile time across 119 tools.
+
+  5. npm ecosystem utilities. The project uses vitest, tsx, typescript —
+  standard toolchain that "just works" for MCP servers. Gerbil has no equivalent
+   MCP server framework.
+
+  6. Subprocess isolation is actually a feature. If a user's Gerbil code
+  segfaults (common with FFI), it kills the subprocess, not the server. An
+  in-process Gerbil server would crash entirely on a segfault in gerbil_eval.
+
+  The practical verdict
+
+  It doesn't make sense. The cost/benefit is heavily skewed:
+
+  - Cost: Rewrite ~15K+ lines of TypeScript, reimplement the MCP protocol,
+  rebuild the test infrastructure, lose subprocess fault isolation, lose static
+  typing on complex data structures
+  - Benefit: Slightly lower latency on tool calls (already <1s each), aesthetic
+  satisfaction
+
+  The subprocess model is actually well-suited here — the server is an
+  orchestrator that invokes Gerbil as a service. TypeScript is a better language
+   for orchestration, protocol handling, and text processing than Gerbil is.
+  Gerbil is better at being the thing being inspected.
+
+  The one scenario where it might make sense: if someone built a general-purpose
+   Gerbil MCP SDK library first. Then you'd just be writing tool handlers. But
+  that library doesn't exist, and building it would be a larger project than
+  this repo.

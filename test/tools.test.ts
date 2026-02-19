@@ -2783,6 +2783,42 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.text).toContain('not executable');
       expect(result.text).toContain('chmod');
     }, 60000);
+
+    it('gerbil_build_and_report parses C compiler errors from FFI modules', async () => {
+      const cErrorDir = join(TEST_DIR, 'c-compiler-error');
+      mkdirSync(cErrorDir, { recursive: true});
+      writeFileSync(join(cErrorDir, 'gerbil.pkg'), '(package: test-c-error)');
+      writeFileSync(
+        join(cErrorDir, 'build.ss'),
+        '#!/usr/bin/env gxi\n(import :std/build-script)\n(defbuild-script\n  \'("ffi-test"))\n',
+      );
+      writeFileSync(
+        join(cErrorDir, 'ffi-test.ss'),
+        `(export main)
+(begin-ffi
+  ;; Intentionally broken C code - wrong function signature
+  (c-declare #<<END-C
+int broken_function(int x) {
+  return nonexistent_func();  // undeclared function
+}
+END-C
+  ))
+(def (main) (void))
+`,
+      );
+      chmodSync(join(cErrorDir, 'build.ss'), 0o755);
+
+      const result = await client.callTool('gerbil_build_and_report', {
+        project_path: cErrorDir,
+      });
+
+      // Build should fail
+      expect(result.isError).toBe(true);
+
+      // Should contain C compiler error diagnostic
+      // The C compiler error will mention the undeclared function
+      expect(result.text).toContain('error');
+    }, 60000);
   });
 
   // ── Feature suggestion tools ─────────────────────────────────────

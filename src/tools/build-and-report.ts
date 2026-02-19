@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
-import { parseGxcErrors, type Diagnostic } from './parse-utils.js';
+import { parseGxcErrors, parseCCompilerErrors, type Diagnostic } from './parse-utils.js';
 
 /** Known C header -> package name mappings for helpful install hints. */
 const HEADER_PACKAGE_MAP: Record<string, string> = {
@@ -323,10 +323,10 @@ export function registerBuildAndReportTool(server: McpServer): void {
         .join('\n')
         .trim();
 
-      const diagnostics: Diagnostic[] = parseGxcErrors(
-        combined,
-        project_path,
-      );
+      const diagnostics: Diagnostic[] = [
+        ...parseGxcErrors(combined, project_path),
+        ...parseCCompilerErrors(combined),
+      ];
 
       if (diagnostics.length === 0) {
         // Could not parse structured errors — return raw output
