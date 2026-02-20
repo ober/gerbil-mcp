@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 498 tests must pass before considering any change complete (497 passing + 1 pre-existing flaky). The test suite covers:
+All 504 tests must pass before considering any change complete (503 passing + 1 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -195,6 +195,7 @@ All 498 tests must pass before considering any change complete (497 passing + 1 
 - Cross-package diff tool (gerbil_cross_package_diff: compare signatures/arities across modules)
 - Macro expansion size checker (gerbil_macro_expansion_size: analyze expansion ratio, warn on explosive macros)
 - Macro template library (gerbil_macro_template_library: generate templates for 6 patterns with examples and expansions, parameter validation)
+- Macro pattern detector enhancements (gerbil_macro_pattern_detector: 8 pattern types total - hash-ref accessors, repeated function definitions, method wrappers, let* preambles, delegation/alias functions, boolean toggles, message-only stubs, common subexpressions; min_occurrences parameter, single-line pattern detection)
 
 
 ### MANDATORY: Update Documentation After Every Change

@@ -826,6 +826,63 @@ void copy_data(const uint8_t *src, int len) {
 `,
     );
 
+    // Macro pattern detector fixtures
+    writeFileSync(
+      join(TEST_DIR, 'test-macro-pattern.ss'),
+      `(import :std/iter)
+
+;; Hash-ref accessors
+(def (get-name obj) (hash-ref obj "name"))
+(def (get-age obj) (hash-ref obj "age"))
+(def (get-email obj) (hash-ref obj "email"))
+(def (get-phone obj) (hash-ref obj "phone"))
+
+;; Simple delegations
+(def (process-data app) (run-processor app))
+(def (save-state app) (persist-state app))
+(def (load-config app) (read-config app))
+
+;; Boolean toggles
+(def (toggle-debug!) (set! *debug-mode* (not *debug-mode*)) (message "Debug mode toggled"))
+(def (toggle-verbose!) (set! *verbose* (not *verbose*)) (message "Verbose toggled"))
+(def (toggle-auto-save!) (set! *auto-save* (not *auto-save*)) (message "Auto-save toggled"))
+
+;; Message-only stubs
+(def (unimplemented-feature app) (echo-message! "Feature not yet implemented"))
+(def (deprecated-function app) (echo-message! "This function is deprecated"))
+(def (maintenance-mode app) (echo-message! "System is in maintenance mode"))
+
+;; Common subexpressions (repeated calls)
+(def (notify-user app msg) (echo-message! (app-state-echo app) msg))
+(def (warn-user app msg) (echo-message! (app-state-echo app) msg))
+(def (info-user app msg) (echo-message! (app-state-echo app) msg))
+(def (alert-user app msg) (echo-message! (app-state-echo app) msg))
+(def (prompt-user app msg) (echo-message! (app-state-echo app) msg))
+(def (status-update app msg) (echo-message! (app-state-echo app) msg))
+(def (error-notify app msg) (echo-message! (app-state-echo app) msg))
+(def (success-notify app msg) (echo-message! (app-state-echo app) msg))
+(def (warning-notify app msg) (echo-message! (app-state-echo app) msg))
+(def (debug-notify app msg) (echo-message! (app-state-echo app) msg))
+
+;; Let* preambles (identical destructuring)
+(def (command-one app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (process text pos)))
+(def (command-two app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (validate text pos)))
+(def (command-three app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (transform text pos)))
+(def (command-four app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (analyze text pos)))
+(def (command-five app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (render text pos)))
+(def (command-six app args) (let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) (format text pos)))
+`,
+    );
+
+    writeFileSync(
+      join(TEST_DIR, 'simple-no-pattern.ss'),
+      `(import :std/text/json)
+(export parse-data)
+(def (parse-data s)
+  (read-json (open-input-string s)))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -6889,6 +6946,59 @@ END-C
       expect(result.text).toContain('hash-ref-accessors');
       expect(result.text).toContain('def-getter');
       expect(result.text).toContain('Code reduction');
+    }, 10000);
+
+    it('detects delegation/alias function patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('delegation-aliases');
+      expect(result.text).toContain('def-alias');
+    }, 10000);
+
+    it('detects boolean toggle patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('boolean-toggles');
+      expect(result.text).toContain('toggle!');
+    }, 10000);
+
+    it('detects message-only stub patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('message-only-stubs');
+    }, 10000);
+
+    it('detects common subexpression patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('common-subexpression');
+      expect(result.text).toContain('app-state-echo app');
+    }, 10000);
+
+    it('detects repeated let* preamble patterns', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('repeated-let*-preambles');
+      expect(result.text).toContain('with-context');
+    }, 10000);
+
+    it('respects min_occurrences parameter', async () => {
+      const result = await client.callTool('gerbil_macro_pattern_detector', {
+        file_path: '/tmp/test-macro-pattern.ss',
+        min_occurrences: 100,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No repetitive patterns detected');
     }, 10000);
 
     it('reports no patterns when none found', async () => {

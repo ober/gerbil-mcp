@@ -125,23 +125,4 @@
     "estimated_token_reduction": "~500 tokens per occurrence — eliminates manual ps/grep/kill cycles and clean rebuilds due to corrupted artifacts",
     "votes": 0
   },
-  {
-    "id": "macro-pattern-detector-deep-analysis",
-    "title": "Deeper macro pattern detection: let* destructuring, echo wrappers, toggle commands",
-    "description": "The current gerbil_macro_pattern_detector only detects 3 pattern types: repeated function definitions with similar structure, repeated hash-ref accessors, and repeated method wrappers. It uses simple structural comparison of top-level definitions. In practice, the most impactful macro refactoring patterns are NOT detected: (1) Repeated let* destructuring boilerplate at the top of functions (e.g., `(let* ((ed (current-editor app)) (text (get-text ed)) (pos (get-pos ed))) ...)` appearing 80+ times), (2) Simple delegation/alias functions `(def (f app) (g app))`, (3) Boolean toggle patterns `(set! *var* (not *var*)) (message ...)`, (4) Message-only stub functions, (5) Common subexpression patterns like `(echo-message! (app-state-echo app) ...)` repeated 2000+ times. Adding detection for these would catch the patterns that actually save the most lines. The tool found 1 pattern across 10 files; manual grep-based analysis found 15 patterns worth ~4500 lines of savings.",
-    "impact": "high",
-    "tags": [
-      "macro",
-      "pattern",
-      "detector",
-      "refactor",
-      "let-star",
-      "boilerplate",
-      "toggle"
-    ],
-    "use_case": "When analyzing a large codebase (10K+ lines) for macro refactoring opportunities. The current tool misses the highest-impact patterns, forcing manual grep-based analysis across dozens of files.",
-    "example_scenario": "Analyzing 82K-line gemacs codebase: gerbil_macro_pattern_detector found 1 pattern (digit-argument wrappers, 10 occurrences, -2 lines saved). Manual analysis with 15+ grep queries found: 2341 register-command! calls (same structure), 700+ functions with identical let* state-extraction preambles, 72 toggle-mode commands, 58 alias functions, 50 stub functions — totaling ~4500 lines of macro-reducible boilerplate. The tool should detect at least the let* preamble pattern (most common) and the simple delegation pattern.",
-    "estimated_token_reduction": "~3000-5000 tokens per analysis — eliminates 15+ manual grep queries, manual counting, and manual pattern classification that took 3 parallel subagents ~10 minutes each",
-    "votes": 0
-  }
 ]
