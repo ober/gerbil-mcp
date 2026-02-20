@@ -12784,5 +12784,29 @@
     ],
     "code": ";; SAFE: Use Qt's QProcess API instead of Gambit's open-process\n;; to avoid SIGCHLD race conditions in Qt executables.\n;; QProcess handles its own process lifecycle management and is\n;; immune to SIGCHLD handler conflicts.\n\n(def (run-command-qt program args)\n  \"Run a command with QProcess and return stdout as string.\n   Returns #f on error.\"\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (qt-process-wait-for-finished proc) ;; Blocks until process completes\n        (let* ((output (qt-process-read-stdout proc))\n               (status (qt-process-exit-code proc)))\n          (qt-process-destroy! proc)\n          (if (zero? status)\n              output\n              #f))))))\n\n;; Example: run git command\n(def (git-status-qt repo-dir)\n  (run-command-qt \"git\" [\"-C\" repo-dir \"status\" \"--short\"]))\n\n;; For stderr too:\n(def (run-command-qt-with-stderr program args)\n  (with-catch\n    (lambda (e) (values #f #f #f))\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (qt-process-wait-for-finished proc)\n        (let* ((stdout (qt-process-read-stdout proc))\n               (stderr (qt-process-read-stderr proc))\n               (status (qt-process-exit-code proc)))\n          (qt-process-destroy! proc)\n          (values stdout stderr status))))))\n\n;; With timeout (milliseconds):\n(def (run-command-qt-timeout program args timeout-ms)\n  (with-catch\n    (lambda (e) #f)\n    (lambda ()\n      (let (proc (qt-process-create))\n        (qt-process-start! proc program args: args)\n        (let (finished? (qt-process-wait-for-finished proc timeout: timeout-ms))\n          (if finished?\n              (let ((output (qt-process-read-stdout proc)))\n                (qt-process-destroy! proc)\n                output)\n              (begin\n                (qt-process-kill! proc)\n                (qt-process-wait-for-finished proc) ;; cleanup\n                (qt-process-destroy! proc)\n                #f)))))))",
     "notes": "QProcess is Qt's native subprocess API and is completely safe in Qt executables because it uses Qt's own process management instead of Gambit's open-process. Unlike open-process + process-status (which can deadlock due to SIGCHLD race), QProcess handles all lifecycle events internally. The gerbil-qt bindings provide: qt-process-create (parent: optional), qt-process-start! (program args: list), qt-process-wait-for-finished (timeout: optional-ms), qt-process-read-stdout/stderr (returns string), qt-process-exit-code (returns int), qt-process-kill!/terminate!, qt-process-destroy!. Always call qt-process-destroy! when done. For Qt apps, prefer QProcess over open-process to avoid subtle race conditions."
+  },
+  {
+    "id": "refactor-register-commands-with-prefix",
+    "title": "Macro: batch register-command! with auto-derived cmd- prefix using defsyntax + map + stx-identifier",
+    "tags": [
+      "refactor",
+      "macro",
+      "register-command",
+      "batch",
+      "stx-identifier",
+      "defsyntax",
+      "prefix",
+      "cmd",
+      "code-reduction",
+      "bulk-registration"
+    ],
+    "imports": [],
+    "code": ";; Problem: Hundreds of lines like:\n;;   (register-command! 'forward-char cmd-forward-char)\n;;   (register-command! 'backward-char cmd-backward-char)\n;; where the function name is always cmd- + the symbol name.\n;;\n;; Solution: defsyntax macro that auto-derives cmd-NAME from NAME\n;; using stx-identifier to concatenate \"cmd-\" with the symbol.\n\n(defsyntax (register-commands! stx)\n  (syntax-case stx ()\n    ((_ name ...)\n     (with-syntax (((cmd-fn ...)\n                    (map (lambda (n) (stx-identifier n \"cmd-\" n))\n                         (syntax->list #'(name ...)))))\n       #'(begin (register-command! 'name cmd-fn) ...)))))\n\n;; Usage — replaces hundreds of individual register-command! calls:\n;; (register-commands!\n;;   forward-char backward-char next-line previous-line\n;;   beginning-of-line end-of-line forward-word backward-word\n;;   kill-line yank set-mark kill-region copy-region\n;;   find-file save-buffer switch-buffer)\n;;\n;; Each bare symbol X expands to: (register-command! 'X cmd-X)\n;;\n;; For aliases where the function differs from the name, keep explicit calls:\n;; (register-command! 'kill-ring-save cmd-copy-region)  ; alias",
+    "notes": "This pattern is ideal when you have a naming convention (function = prefix + symbol). The key insight is using `map` over `(syntax->list #'(name ...))` to build the with-syntax bindings, then using ellipsis in the template to replicate. stx-identifier's first arg is the lexical context (use a pattern variable), remaining args are strings/syntax to concatenate. In a real project with 786 register-command! calls (98.9% following this pattern), this reduced ~1060 lines to ~65 lines. Keep the 1.1% of aliases as explicit calls outside the macro.",
+    "related": [
+      "refactor-batch-registration",
+      "defsyntax-stx-identifier-generation",
+      "defsyntax-syntax-case-list-processing"
+    ]
   }
 ]
