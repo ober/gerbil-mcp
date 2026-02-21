@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 504 tests must pass before considering any change complete (503 passing + 1 pre-existing flaky). The test suite covers:
+All 531 tests must pass before considering any change complete (531 passing + 1 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -196,6 +196,18 @@ All 504 tests must pass before considering any change complete (503 passing + 1 
 - Macro expansion size checker (gerbil_macro_expansion_size: analyze expansion ratio, warn on explosive macros)
 - Macro template library (gerbil_macro_template_library: generate templates for 6 patterns with examples and expansions, parameter validation)
 - Macro pattern detector enhancements (gerbil_macro_pattern_detector: 8 pattern types total - hash-ref accessors, repeated function definitions, method wrappers, let* preambles, delegation/alias functions, boolean toggles, message-only stubs, common subexpressions; min_occurrences parameter, single-line pattern detection)
+- Run tests verbose mode (verbose parameter, check expression tracing, source with line numbers)
+- Signature impact tool (call site finding, no references, breaking change detection)
+- Test assertion audit tool (check ? #f detection, clean file, directory scan)
+- Security scan inline suppression (suppress specific rule, suppress-all)
+- Compile check stale artifact hint (stale .ssi detection for missing module errors)
+- Build progress tool (compile output parsing, error detection, missing file)
+- Build conflict tool (no conflicts, lock file detection)
+- Benchmark compare tool (output parsing, save and compare baselines, requires input)
+- Check C library tool (build.ss scanning, direct library list, missing build file)
+- Pattern cache detector tool (pregexp in loop detection, duplicate patterns, clean file)
+- SIGCHLD compatibility check tool (conflict detection, no conflict, clean file)
+- New tool annotation checks for batch 8 tools
 
 
 ### MANDATORY: Update Documentation After Every Change

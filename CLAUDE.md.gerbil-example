@@ -63,8 +63,11 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 - **`gerbil_build_project`**: Compile or clean a project directory using gxpkg.
 - **`gerbil_build_and_report`**: Run `gerbil build` and get structured diagnostics with file, line, column. Prefer this over running `gerbil build` via bash for better error reporting. Auto-detects external dependencies from `gerbil.pkg` `depend:` entries and sets `GERBIL_LOADPATH` automatically. Auto-retries with clean on lock errors or missing exe C files. Detects missing C system headers and suggests package install commands. Use `loadpath` to override. Use `modules_only: true` to skip exe linking targets and only compile library modules (dramatically faster when iterating on code and running tests).
+- **`gerbil_build_conflict_check`**: Detect when multiple gerbil build processes are running on the same project directory. Checks for running processes via ps, lock files in .gerbil/, and matching working directories. Warns about potential conflicts with suggestions to kill old builds.
+- **`gerbil_build_progress`**: Monitor build output from a background task. Shows current phase (compile/link/install/clean), modules compiled, errors, warnings, and whether the build is still running. Pass `output_file` for background task output or `build_output` for direct text.
+- **`gerbil_check_c_library`**: Scan build.ss for -lXXX linker flags and check if those C libraries are available via pkg-config or ldconfig. Reports missing libraries with suggested apt install commands. Use before building FFI projects to catch missing dependencies early. Accepts `project_path`, `build_file`, or direct `libraries` list.
 - **`gerbil_build_chain`**: Build a chain of dependent Gerbil projects in dependency order. Reads `gerbil.pkg` `depend:` entries and `GERBIL_LOADPATH` from Makefile to find upstream projects, checks if they need rebuilding (source newer than artifacts), and builds them before the target. Use `dry_run: true` to preview the build plan without executing.
-- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output. Auto-detects `GERBIL_LOADPATH` from `gerbil.pkg` `depend:` entries. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`). Use `clean_stale: true` to remove stale compiled artifacts before running tests.
+- **`gerbil_run_tests`**: Execute a single `:std/test` file (`file_path`) or run project-wide tests (`directory`). Use `filter` to match test names, `quiet` for errors-only output. Auto-detects `GERBIL_LOADPATH` from `gerbil.pkg` `depend:` entries. Use `env` parameter for FFI library paths (e.g. `DYLD_LIBRARY_PATH`). Use `clean_stale: true` to remove stale compiled artifacts before running tests. Use `verbose: true` in single-file mode to instrument check expressions with tracing — logs each check expression and its line number to stderr, includes source with line numbers in output. Useful for debugging without manually adding displayln statements.
 - **`gerbil_dispatch_coverage_analysis`**: Analyze functional test files for command interaction coverage gaps. Identifies commands tested in isolation but never in combination with other commands. Scans for `execute-command!` calls and suggests missing interaction patterns. Helps detect missing test scenarios for multi-command sequences that could reveal state management bugs.
 - **`gerbil_package_info`**: List installed packages, search the package directory, or view metadata.
 - **`gerbil_package_manage`**: Install, update, or uninstall Gerbil packages. Automatically defaults to `$HOME` as working directory when in a project directory (with `gerbil.pkg`) to prevent destructive operations on local package context.
@@ -77,12 +80,15 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_make`**: Run Makefile targets in a Gerbil project directory. Useful for projects that use `make build` instead of `gerbil build` directly.
 - **`gerbil_check_arity`**: Detect functions called with the wrong number of arguments across a project. Compares call sites against known arities from local definitions and standard library introspection.
 - **`gerbil_check_test_arity`**: Scan `*-test.ss` files for calls to a specific function and check if call-site arities match the function's signature. Useful when changing a function's parameters to find affected tests.
+- **`gerbil_signature_impact`**: Combined pre-signature-change impact report. Finds ALL call sites (source + test files) for a function in one call. Optionally specify `new_arity` to preview which call sites would break. Combines find_callers + check_test_arity + check_arity into a single report.
+- **`gerbil_test_assertion_audit`**: Detect common :std/test check assertion mistakes that silently pass — `(check X ? #f)` where #f predicate always fails, `(check X ? values)` which only tests truthiness, type mismatches in `=>` comparisons, missing operators, and string-number mismatches. Scans a single file or all `*-test.ss` files in a directory.
 
 ### For Performance Analysis
 
 - **`gerbil_profile`**: Instrument specific functions with call counting and timing. Reports per-function stats (calls, time, avg, %) plus overall wall/CPU/GC time and allocation.
 - **`gerbil_heap_profile`**: Capture GC heap metrics before/after an expression. Reports heap size, allocation, live/movable/still objects with deltas.
 - **`gerbil_trace_calls`**: Lightweight call counting (no timing overhead). Count how many times specified functions are called.
+- **`gerbil_benchmark_compare`**: Run a benchmark command, save results as a named baseline (`save_as`), and compare against previous runs (`compare_with`). Shows side-by-side table with percentage changes. Supports shellbench, timing, and ops/sec output formats. Baselines saved as JSON to `.gerbil-benchmarks/` directory.
 
 ### For Code Quality
 
@@ -107,10 +113,12 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_check_duplicates`**: Fast pre-build check for duplicate top-level definitions (def, defmethod, defrule, defsyntax, defstruct, etc.). Reports line numbers for both original and duplicate. Catches "Bad binding; rebind conflict" errors before the slow compilation step. No subprocess needed.
 - **`gerbil_verify`**: Combined verification tool that runs syntax check, compile check (gxc -S), lint, arity check, and duplicate definition detection in a single pass. Returns a unified issue list with phase, severity, and line numbers. Saves multiple tool calls when validating code. Skips syntax phase for FFI code (begin-ffi, begin-foreign) to avoid false EOF errors.
 - **`gerbil_cross_module_check`**: Detect cross-module unbound symbol references before compilation. Extracts definitions and references from each file, resolves imports, and reports symbols used but not imported or locally defined. Invaluable when splitting large modules into sub-modules — catches all unbound identifier errors in one pass instead of iterative compile-fix cycles. Use `files` to limit scope.
+- **`gerbil_pattern_cache_check`**: Detect regex/pattern compilation anti-patterns in Gerbil code. Finds pregexp/pcre2-compile inside function bodies or loops, dynamic pattern building via string-append, redundant explicit pregexp wrapping in pregexp-match, and duplicate pattern strings. Suggests hoisting to module level or using string-based APIs with automatic LRU caching.
+- **`gerbil_sigchld_check`**: Detect SIGCHLD/process-status incompatibility. Finds projects that use both `add-signal-handler!` (which blocks SIGCHLD via signalfd on Linux) and `process-status` (which relies on SIGCHLD delivery). When both are present, process-status hangs. Suggests FFI-based waitpid polling as replacement.
 
 ### For Security Auditing
 
-- **`gerbil_security_scan`**: Static security scanner for Gerbil `.ss` and C `.c`/`.h` files. Scans for known vulnerability patterns including shell injection via string concatenation, FFI `(pointer void)` type mismatches, `___alloc_scmobj` without `___FIXNUMP` failure checks, ports opened without `unwind-protect`, C buffer silent truncation, static global buffers (thread safety), and unused security-relevant parameters. Reports findings with severity (critical/high/medium/low), line number, and remediation guidance. Scans a single file (`file_path`) or entire project (`project_path`). Merge custom rules via `rules_path`. Filter by `severity_threshold`.
+- **`gerbil_security_scan`**: Static security scanner for Gerbil `.ss` and C `.c`/`.h` files. Scans for known vulnerability patterns including shell injection via string concatenation, FFI `(pointer void)` type mismatches, `___alloc_scmobj` without `___FIXNUMP` failure checks, ports opened without `unwind-protect`, C buffer silent truncation, static global buffers (thread safety), and unused security-relevant parameters. Reports findings with severity (critical/high/medium/low), line number, and remediation guidance. Scans a single file (`file_path`) or entire project (`project_path`). Merge custom rules via `rules_path`. Filter by `severity_threshold`. Supports inline suppression comments: add `; gerbil-security: suppress <rule-id>` or `; gerbil-security: suppress-all` on or above the flagged line to suppress false positives. Suppressed findings are reported separately for audit purposes.
 - **`gerbil_security_pattern_add`**: Add new security detection rules to the scanner. Each rule needs an `id` (kebab-case), `title`, `severity` (critical/high/medium/low), `scope` (scheme/c-shim/ffi-boundary), `pattern` (regex), `message` (vulnerability explanation), and `remediation` (fix guidance). Optional: `related_recipe` (cookbook recipe ID with fix), `tags` (search keywords). If a rule with the same `id` exists, it is replaced (update semantics). By default writes to the gerbil-mcp repo `security-rules.json`.
 
 ### For Macro Development and Refactoring
@@ -325,6 +333,10 @@ When you notice opportunities to improve the gerbil-mcp toolset during a session
 ## Workflow Conventions
 
 When implementing new features, always complete the documentation update in the same session. Document non-trivial solutions as howto recipes in the cookbook system.
+
+### Common Workflows
+
+- **Pre-build dependency check**: `gerbil_build_conflict_check` → `gerbil_check_c_library` → `gerbil_build_and_report`
 
 ## Language-Specific Notes
 
