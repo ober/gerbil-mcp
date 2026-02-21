@@ -1005,6 +1005,46 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  describe('Benchmark compare tool', () => {
+    it('gerbil_benchmark_compare parses benchmark output', async () => {
+      const result = await client.callTool('gerbil_benchmark_compare', {
+        benchmark_output: 'wall: 1.234s\ncpu: 0.987s\ngc: 0.123s\n',
+        label: 'test-run',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('wall');
+      expect(result.text).toContain('1.234');
+    });
+
+    it('gerbil_benchmark_compare saves and compares baselines', async () => {
+      const benchDir = join(TEST_DIR, 'bench-baselines');
+      // Save baseline
+      const save = await client.callTool('gerbil_benchmark_compare', {
+        benchmark_output: 'wall: 2.000s\ncpu: 1.500s\n',
+        save_as: 'baseline-test',
+        baseline_dir: benchDir,
+        label: 'before',
+      });
+      expect(save.text).toContain('Baseline saved');
+
+      // Compare with baseline
+      const compare = await client.callTool('gerbil_benchmark_compare', {
+        benchmark_output: 'wall: 1.500s\ncpu: 1.200s\n',
+        compare_with: 'baseline-test',
+        baseline_dir: benchDir,
+        label: 'after',
+      });
+      expect(compare.text).toContain('Comparison');
+      expect(compare.text).toContain('faster');
+    });
+
+    it('gerbil_benchmark_compare requires command or output', async () => {
+      const result = await client.callTool('gerbil_benchmark_compare', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('required');
+    });
+  });
+
   describe('Module inspection tools', () => {
     it('gerbil_module_exports lists exports', async () => {
       const result = await client.callTool('gerbil_module_exports', {

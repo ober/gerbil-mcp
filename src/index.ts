@@ -46,6 +46,7 @@ import { registerScaffoldTestTool } from './tools/scaffold-test.js';
 import { registerBuildAndReportTool } from './tools/build-and-report.js';
 import { registerBuildProgressTool } from './tools/build-progress.js';
 import { registerBuildConflictTool } from './tools/build-conflict.js';
+import { registerBenchmarkCompareTool } from './tools/benchmark-compare.js';
 import { registerGenerateModuleStubTool } from './tools/generate-module-stub.js';
 import { registerCheckExportsTool } from './tools/check-exports.js';
 import { registerGenerateModuleTool } from './tools/generate-module.js';
@@ -199,6 +200,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To explore packages: use gerbil_package_info to list installed packages, search the package directory, or view package metadata.
 - To format Gerbil code: use gerbil_format to pretty-print expressions using Gambit's pretty-print.
 - To benchmark expressions: use gerbil_benchmark to measure wall-clock time, CPU time, GC stats, and memory allocation.
+- To compare benchmarks: use gerbil_benchmark_compare to run a shell benchmark, save results as a named baseline (save_as), and compare against previous runs (compare_with). Shows side-by-side table with percentage changes. Supports shellbench, timing, and ops/sec formats.
 - To understand error types: use gerbil_error_hierarchy to see the full exception/error class hierarchy tree.
 - To check environment: use gerbil_version to see Gerbil/Gambit versions, home directory, and system info.
 - To diagnose MCP issues: use gerbil_preflight_check to verify server prerequisites (gxi/gxc availability, Gerbil version, GERBIL_HOME/PATH, dist/ folder, basic eval). Use when tools are not working.
@@ -369,6 +371,7 @@ registerScaffoldTestTool(server);
 registerBuildAndReportTool(server);
 registerBuildProgressTool(server);
 registerBuildConflictTool(server);
+registerBenchmarkCompareTool(server);
 registerGenerateModuleStubTool(server);
 registerCheckExportsTool(server);
 registerGenerateModuleTool(server);
