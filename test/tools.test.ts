@@ -1922,6 +1922,31 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Build conflict tool ──────────────────────────────────────────
+
+  describe('Build conflict tool', () => {
+    it('gerbil_build_conflict_check reports no conflicts for clean dir', async () => {
+      const cleanDir = join(TEST_DIR, 'no-conflict');
+      mkdirSync(cleanDir, { recursive: true });
+      const result = await client.callTool('gerbil_build_conflict_check', {
+        project_path: cleanDir,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Safe to build');
+    });
+
+    it('gerbil_build_conflict_check detects lock files', async () => {
+      const lockDir = join(TEST_DIR, 'lock-conflict');
+      mkdirSync(join(lockDir, '.gerbil'), { recursive: true });
+      writeFileSync(join(lockDir, '.gerbil', 'lock'), 'locked');
+      const result = await client.callTool('gerbil_build_conflict_check', {
+        project_path: lockDir,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Lock files found');
+    });
+  });
+
   // ── Build progress tool ──────────────────────────────────────────
 
   describe('Build progress tool', () => {
