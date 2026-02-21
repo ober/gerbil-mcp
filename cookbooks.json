@@ -13699,5 +13699,69 @@
       "refactor-near-duplicate-functions",
       "macro-identifier-synthesis-all-techniques"
     ]
+  },
+  {
+    "id": "scintilla-replacesel-tui-vs-qt",
+    "title": "SCI_REPLACESEL: TUI uses raw 2170, Qt uses SCI_REPLACESEL constant",
+    "tags": [
+      "scintilla",
+      "SCI_REPLACESEL",
+      "replace-selection",
+      "insert-text",
+      "TUI",
+      "Qt",
+      "gotcha"
+    ],
+    "imports": [
+      ":gerbil-scintilla/scintilla"
+    ],
+    "code": ";; TUI: SCI_REPLACESEL is NOT in :gerbil-scintilla/constants\n;; Use the raw number 2170 via send-message/string, or use a wrapper\n(def (editor-replace-selection ed text)\n  \"Replace the current selection with text. SCI_REPLACESEL=2170.\"\n  (send-message/string ed 2170 text))\n\n;; Insert a tab at cursor in TUI:\n(editor-replace-selection ed \"\\t\")\n\n;; Qt: SCI_REPLACESEL IS defined in qt/sci-shim.ss\n;; (import :gemacs/qt/sci-shim)\n;; (sci-send/string ed SCI_REPLACESEL \"\\t\")",
+    "notes": "SCI_REPLACESEL (2170) inserts text at cursor when no selection, or replaces selection. In TUI code (:gerbil-scintilla), the constant is NOT exported — use raw 2170 or a wrapper like editor-replace-selection. In Qt code (:gemacs/qt/sci-shim), SCI_REPLACESEL is defined and exported. Using the symbol SCI_REPLACESEL in TUI code causes 'unbound identifier' at compile time.",
+    "related": [
+      "scintilla-safe-text-replacement",
+      "scintilla-readonly-per-document"
+    ]
+  },
+  {
+    "id": "build-ss-gerbil-path-is-local",
+    "title": "GERBIL_PATH in build.ss points to project-local .gerbil, not ~/.gerbil",
+    "tags": [
+      "build.ss",
+      "GERBIL_PATH",
+      "package",
+      "find-pkg",
+      "getenv",
+      "gotcha",
+      "local"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": ";; WRONG: GERBIL_PATH during `gerbil build` points to project-local .gerbil/\n;; (def gerbil-path (getenv \"GERBIL_PATH\"))\n;; => \"/home/user/myproject/.gerbil\"  (NOT ~/.gerbil!)\n\n;; RIGHT: Use $HOME/.gerbil to find installed/linked packages\n(def user-gerbil-dir (path-expand \".gerbil\" (getenv \"HOME\")))\n\n(def (find-pkg-source name)\n  \"Find package source dir (linked or GitHub-installed).\"\n  (let ((linked (path-expand (string-append \"pkg/\" name) user-gerbil-dir))\n        (github (path-expand (string-append \"pkg/github.com/ober/\" name) user-gerbil-dir)))\n    (cond\n      ((file-exists? linked) linked)\n      ((file-exists? github) github)\n      (else (error (string-append \"Package not found: \" name\n                                  \"\\nRun: gerbil pkg install github.com/ober/\" name))))))\n\n;; Use in build.ss to find dependency vendor directories:\n(def dep-base (or (getenv \"MY_DEP_BASE\" #f)  ; env var override for Docker/CI\n                  (find-pkg-source \"my-dependency\")))",
+    "notes": "During `gerbil build`, GERBIL_PATH is set to the project-local .gerbil directory (e.g. /home/user/myproject/.gerbil), NOT the user's ~/.gerbil. This means (getenv \\\"GERBIL_PATH\\\") returns the wrong path for finding installed/linked packages. Always use (path-expand \\\".gerbil\\\" (getenv \\\"HOME\\\")) instead. Linked packages are at pkg/<name> (symlinks), GitHub-installed at pkg/github.com/ober/<name>. Check linked first since that's the common dev workflow.",
+    "related": [
+      "gerbil-pkg-install-with-depend",
+      "gerbil-build-loadpath-for-packages",
+      "build-ss-absolute-path-cc-options"
+    ]
+  },
+  {
+    "id": "gerbil-pkg-depend-github-syntax",
+    "title": "gerbil.pkg depend: syntax for GitHub packages",
+    "tags": [
+      "gerbil.pkg",
+      "depend",
+      "github",
+      "package",
+      "dependency",
+      "syntax"
+    ],
+    "imports": [],
+    "code": ";; gerbil.pkg — declare GitHub dependencies\n;; RIGHT syntax (keyword property list):\n(package: myproject)\n(depend: (github: \"ober/gerbil-scintilla\")\n         (github: \"ober/gerbil-qt\")\n         (github: \"mighty-gerbils/gerbil-libyaml\"))\n\n;; WRONG — old string syntax (may still work but not idiomatic):\n;; (depend: (\"github.com/ober/gerbil-pcre2\"))",
+    "notes": "The (github: \\\"user/repo\\\") syntax is the standard way to declare package dependencies in gerbil.pkg. The old string syntax (\\\"github.com/user/repo\\\") may still work but is not the recommended form. See gerbil-charts/gerbil.pkg for a real example with multiple dependencies.",
+    "related": [
+      "gerbil-pkg-install-with-depend",
+      "gerbil-pkg-depend-local-deps"
+    ]
   }
 ]
