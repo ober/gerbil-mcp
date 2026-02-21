@@ -7509,4 +7509,75 @@ END-C
       expect(result.text).toContain('Cannot read build file');
     }, 10000);
   });
+
+  describe('gerbil_pattern_cache_check', () => {
+    it('detects pregexp in loop', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-pcache-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'test.ss'),
+        `(import :std/pregexp)
+(def (process-lines lines)
+  (for-each (lambda (line)
+    (let ((rx (pregexp "^hello\\\\s+")))
+      (pregexp-match rx line)))
+    lines))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_pattern_cache_check', {
+          file_path: join(testDir, 'test.ss'),
+        });
+        const text = result.text;
+        expect(text).toContain('Pattern Caching Anti-Patterns');
+        expect(text).toContain('pregexp-in-loop');
+        expect(text).toContain('Move');
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+
+    it('detects duplicate pattern strings', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-pcache2-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'test.ss'),
+        `(import :std/pregexp)
+(def (fn1 s) (pregexp-match (pregexp "^[a-z]+$") s))
+(def (fn2 s) (pregexp-match (pregexp "^[a-z]+$") s))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_pattern_cache_check', {
+          file_path: join(testDir, 'test.ss'),
+        });
+        const text = result.text;
+        expect(text).toContain('duplicate-pattern-compile');
+        expect(text).toContain('compiled 2 times');
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+
+    it('reports clean file', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-pcache3-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'test.ss'),
+        `(import :std/pregexp)
+(def rx-hello (pregexp "^hello"))
+(def (greet s) (pregexp-match rx-hello s))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_pattern_cache_check', {
+          file_path: join(testDir, 'test.ss'),
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.text).toContain('No pattern caching anti-patterns');
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+  });
 });

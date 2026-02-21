@@ -137,6 +137,7 @@ import { registerSignalTraceTool } from './tools/signal-trace.js';
 import { registerMacroExpansionSizeTool } from './tools/macro-expansion-size.js';
 import { registerMacroTemplateLibraryTool } from './tools/macro-template-library.js';
 import { registerCheckCLibraryTool } from './tools/check-c-library.js';
+import { registerPatternCacheDetectorTool } from './tools/pattern-cache-detector.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -286,6 +287,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To run Qt FFI tests: use gerbil_qt_test_runner to build, patchelf, and run a Qt exe test in one step with QT_QPA_PLATFORM=offscreen.
 - To sync linked package artifacts: use gerbil_pkg_link_sync to detect and copy stale .ssi/.so/.scm files from a linked package's local build to the global ~/.gerbil/lib/.
 - To check C library availability: use gerbil_check_c_library to scan build.ss for -lXXX linker flags and verify those libraries are installed via pkg-config or ldconfig. Reports missing libraries with suggested apt install commands. Use before building FFI projects to catch missing dependencies early.
+- To detect pattern caching issues: use gerbil_pattern_cache_check to find regex compilation anti-patterns — pregexp/pcre2-compile inside function bodies or loops, dynamic pattern building via string-append, redundant explicit compilation, and duplicate patterns. Suggests hoisting patterns to module level or using string-based APIs with automatic LRU caching.
 
 ## Common Workflows
 
@@ -465,6 +467,7 @@ registerSignalTraceTool(server);
 registerMacroExpansionSizeTool(server);
 registerMacroTemplateLibraryTool(server);
 registerCheckCLibraryTool(server);
+registerPatternCacheDetectorTool(server);
 
 registerPrompts(server);
 registerResources(server);
