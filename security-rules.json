@@ -542,5 +542,23 @@
       "hang",
       "debug"
     ]
+  },
+  {
+    "id": "ffi-open-missing-mode-arg",
+    "title": "C open() called with missing mode parameter via FFI",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "ffi-open-raw\\s+\\\"[^\\\"]+\\\"\\s+\\d+\\s*\\)",
+    "message": "ffi-open-raw wraps C's open(path, flags, mode) which is declared as 3-arity (char-string int int). Calling with only 2 args (path and flags, missing mode) is undefined behavior — the third parameter picks up stack garbage. This typically 'works' for read-only opens of existing files on Linux but can cause silent corruption or crashes in other scenarios.",
+    "remediation": "Always pass all 3 arguments to ffi-open-raw: (ffi-open-raw path flags mode). For read-only opens use mode 0: (ffi-open-raw \"/dev/null\" 0 0). For file creation use appropriate permissions: (ffi-open-raw path (bitwise-ior O_WRONLY O_CREAT O_TRUNC) #o666).",
+    "related_recipe": "ffi-posix-syscall-begin-ffi",
+    "tags": [
+      "ffi",
+      "open",
+      "arity",
+      "mode",
+      "undefined-behavior",
+      "stack-garbage"
+    ]
   }
 ]
