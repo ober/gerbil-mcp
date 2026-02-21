@@ -4655,6 +4655,36 @@ END-C
       expect(result.isError).toBe(false);
       expect(result.text).toContain('No security issues found');
     });
+
+    it('gerbil_security_scan respects inline suppress comment', async () => {
+      const suppressFile = join(TEST_DIR, 'sec-suppress.ss');
+      writeFileSync(
+        suppressFile,
+        `;; gerbil-security: suppress shell-injection-string-concat
+(shell-command (string-append "ls " user-input))
+`,
+      );
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: suppressFile,
+      });
+      // Should not flag as active finding
+      expect(result.text).not.toContain('[CRITICAL]');
+      expect(result.text).toContain('suppressed');
+    });
+
+    it('gerbil_security_scan suppress-all suppresses any rule', async () => {
+      const suppressAllFile = join(TEST_DIR, 'sec-suppress-all.ss');
+      writeFileSync(
+        suppressAllFile,
+        `(shell-command (string-append "rm " x)) ; gerbil-security: suppress-all
+`,
+      );
+      const result = await client.callTool('gerbil_security_scan', {
+        file_path: suppressAllFile,
+      });
+      expect(result.text).not.toContain('[CRITICAL]');
+      expect(result.text).toContain('suppressed');
+    });
   });
 
   describe('Security pattern add tool', () => {

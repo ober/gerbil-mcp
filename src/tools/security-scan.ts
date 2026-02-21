@@ -36,6 +36,39 @@ interface SecurityFinding {
   message: string;
   remediation: string;
   lineText: string;
+  suppressed?: boolean;
+}
+
+/**
+ * Check if a line has an inline suppression comment for a specific rule.
+ * Supports:
+ *   ; gerbil-security: suppress <rule-id>     (Scheme)
+ *   ; gerbil-security: suppress-all            (Scheme)
+ *   // gerbil-security: suppress <rule-id>     (C)
+ *   // gerbil-security: suppress-all           (C)
+ * Checks both the current line and the preceding line.
+ */
+function hasSuppressionComment(
+  lines: string[],
+  lineIdx: number,
+  ruleId: string,
+): boolean {
+  // Check current line and preceding line
+  for (let offset = 0; offset >= -1; offset--) {
+    const idx = lineIdx + offset;
+    if (idx < 0 || idx >= lines.length) continue;
+    const line = lines[idx];
+    // Match: ; gerbil-security: suppress <rule-id-or-all>
+    // Also match: // gerbil-security: suppress <rule-id-or-all>
+    const match = line.match(
+      /(?:;+|\/\/)\s*gerbil-security:\s*suppress(?:-all|[\s]+(\S+))/,
+    );
+    if (match) {
+      if (line.includes('suppress-all')) return true;
+      if (match[1] === ruleId) return true;
+    }
+  }
+  return false;
 }
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -150,6 +183,9 @@ function scanFileContent(
         continue;
       }
 
+      // Check for inline suppression comments
+      const suppressed = hasSuppressionComment(lines, i, rule.id);
+
       findings.push({
         file: filePath,
         line: i + 1,
@@ -158,6 +194,7 @@ function scanFileContent(
         message: rule.message,
         remediation: rule.remediation,
         lineText: line.trimStart(),
+        suppressed,
       });
     }
   }
@@ -318,20 +355,30 @@ export function registerSecurityScanTool(server: McpServer): void {
       sections.push(`Rules loaded: ${rules.length}`);
       sections.push('');
 
-      if (allFindings.length === 0) {
+      // Separate active and suppressed findings
+      const activeFindings = allFindings.filter((f) => !f.suppressed);
+      const suppressedFindings = allFindings.filter((f) => f.suppressed);
+
+      if (activeFindings.length === 0 && suppressedFindings.length === 0) {
         sections.push('No security issues found.');
+      } else if (activeFindings.length === 0) {
+        sections.push(`No active security issues (${suppressedFindings.length} suppressed).`);
       } else {
-        // Summary by severity
+        // Summary by severity (active only)
         const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-        for (const f of allFindings) counts[f.severity]++;
+        for (const f of activeFindings) counts[f.severity]++;
         const summaryParts: string[] = [];
         for (const sev of ['critical', 'high', 'medium', 'low']) {
           if (counts[sev] > 0) summaryParts.push(`${counts[sev]} ${sev}`);
         }
-        sections.push(`Findings: ${allFindings.length} (${summaryParts.join(', ')})`);
+        let findingsSummary = `Findings: ${activeFindings.length} (${summaryParts.join(', ')})`;
+        if (suppressedFindings.length > 0) {
+          findingsSummary += ` + ${suppressedFindings.length} suppressed`;
+        }
+        sections.push(findingsSummary);
         sections.push('');
 
-        for (const f of allFindings) {
+        for (const f of activeFindings) {
           const sevTag = `[${f.severity.toUpperCase()}]`;
           const shortFile = project_path
             ? f.file.replace(project_path + '/', '')
@@ -344,9 +391,20 @@ export function registerSecurityScanTool(server: McpServer): void {
         }
       }
 
+      // Report suppressed findings in a separate section
+      if (suppressedFindings.length > 0) {
+        sections.push(`Suppressed findings (${suppressedFindings.length}):`);
+        for (const f of suppressedFindings) {
+          const shortFile = project_path
+            ? f.file.replace(project_path + '/', '')
+            : f.file;
+          sections.push(`  ${shortFile}:${f.line} (${f.ruleId}) — suppressed`);
+        }
+      }
+
       return {
         content: [{ type: 'text' as const, text: sections.join('\n').trimEnd() }],
-        isError: allFindings.some((f) => f.severity === 'critical'),
+        isError: activeFindings.some((f) => f.severity === 'critical'),
       };
     },
   );
