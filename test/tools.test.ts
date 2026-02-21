@@ -2595,6 +2595,65 @@ void copy_data(const uint8_t *src, int len) {
     }, 30000);
   });
 
+  // ── Signature impact tool ──────────────────────────────────────────
+
+  describe('Signature impact tool', () => {
+    it('gerbil_signature_impact finds call sites across source and test files', async () => {
+      const impactDir = join(TEST_DIR, 'sig-impact');
+      mkdirSync(impactDir, { recursive: true });
+      writeFileSync(
+        join(impactDir, 'lib.ss'),
+        '(def (my-func a b) (+ a b))\n(def (caller) (my-func 1 2))\n',
+      );
+      writeFileSync(
+        join(impactDir, 'lib-test.ss'),
+        '(import :std/test)\n(def (test-it) (my-func 10 20))\n',
+      );
+      const result = await client.callTool('gerbil_signature_impact', {
+        symbol: 'my-func',
+        directory: impactDir,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('my-func');
+      expect(result.text).toContain('call site');
+      expect(result.text).toContain('Source call sites');
+      expect(result.text).toContain('Test call sites');
+    });
+
+    it('gerbil_signature_impact reports no references', async () => {
+      const emptyDir = join(TEST_DIR, 'sig-impact-empty');
+      mkdirSync(emptyDir, { recursive: true });
+      writeFileSync(join(emptyDir, 'lib.ss'), '(def (foo) 42)\n');
+      const result = await client.callTool('gerbil_signature_impact', {
+        symbol: 'nonexistent-fn',
+        directory: emptyDir,
+      });
+      expect(result.text).toContain('No references');
+    });
+
+    it('gerbil_signature_impact detects breaking changes with new_arity', async () => {
+      const arityDir = join(TEST_DIR, 'sig-impact-arity');
+      mkdirSync(arityDir, { recursive: true });
+      writeFileSync(
+        join(arityDir, 'code.ss'),
+        '(def (target x y) (+ x y))\n(def (use-it) (target 1 2))\n',
+      );
+      writeFileSync(
+        join(arityDir, 'code-test.ss'),
+        '(def (test-it) (target 10 20))\n',
+      );
+      // Propose changing arity from 2 to 3 — all 2-arg call sites should break
+      const result = await client.callTool('gerbil_signature_impact', {
+        symbol: 'target',
+        directory: arityDir,
+        new_arity: 3,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('BREAK');
+      expect(result.text).toContain('too few');
+    });
+  });
+
   // ── Howto verify tool ────────────────────────────────────────────────
 
   describe('Howto verify tool', () => {
