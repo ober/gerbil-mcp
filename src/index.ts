@@ -44,6 +44,7 @@ import { registerTraceCallsTool } from './tools/trace-calls.js';
 import { registerCallGraphTool } from './tools/call-graph.js';
 import { registerScaffoldTestTool } from './tools/scaffold-test.js';
 import { registerBuildAndReportTool } from './tools/build-and-report.js';
+import { registerBuildProgressTool } from './tools/build-progress.js';
 import { registerGenerateModuleStubTool } from './tools/generate-module-stub.js';
 import { registerCheckExportsTool } from './tools/check-exports.js';
 import { registerGenerateModuleTool } from './tools/generate-module.js';
@@ -148,6 +149,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - When UNSURE about Gerbil behavior: use gerbil_eval to test expressions and verify your assumptions. Use loadpath or project_path to import project-local modules. Use env parameter for FFI library paths (e.g. DYLD_LIBRARY_PATH).
 - To catch compilation errors: use gerbil_compile_check to run gxc and detect unbound identifiers and type issues. Use loadpath for project context. Combines stdout/stderr for complete error output. Enhanced error messages help diagnose internal compiler crashes. Automatically detects "cannot find library module" errors and checks for stale .ssi artifacts that may be the root cause.
 - To build with diagnostics: use gerbil_build_and_report to run \`gerbil build\` and get structured error diagnostics with file, line, column. Prefer this over running \`gerbil build\` via bash for better error reporting. Auto-detects external dependencies from gerbil.pkg depend: entries and sets GERBIL_LOADPATH automatically. Auto-retries with clean on lock errors or missing exe C files. Use modules_only: true to skip exe linking targets and only compile library modules (dramatically faster when iterating on code).
+- To monitor build progress: use gerbil_build_progress to parse build output from a background task. Shows current phase (compile/link/install), modules compiled, errors, warnings, and whether the build is still running. Pass output_file for background task output or build_output for direct text.
 - To run test suites: use gerbil_run_tests to execute a single :std/test file (file_path) or run project-wide tests (directory). Use filter to match test names, quiet for errors-only output. Auto-detects GERBIL_LOADPATH from gerbil.pkg depend: entries. Use env parameter for FFI library paths. Use verbose: true in single-file mode to instrument check expressions with tracing — logs each check expression and its line number to stderr, includes source with line numbers in output. Useful for debugging without manually adding displayln statements.
 - To analyze test coverage for command sequences: use gerbil_dispatch_coverage_analysis to detect gaps in functional test suites. Identifies commands tested individually but never in combination, helping catch state management bugs.
 - To detect repetitive code patterns: use gerbil_macro_pattern_detector to find boilerplate that could be replaced with macros. Identifies repeated functions, hash accessors, and method wrappers.
@@ -363,6 +365,7 @@ registerTraceCallsTool(server);
 registerCallGraphTool(server);
 registerScaffoldTestTool(server);
 registerBuildAndReportTool(server);
+registerBuildProgressTool(server);
 registerGenerateModuleStubTool(server);
 registerCheckExportsTool(server);
 registerGenerateModuleTool(server);

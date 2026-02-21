@@ -1922,6 +1922,47 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Build progress tool ──────────────────────────────────────────
+
+  describe('Build progress tool', () => {
+    it('gerbil_build_progress parses compile output', async () => {
+      const buildOut = join(TEST_DIR, 'build-progress.txt');
+      writeFileSync(
+        buildOut,
+        `... compile std/misc/string 0.123s
+... compile std/text/json 0.456s
+... compile exe: myapp 1.234s
+... install myapp
+`,
+      );
+      const result = await client.callTool('gerbil_build_progress', {
+        output_file: buildOut,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Modules compiled');
+      expect(result.text).toContain('3'); // 3 modules
+    });
+
+    it('gerbil_build_progress detects errors in output', async () => {
+      const result = await client.callTool('gerbil_build_progress', {
+        build_output: `... compile mymod 0.1s
+*** ERROR IN "mymod.ss"@10.1 -- Unbound identifier: foo
+`,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Errors');
+      expect(result.text).toContain('failed');
+    });
+
+    it('gerbil_build_progress handles missing file', async () => {
+      const result = await client.callTool('gerbil_build_progress', {
+        output_file: '/tmp/nonexistent-build-output.txt',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Cannot read');
+    });
+  });
+
   // ── Build and report tool ─────────────────────────────────────────
 
   describe('Build and report tool', () => {
