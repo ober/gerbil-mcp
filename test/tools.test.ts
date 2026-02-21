@@ -976,6 +976,15 @@ void copy_data(const uint8_t *src, int len) {
       expect(hasDetails).toBe(true);
     });
 
+    it('gerbil_compile_check adds stale artifact hint for missing module', async () => {
+      const result = await client.callTool('gerbil_compile_check', {
+        code: '(import :nonexistent/missing-lib)',
+      });
+      expect(result.isError).toBe(true);
+      // Should contain the stale artifact hint
+      expect(result.text).toMatch(/stale|cannot find|GERBIL_LOADPATH|rebuild/i);
+    });
+
     it('gerbil_format pretty-prints code', async () => {
       const result = await client.callTool('gerbil_format', {
         code: '(define (f x y) (cond ((> x y) (+ x 1)) ((< x y) (- y 1)) (else 0)))',

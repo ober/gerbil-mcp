@@ -180,6 +180,21 @@ export function registerVerifyTool(server: McpServer): void {
             if (lines.length === 0) {
               issues.push({ phase: 'compile', severity: 'error', message: 'Compilation failed (no details)' });
             }
+            // Check for "cannot find library module" and add stale artifact hint
+            const moduleNotFound = errorOutput.match(
+              /cannot find library module\s+:?([^\s;)]+)/,
+            );
+            if (moduleNotFound) {
+              issues.push({
+                phase: 'compile',
+                severity: 'warning',
+                message:
+                  `Hint: "cannot find library module :${moduleNotFound[1].replace(/^:/, '')}" may indicate ` +
+                  'stale .ssi artifacts in .gerbil/lib/ or ~/.gerbil/lib/. ' +
+                  'Try "make clean" or delete the stale .ssi file and rebuild. ' +
+                  'Use gerbil_stale_static or gerbil_stale_linked_pkg to diagnose.',
+              });
+            }
           }
         } catch {
           issues.push({ phase: 'compile', severity: 'warning', message: 'gxc not available for compile check' });

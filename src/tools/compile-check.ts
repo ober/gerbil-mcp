@@ -1,9 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { writeFile, unlink } from 'node:fs/promises';
+import { statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { runGxc, buildLoadpathEnv } from '../gxi.js';
 
 export function registerCompileCheckTool(server: McpServer): void {
@@ -206,6 +207,30 @@ function enhanceGxcError(errorOutput: string): string {
     }
   }
 
+  // Detect "cannot find library module" and check for stale .ssi artifacts
+  const moduleNotFound = errorOutput.match(
+    /cannot find library module\s+:?([^\s;)]+)/,
+  );
+  if (moduleNotFound) {
+    const modPath = moduleNotFound[1].replace(/^:/, '');
+    const staleHints = detectStaleModule(modPath);
+    if (staleHints.length > 0) {
+      sections.push('');
+      sections.push('Stale artifact diagnostic:');
+      for (const h of staleHints) {
+        sections.push(`  ${h}`);
+      }
+    } else {
+      sections.push('');
+      sections.push(
+        `Hint: "cannot find library module :${modPath}" — this may indicate: ` +
+          '(1) the module has not been compiled yet (run gerbil build), ' +
+          '(2) GERBIL_LOADPATH is missing the project\'s .gerbil/lib directory, ' +
+          '(3) stale .ssi artifacts — try "make clean" or delete .gerbil/lib/ and rebuild.',
+      );
+    }
+  }
+
   // Try to extract source location from expansion context
   const contextMatch = errorOutput.match(
     /--- expansion context ---[\s\S]*?at:\s+(.+)/,
@@ -225,4 +250,63 @@ function enhanceGxcError(errorOutput: string): string {
   }
 
   return sections.join('\n');
+}
+
+/**
+ * Check if a module path has stale .ssi artifacts.
+ * Looks in .gerbil/lib/ and ~/.gerbil/lib/ for compiled artifacts
+ * that are older than corresponding source files.
+ */
+function detectStaleModule(modPath: string): string[] {
+  const hints: string[] = [];
+  const parts = modPath.split('/');
+  const relPath = parts.join('/');
+
+  const gerbilPath = process.env.GERBIL_PATH ?? join(homedir(), '.gerbil');
+  const searchDirs = [
+    join(gerbilPath, 'lib'),
+    // Also check CWD-local .gerbil/lib
+    join(process.cwd(), '.gerbil', 'lib'),
+  ];
+
+  for (const libDir of searchDirs) {
+    for (const ext of ['.ssi', '.scm', '.o', '.o1']) {
+      const artPath = join(libDir, relPath + ext);
+      try {
+        if (existsSync(artPath)) {
+          const artStat = statSync(artPath);
+          // Look for source .ss file in common locations
+          const possibleSources = [
+            join(process.cwd(), relPath + '.ss'),
+            join(process.cwd(), parts[parts.length - 1] + '.ss'),
+          ];
+          for (const srcPath of possibleSources) {
+            try {
+              if (existsSync(srcPath)) {
+                const srcStat = statSync(srcPath);
+                if (srcStat.mtimeMs > artStat.mtimeMs) {
+                  hints.push(
+                    `Found stale ${ext} artifact: ${artPath} ` +
+                    `(artifact: ${artStat.mtime.toISOString().slice(0, 19)}, ` +
+                    `source: ${srcStat.mtime.toISOString().slice(0, 19)}). ` +
+                    `Delete it and rebuild.`,
+                  );
+                }
+              }
+            } catch { /* skip */ }
+          }
+          // Even if we can't find source, report the artifact exists
+          if (hints.length === 0) {
+            hints.push(
+              `Found compiled artifact: ${artPath}. ` +
+              `If this module was recently modified, this artifact may be stale — ` +
+              `delete it and rebuild.`,
+            );
+          }
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  return hints;
 }
