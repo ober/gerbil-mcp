@@ -7465,4 +7465,48 @@ END-C
       expect(result.text).toContain('requires');
     }, 10000);
   });
+
+  describe('gerbil_check_c_library', () => {
+    it('checks libraries from build.ss', async () => {
+      const buildDir = join(tmpdir(), 'gerbil-mcp-clib-' + Date.now());
+      mkdirSync(buildDir, { recursive: true });
+      writeFileSync(
+        join(buildDir, 'build.ss'),
+        '(exe: "myapp" (ld-options: "-lpcre2-8 -lsqlite3 -lm -lpthread"))',
+      );
+      try {
+        const result = await client.callTool('gerbil_check_c_library', {
+          project_path: buildDir,
+        });
+        const text = result.text;
+        // Should find the linker flags
+        expect(text).toContain('C Library Check:');
+        expect(text).toContain('-lm');
+        expect(text).toContain('-lpthread');
+        // m and pthread should always be available
+        expect(text).toContain('OK');
+      } finally {
+        rmSync(buildDir, { recursive: true });
+      }
+    }, 10000);
+
+    it('checks direct library list', async () => {
+      const result = await client.callTool('gerbil_check_c_library', {
+        libraries: ['m', 'pthread', 'dl'],
+      });
+      const text = result.text;
+      expect(text).toContain('C Library Check: 3 libraries');
+      expect(text).toContain('-lm — OK');
+      expect(text).toContain('-lpthread — OK');
+      expect(text).toContain('-ldl — OK');
+    }, 10000);
+
+    it('reports missing build file', async () => {
+      const result = await client.callTool('gerbil_check_c_library', {
+        project_path: '/nonexistent/path',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('Cannot read build file');
+    }, 10000);
+  });
 });

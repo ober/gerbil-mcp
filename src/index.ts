@@ -136,6 +136,7 @@ import { registerBoilerplateConverterTool } from './tools/boilerplate-converter.
 import { registerSignalTraceTool } from './tools/signal-trace.js';
 import { registerMacroExpansionSizeTool } from './tools/macro-expansion-size.js';
 import { registerMacroTemplateLibraryTool } from './tools/macro-template-library.js';
+import { registerCheckCLibraryTool } from './tools/check-c-library.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -284,6 +285,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To find #ifdef stubs: use gerbil_detect_ifdef_stubs to scan c-declare blocks for #ifdef/#else stub patterns (NULL/0 returns) that cause segfaults in cross-project builds.
 - To run Qt FFI tests: use gerbil_qt_test_runner to build, patchelf, and run a Qt exe test in one step with QT_QPA_PLATFORM=offscreen.
 - To sync linked package artifacts: use gerbil_pkg_link_sync to detect and copy stale .ssi/.so/.scm files from a linked package's local build to the global ~/.gerbil/lib/.
+- To check C library availability: use gerbil_check_c_library to scan build.ss for -lXXX linker flags and verify those libraries are installed via pkg-config or ldconfig. Reports missing libraries with suggested apt install commands. Use before building FFI projects to catch missing dependencies early.
 
 ## Common Workflows
 
@@ -462,6 +464,7 @@ registerBoilerplateConverterTool(server);
 registerSignalTraceTool(server);
 registerMacroExpansionSizeTool(server);
 registerMacroTemplateLibraryTool(server);
+registerCheckCLibraryTool(server);
 
 registerPrompts(server);
 registerResources(server);
