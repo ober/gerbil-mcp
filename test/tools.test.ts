@@ -7580,4 +7580,76 @@ END-C
       }
     }, 10000);
   });
+
+  describe('gerbil_sigchld_check', () => {
+    it('detects SIGCHLD conflict', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-sigchld-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'signals.ss'),
+        `(import :std/os/signal)
+(add-signal-handler! SIGINT (lambda () (displayln "caught")))
+`,
+      );
+      writeFileSync(
+        join(testDir, 'process.ss'),
+        `(def (run-child cmd)
+  (let ((p (open-process (list path: cmd))))
+    (process-status p)))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_sigchld_check', {
+          project_path: testDir,
+        });
+        const text = result.text;
+        expect(text).toContain('SIGCHLD');
+        expect(text).toContain('add-signal-handler!');
+        expect(text).toContain('process-status');
+        expect(text).toContain('waitpid');
+        expect(result.isError).toBe(true);
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+
+    it('reports no conflict when only signals used', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-sigchld2-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'signals.ss'),
+        `(import :std/os/signal)
+(add-signal-handler! SIGINT (lambda () (displayln "caught")))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_sigchld_check', {
+          project_path: testDir,
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.text).toContain('No SIGCHLD conflict');
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+
+    it('reports clean file', async () => {
+      const testDir = join(tmpdir(), 'gerbil-mcp-sigchld3-' + Date.now());
+      mkdirSync(testDir, { recursive: true });
+      writeFileSync(
+        join(testDir, 'clean.ss'),
+        `(def (greet name) (displayln "Hello " name))
+`,
+      );
+      try {
+        const result = await client.callTool('gerbil_sigchld_check', {
+          project_path: testDir,
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.text).toContain('No signal handlers or process-status');
+      } finally {
+        rmSync(testDir, { recursive: true });
+      }
+    }, 10000);
+  });
 });
