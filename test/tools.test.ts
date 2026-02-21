@@ -2654,6 +2654,57 @@ void copy_data(const uint8_t *src, int len) {
     });
   });
 
+  // ── Test assertion audit tool ─────────────────────────────────────
+
+  describe('Test assertion audit tool', () => {
+    it('gerbil_test_assertion_audit detects check ? #f pattern', async () => {
+      const auditDir = join(TEST_DIR, 'audit-checks');
+      mkdirSync(auditDir, { recursive: true });
+      writeFileSync(
+        join(auditDir, 'bad-test.ss'),
+        '(import :std/test)\n(check (some-fn) ? #f)\n(check (other-fn) ? values)\n',
+      );
+      const result = await client.callTool('gerbil_test_assertion_audit', {
+        file_path: join(auditDir, 'bad-test.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('check-pred-false');
+      expect(result.text).toContain('check-pred-values');
+    });
+
+    it('gerbil_test_assertion_audit reports clean file', async () => {
+      const cleanDir = join(TEST_DIR, 'audit-clean');
+      mkdirSync(cleanDir, { recursive: true });
+      writeFileSync(
+        join(cleanDir, 'good-test.ss'),
+        '(import :std/test)\n(check (+ 1 2) => 3)\n',
+      );
+      const result = await client.callTool('gerbil_test_assertion_audit', {
+        file_path: join(cleanDir, 'good-test.ss'),
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('no issues');
+    });
+
+    it('gerbil_test_assertion_audit scans directory for test files', async () => {
+      const scanDir = join(TEST_DIR, 'audit-dir');
+      mkdirSync(scanDir, { recursive: true });
+      writeFileSync(
+        join(scanDir, 'a-test.ss'),
+        '(check (vector? x) ? values)\n',
+      );
+      writeFileSync(
+        join(scanDir, 'b.ss'),
+        '(check foo ? #f)\n',  // Not a -test.ss file, should be skipped
+      );
+      const result = await client.callTool('gerbil_test_assertion_audit', {
+        directory: scanDir,
+      });
+      expect(result.text).toContain('check-type-pred-values');
+      // b.ss is not a test file, so its issue should not appear
+    });
+  });
+
   // ── Howto verify tool ────────────────────────────────────────────────
 
   describe('Howto verify tool', () => {

@@ -54,6 +54,7 @@ import { registerMakeTool } from './tools/make.js';
 import { registerCheckArityTool } from './tools/check-arity.js';
 import { registerCheckTestArityTool } from './tools/check-test-arity.js';
 import { registerSignatureImpactTool } from './tools/signature-impact.js';
+import { registerTestAssertionAuditTool } from './tools/test-assertion-audit.js';
 import { registerHowtoVerifyTool } from './tools/howto-verify.js';
 import { registerResolveImportsTool } from './tools/resolve-imports.js';
 import { registerTraceEvalTool } from './tools/trace-eval.js';
@@ -219,6 +220,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check call-site arity: use gerbil_check_arity to detect functions called with the wrong number of arguments.
 - To find tests affected by signature changes: use gerbil_check_test_arity to scan *-test.ss files for calls to a specific function.
 - To assess impact before changing a function signature: use gerbil_signature_impact to find ALL call sites (source + test files) for a function in one call. Optionally specify new_arity to see which sites would break. Combines find_callers + check_test_arity + check_arity into a single report.
+- To audit test assertions: use gerbil_test_assertion_audit to detect common :std/test check mistakes that silently pass — (check X ? #f) where #f predicate always fails, (check X ? values) which only tests truthiness, type mismatches in => comparisons, and missing operators. Scans a single file or all *-test.ss files in a directory.
 - To verify cookbook recipes: use gerbil_howto_verify to check that cookbook recipes have valid syntax and imports.
 - To resolve missing imports: use gerbil_resolve_imports to analyze a file for unbound identifiers and generate a suggested import block.
 - To suggest a new feature: use gerbil_suggest_feature to write a feature suggestion for future consideration.
@@ -371,6 +373,7 @@ registerMakeTool(server);
 registerCheckArityTool(server);
 registerCheckTestArityTool(server);
 registerSignatureImpactTool(server);
+registerTestAssertionAuditTool(server);
 registerHowtoVerifyTool(server);
 registerResolveImportsTool(server);
 registerTraceEvalTool(server);
