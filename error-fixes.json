@@ -5,5 +5,18 @@
     "type": "Test Error",
     "fix": "This is a test fix",
     "code_example": "(+ 1 2)"
+  },
+  {
+    "id": "bad-template-syntax-datum-to-syntax-context",
+    "pattern": "Bad template syntax; expected identifier",
+    "type": "Macro Error",
+    "fix": "The first argument to datum->syntax must be an IDENTIFIER (a syntax object wrapping a symbol), not a full syntax form. If you're passing `stx` (the whole macro form), change it to `(stx-car stx)` to get the macro name identifier, or use a pattern variable like `#'name`. Better yet, use `stx-identifier` instead for prefix/suffix concatenation.",
+    "code_example": "(datum->syntax (stx-car stx) (string->symbol \"computed-name\"))  ;; identifier context\n;; or better: (datum->syntax #'name (string->symbol \"computed-name\"))\n;; or best: (stx-identifier #'name \"computed-\" #'name)",
+    "wrong_example": "(datum->syntax stx (string->symbol \"computed-name\"))  ;; stx is a list form!",
+    "related_recipes": [
+      "datum-to-syntax-first-arg-must-be-identifier",
+      "macro-identifier-synthesis-all-techniques",
+      "defsyntax-stx-identifier-generation"
+    ]
   }
 ]

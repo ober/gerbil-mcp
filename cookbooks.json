@@ -13508,5 +13508,196 @@
     "valid_for": [
       "v0.18.1-173"
     ]
+  },
+  {
+    "id": "defbuild-script-conditional-modules",
+    "title": "Conditionally include/exclude modules in defbuild-script using quasiquote splicing",
+    "tags": [
+      "defbuild-script",
+      "conditional",
+      "quasiquote",
+      "splice",
+      "build.ss",
+      "module",
+      "exclude",
+      "tui-only"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; Use ,@(if ...) quasiquote splicing to conditionally include modules in defbuild-script\n;; Example: skip all Qt modules when MYAPP_BUILD_TUI_ONLY is set\n\n(def build-tui-only? (getenv \"MYAPP_BUILD_TUI_ONLY\" #f))\n(def static-build? (getenv \"MYAPP_STATIC\" #f))\n\n(def ld-opts\n  (string-append\n   (if static-build? \"-static \" \"\")\n   \"-L/path/to/libs -lfoo -lbar\"))\n\n(defbuild-script\n  '((gxc: \"core\" \"-ld-options\" ,ld-opts)\n    (gxc: \"utils\")\n    (exe: \"main\" bin: \"myapp\" \"-ld-options\" ,ld-opts)\n    ;; Conditionally include Qt modules — empty list splices to nothing\n    ,@(if build-tui-only? '()\n        `((gxc: \"qt/widget\" \"-cc-options\" ,qt-cc \"-ld-options\" ,qt-ld)\n          (gxc: \"qt/commands\" \"-cc-options\" ,qt-cc \"-ld-options\" ,qt-ld)\n          (exe: \"qt/main\" bin: \"myapp-qt\" \"-cc-options\" ,qt-cc \"-ld-options\" ,qt-ld)))))",
+    "notes": "The key trick is `,@(if condition '() `(...))` — when the condition is true, an empty list is spliced (adding nothing). When false, the list of module specs is spliced in. This works because defbuild-script takes a quasiquoted list. Use (getenv \\\"VAR\\\" #f) to read env vars with #f default. The -static flag in ld-opts tells the linker to produce a fully static binary (requires static .a libraries for all deps)."
+  },
+  {
+    "id": "docker-alpine-static-gerbil-exe",
+    "title": "Build fully static Gerbil exe binary using Docker Alpine (musl)",
+    "tags": [
+      "docker",
+      "alpine",
+      "static",
+      "musl",
+      "exe",
+      "binary",
+      "gerbil-build",
+      "makefile"
+    ],
+    "imports": [],
+    "code": "# Makefile targets for Docker-based static Gerbil binary build\n# Uses gerbil/gerbilxx:amd64-master Alpine image (musl libc)\n\nARCH := amd64\nDOCKER_IMAGE := gerbil/gerbilxx:$(ARCH)-master\n\n# CRITICAL: Host-compiled .o/.a files contain glibc symbols that fail with musl.\n# Must clean ALL .o AND .a files and rebuild from source inside the container.\n\nstatic:\n\tdocker run -t --rm \\\n\t  -e MYAPP_STATIC=1 \\\n\t  -e MYAPP_BUILD_TUI_ONLY=1 \\\n\t  -v $(PWD):/src \\\n\t  -v $(HOME)/mine/my-dep:/deps/my-dep \\\n\t  $(DOCKER_IMAGE) make -C /src build-static\n\nbuild-static: check-root\n\tapk add --no-cache pcre2-dev pcre2-static openssl-dev openssl-libs-static \\\n\t  sqlite-dev sqlite-static zlib-static\n\t# Copy vendor dep to /tmp to avoid polluting host mount\n\tcp -r /deps/my-dep /tmp/my-dep\n\t# MUST remove ALL .o and .a files — they have glibc symbols\n\tfind /tmp/my-dep -name \"*.o\" -o -name \"*.a\" | xargs rm -f\n\tcd /tmp/my-dep && make vendor-deps  # Rebuild .a with musl\n\tgxpkg link my-dep /tmp/my-dep && gxpkg build my-dep\n\tgxpkg install github.com/user/other-dep\n\tMYAPP_STATIC=1 MYAPP_DEP_BASE=/tmp/my-dep gerbil build\n\tcp .gerbil/bin/myapp /src/.gerbil/bin/myapp\n\ncheck-root:\n\tgit config --global --add safe.directory '*'",
+    "notes": "CRITICAL musl/glibc gotcha: If you mount host directories containing pre-compiled .o/.a files into an Alpine container, those objects contain glibc symbols (__libc_single_threaded, __isoc23_strtol, __strcpy_chk, etc.) that don't exist in musl. The linker will fail with 'undefined reference'. You MUST: (1) copy source to /tmp, (2) delete ALL .o AND .a files (not just .a — 'make' will just re-ar the old .o files), (3) rebuild from source inside the container. Also use `git config --global --add safe.directory '*'` (with quotes around *) since Docker paths like /src and /tmp/... all need safe.directory."
+  },
+  {
+    "id": "ffi-fork-exec-close-fds",
+    "title": "Fork+exec with fd cleanup via /proc/self/fd",
+    "tags": [
+      "ffi",
+      "fork",
+      "exec",
+      "closefrom",
+      "fd",
+      "pipe",
+      "leak",
+      "proc-self-fd",
+      "child",
+      "process"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Close all fds > 2 in a forked child, except whitelisted ones.\\n;; Uses /proc/self/fd for efficiency, fallback to brute-force.\\n;; This prevents runtime fds (signalfd, scheduler pipes, leaked\\n;; pipe ends) from being inherited by child processes.\\n(c-declare #<<END\\n#include <dirent.h>\\nstatic void close_fds_except(const int *keep_fds, int n_keep) {\\n    DIR *d = opendir(\\\"/proc/self/fd\\\");\\n    if (d) {\\n        struct dirent *entry;\\n        int dir_fd = dirfd(d);\\n        while ((entry = readdir(d)) != NULL) {\\n            int fd = atoi(entry->d_name);\\n            if (fd <= 2 || fd == dir_fd) continue;\\n            int keep = 0;\\n            for (int i = 0; i < n_keep; i++)\\n                if (fd == keep_fds[i]) { keep = 1; break; }\\n            if (!keep) close(fd);\\n        }\\n        closedir(d);\\n    } else {\\n        for (int fd = 3; fd < 1024; fd++) {\\n            int keep = 0;\\n            for (int i = 0; i < n_keep; i++)\\n                if (fd == keep_fds[i]) { keep = 1; break; }\\n            if (!keep) close(fd);\\n        }\\n    }\\n}\\nEND\\n)",
+    "notes": "Critical for shell implementations: Gambit's runtime opens fds for its I/O scheduler, Gerbil's signalfd, and pipeline pipe fds leak through fork(). Without closing these, (1) pipe write-ends leak to children causing EOF to never arrive (pipeline hangs), (2) signalfd on fd 3 conflicts with user redirects like 3<<EOF. The /proc/self/fd approach is O(open_fds) vs O(max_fd) for brute-force. Keep-fds whitelist preserves redirect fds (e.g. fd 8 from 8<<EOF).",
+    "related": [
+      "ffi-posix-syscall-begin-ffi"
+    ]
+  },
+  {
+    "id": "gerbil-signalfd-low-fd-conflict",
+    "title": "Gerbil signalfd steals fd 3 — reserve low fds before add-signal-handler!",
+    "tags": [
+      "signalfd",
+      "fd",
+      "conflict",
+      "signal-handler",
+      "reserve",
+      "low-fd",
+      "redirect",
+      "here-doc"
+    ],
+    "imports": [
+      ":std/os/signal-handler"
+    ],
+    "code": ";; Problem: Gerbil's add-signal-handler! creates a signalfd via\\n;; the Linux signalfd(2) syscall. This allocates the lowest available fd.\\n;; After move-internal-fds-high! moves Gambit fds to 255+, fd 3 is\\n;; the lowest available, so signalfd gets fd 3.\\n;; This conflicts with user redirections like 3<<EOF.\\n;;\\n;; Fix: Reserve fds 3-9 with /dev/null BEFORE signal handler setup.\\n;; Then release after. The signalfd gets fd 10+ instead.\\n\\n(def (reserve-user-fds!)\\n  (let loop ((fds []))\\n    (let ((fd (ffi-open-raw \\\"/dev/null\\\" 0 0)))  ;; O_RDONLY\\n      (if (<= fd 9)\\n        (loop (cons fd fds))\\n        (begin\\n          (ffi-close-fd fd)\\n          fds)))))\\n\\n(def (release-user-fds! fds)\\n  (for-each ffi-close-fd fds))\\n\\n;; Usage in main:\\n;; (move-internal-fds-high!)     ;; Gambit fds to 255+\\n;; (def reserved (reserve-user-fds!))  ;; fds 3-9 = /dev/null\\n;; (setup-signal-handlers!)      ;; signalfd gets fd 10+\\n;; (release-user-fds! reserved)  ;; fds 3-9 free for user",
+    "notes": "On Linux, Gerbil's :std/os/signal-handler uses signalfd(2) which blocks signals via sigprocmask and reads them via a file descriptor. The fd is allocated by the kernel as the lowest available. After Gambit's internal fds move to high numbers, fd 3 becomes available and signalfd claims it. Any user redirect to fd 3 (like 3<<EOF) then overwrites the signalfd, causing the signal handler thread to read from the wrong fd (consuming pipe content). The signal handler thread's reads show up as 128-byte reads in strace (Gambit's buffer size)."
+  },
+  {
+    "id": "scope-aware-command-alias-registration",
+    "title": "Split command alias registrations by module scope to avoid unbound identifier errors",
+    "tags": [
+      "register-command",
+      "alias",
+      "scope",
+      "unbound",
+      "module",
+      "facade",
+      "split",
+      "import"
+    ],
+    "imports": [
+      ":gemacs/core"
+    ],
+    "code": ";; When registering command aliases across a multi-module project,\\n;; you MUST place each (register-command! 'alias-name target-fn)\\n;; in a file where target-fn is actually in scope.\\n;;\\n;; Example: project has two module chains:\\n;;   Chain A: core.ss → text.ss → cmds.ss  (exports cmd-grep, cmd-sort-lines)\\n;;   Chain B: extra-helpers.ss → extra-tools.ss → extra.ss  (exports cmd-magit-status)\\n;;\\n;; extra-regs.ss imports Chain A (core through cmds):\\n(register-command! 'lgrep cmd-grep)          ;; OK - cmd-grep is in Chain A\\n(register-command! 'sort-columns cmd-sort-lines) ;; OK\\n;; (register-command! 'magit-bisect cmd-magit-status) ;; WRONG - unbound!\\n\\n;; extra.ss (facade) imports Chain B sub-modules:\\n(register-command! 'magit-bisect cmd-magit-status) ;; OK - in Chain B scope\\n;; (register-command! 'lgrep cmd-grep) ;; WRONG - cmd-grep not in scope!\\n\\n;; editor.ss imports BOTH chains + editor-ui:\\n(register-command! 'helm-occur cmd-occur)    ;; OK - cmd-occur from editor-ui.ss\"",
+    "notes": "Key insight: (export #t) only exports locally-defined symbols, NOT re-exports from imports. So a facade module that imports sub-modules can use their symbols internally (e.g. in register-command! calls) but does NOT make them available to other modules that import the facade — unless explicitly listed in (export ...). When hitting 'unbound identifier' during build, check which module defines the target function, then trace the import chain to find the right file for the registration. Common pattern: 3-way split — cmds-chain aliases in one file, extra-chain aliases in facade, both-chains aliases in top-level.\"",
+    "related": [
+      "export-t-does-not-reexport-imports",
+      "split-large-module-facade-pattern",
+      "facade-cross-cutting-functions"
+    ]
+  },
+  {
+    "id": "datum-to-syntax-first-arg-must-be-identifier",
+    "title": "datum->syntax pitfall: first argument must be an identifier, not a full syntax form",
+    "tags": [
+      "datum->syntax",
+      "pitfall",
+      "error",
+      "identifier",
+      "syntax-case",
+      "macro",
+      "bad-template-syntax",
+      "stx-car",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": "\n;; COMMON BUG: passing the full stx form to datum->syntax as context\n;; causes \"Bad template syntax; expected identifier\"\n\n;; BROKEN — stx is the whole form (a list), not an identifier:\n;; (defsyntax (my-macro stx)\n;;   (syntax-case stx ()\n;;     ((_ name)\n;;      (let ((new-id (datum->syntax stx                  ;; <-- BUG: stx is a list!\n;;                      (string->symbol \"computed-name\"))))\n;;        (with-syntax ((id new-id)) #'(def id 42))))))\n\n;; FIX 1: Use (stx-car stx) to get the macro-name identifier\n(defsyntax (my-macro-v1 stx)\n  (syntax-case stx ()\n    ((_ name)\n     (let ((new-id (datum->syntax (stx-car stx)           ;; GOOD: identifier\n                     (string->symbol\n                       (string-append \"computed-\"\n                         (symbol->string (syntax->datum #'name)))))))\n       (with-syntax ((id new-id)) #'(def id 42))))))\n\n;; FIX 2: Use a pattern variable (already an identifier)\n(defsyntax (my-macro-v2 stx)\n  (syntax-case stx ()\n    ((_ name)\n     (let ((new-id (datum->syntax #'name                   ;; GOOD: pattern var\n                     (string->symbol\n                       (string-append \"computed-\"\n                         (symbol->string (syntax->datum #'name)))))))\n       (with-syntax ((id new-id)) #'(def id 42))))))\n\n;; FIX 3: Use stx-identifier instead (preferred for concatenation)\n(defsyntax (my-macro-v3 stx)\n  (syntax-case stx ()\n    ((_ name)\n     (with-syntax ((id (stx-identifier #'name \"computed-\" #'name)))\n       #'(def id 42)))))\n\n;; All three produce: (def computed-foo 42) when called as (my-macro foo)\n",
+    "notes": "The #1 cause of \"Bad template syntax; expected identifier\" in macros is passing the whole `stx` parameter (which is a syntax LIST like `(macro-name arg1 arg2 ...)`) as the first argument to `datum->syntax`. The first argument MUST be an identifier — a syntax object wrapping a single symbol. Three fixes: (1) `(stx-car stx)` extracts the macro name identifier from stx, (2) use a pattern variable like `#'name` which is already an identifier, (3) use `stx-identifier` instead which handles concatenation directly. Prefer `stx-identifier` for simple prefix/suffix cases; use `datum->syntax` with quasiquote for complex computed forms. This pitfall has caused multiple LLM sessions to incorrectly conclude that Gerbil \"cannot do identifier synthesis\" — it absolutely can, the context argument just needs to be an identifier.",
+    "related": [
+      "defsyntax-stx-identifier-generation",
+      "macro-quasiquote-datum-codegen",
+      "refactor-register-commands-with-prefix",
+      "defsyntax-lambda-parameter-hygiene"
+    ]
+  },
+  {
+    "id": "macro-identifier-synthesis-all-techniques",
+    "title": "All 4 techniques for identifier synthesis in Gerbil macros (stx-identifier, datum->syntax, with-id, quasiquote)",
+    "tags": [
+      "identifier",
+      "synthesis",
+      "macro",
+      "stx-identifier",
+      "datum->syntax",
+      "with-id",
+      "quasiquote",
+      "generate",
+      "computed",
+      "prefix",
+      "suffix",
+      "techniques",
+      "comprehensive"
+    ],
+    "imports": [],
+    "code": "\n;; Gerbil fully supports identifier synthesis in macros. Four techniques:\n\n;; === TECHNIQUE 1: stx-identifier (simplest, preferred for prefix/suffix) ===\n;; stx-identifier: context-id + strings/syntax-objects → new identifier\n(defsyntax (make-getter stx)\n  (syntax-case stx ()\n    ((_ name)\n     (with-syntax ((getter (stx-identifier #'name \"get-\" #'name)))\n       #'(def (getter obj) (hash-ref obj 'name))))))\n;; (make-getter host) => (def (get-host obj) (hash-ref obj 'host))\n\n;; === TECHNIQUE 2: datum->syntax (flexible, for computed symbols) ===\n;; datum->syntax: identifier-context + datum → syntax object\n(defsyntax (make-const stx)\n  (syntax-case stx ()\n    ((_ prefix name val)\n     (with-syntax ((id (datum->syntax #'name     ;; context MUST be an identifier!\n                         (string->symbol\n                           (string-append (symbol->string (syntax->datum #'prefix))\n                                          \"-\"\n                                          (symbol->string (syntax->datum #'name)))))))\n       #'(def id val)))))\n;; (make-const color red 1) => (def color-red 1)\n\n;; === TECHNIQUE 3: with-id from :std/sugar (inside defrules templates) ===\n;; (import :std/sugar)\n;; (defrules make-pair ()\n;;   ((_ name init)\n;;    (with-id name ((getter #'name)\n;;                   (setter #'name \"-set!\"))\n;;      (begin (def getter init) (def (setter v) (set! getter v))))))\n;; (make-pair counter 0) => defines counter and counter-set!\n\n;; === TECHNIQUE 4: datum->syntax + quasiquote (most powerful) ===\n;; Build entire forms as data, convert to syntax in one shot\n(defsyntax (def-enum stx)\n  (syntax-case stx ()\n    ((_ prefix val ...)\n     (with-syntax (((form ...)\n                    (map (lambda (v i)\n                           (datum->syntax #'prefix  ;; context = identifier\n                             `(def ,(string->symbol\n                                      (string-append\n                                        (symbol->string (syntax->datum #'prefix))\n                                        \"-\" (symbol->string (syntax->datum v))))\n                                ,i)))\n                         (syntax->list #'(val ...))\n                         (iota (length (syntax->list #'(val ...)))))))\n       #'(begin form ...)))))\n;; (def-enum status ok error timeout) => (def status-ok 0) (def status-error 1) ...\n\n;; === BULK: map over ellipsis lists with stx-identifier ===\n(defsyntax (register-commands! stx)\n  (syntax-case stx ()\n    ((_ name ...)\n     (with-syntax (((cmd-fn ...)\n                    (map (lambda (n) (stx-identifier n \"cmd-\" n))\n                         (syntax->list #'(name ...)))))\n       #'(begin (register-command! 'name cmd-fn) ...)))))\n;; (register-commands! fwd back) => (begin (register-command! 'fwd cmd-fwd)\n;;                                         (register-command! 'back cmd-back))\n",
+    "notes": "Gerbil has FULL support for identifier synthesis. Claims that it cannot do this are wrong — every failed attempt was a usage error, not a language limitation. Decision tree: (1) Simple prefix/suffix? Use stx-identifier. (2) Complex string computation? Use datum->syntax — but first arg MUST be an identifier (a pattern variable like #'name or (stx-car stx)), NEVER the full stx form. (3) Inside defrules? Use with-id from :std/sugar. (4) Building entire code forms from data? Use datum->syntax + quasiquote. For bulk operations (mapping over ellipsis lists), use (map (lambda (n) (stx-identifier n ...)) (syntax->list #'(name ...))) then re-bind with with-syntax for ellipsis expansion.",
+    "related": [
+      "datum-to-syntax-first-arg-must-be-identifier",
+      "defsyntax-stx-identifier-generation",
+      "macro-quasiquote-datum-codegen",
+      "with-id-identifier-generation",
+      "refactor-register-commands-with-prefix"
+    ]
+  },
+  {
+    "id": "refactor-macro-audit-workflow",
+    "title": "Workflow: systematically audit a large Gerbil codebase for macro refactoring opportunities",
+    "tags": [
+      "refactor",
+      "macro",
+      "audit",
+      "workflow",
+      "systematic",
+      "large-codebase",
+      "pattern-detector",
+      "boilerplate",
+      "code-reduction",
+      "prioritize",
+      "scan",
+      "find",
+      "opportunity"
+    ],
+    "imports": [],
+    "code": "\n;; SYSTEMATIC MACRO REFACTORING AUDIT — 5-step workflow\n;;\n;; Goal: Given a large codebase (1,000-50,000 lines), find and prioritize\n;; all opportunities to replace repetitive code with macros.\n;;\n;; === STEP 1: Automated scan with gerbil_macro_pattern_detector ===\n;; Run on each .ss file in the project. It detects:\n;;   - Repeated function definitions with similar structure\n;;   - Repeated let* destructuring preambles (with-context candidates)\n;;   - Repeated hash-ref accessors\n;;   - Repeated method wrappers / delegation\n;;   - Boolean toggle patterns\n;;   - Message-only stub functions\n;;   - Common repeated subexpressions\n;;\n;; Tool call: gerbil_macro_pattern_detector(file_path: \"src/commands.ss\")\n;; Reports: pattern type, occurrences, suggested macro, line reduction\n\n;; === STEP 2: Manual scan for these 6 high-value patterns ===\n;; (sorted by typical line reduction, highest first)\n\n;; Pattern A: DATA TABLES (95% reduction at scale)\n;; Look for: N definitions with identical keyword structure, different values\n;; Grep for: repeated make-TYPE or constructor calls with same keyword set\n;; → refactor-data-table-to-macro\n\n;; Pattern B: BATCH REGISTRATION (90% reduction at scale)\n;; Look for: N calls to same function with sequential/predictable arguments\n;; Grep for: repeated (register-X! ...) or (add-X! ...) or (hash-put! ...)\n;; → refactor-batch-registration, refactor-register-commands-with-prefix\n\n;; Pattern C: CONTEXT EXTRACTION (60-70% reduction per function)\n;; Look for: identical let*/let bindings at the top of many functions\n;; Grep for: repeated (let* ((ed (current-...) (buf ...\n;; → refactor-context-binding\n\n;; Pattern D: COMMAND TEMPLATES (50-60% reduction)\n;; Look for: functions with identical signature and structure, different body\n;; Grep for: (def (cmd-XXX app) (let* ... <one-liner>))\n;; → refactor-command-template\n\n;; Pattern E: NEAR-DUPLICATES (30-40% reduction per pair)\n;; Look for: function pairs that differ in only 1-2 tokens\n;; Common: next/previous, up/down, left/right, push/pop, +/-\n;; → refactor-near-duplicate-functions\n\n;; Pattern F: SHORTHAND WRAPPERS (10-20 chars per call, high frequency)\n;; Look for: deeply nested accessor chains repeated many times\n;; Grep for: (foo (bar (baz obj))) appearing 20+ times\n;; → refactor-shorthand-wrapper\n\n;; === STEP 3: Prioritize by (occurrences × lines-saved-each) ===\n;; Example ranking for a 15,000-line editor project:\n;;   1. Context extraction: 500 functions × 3 lines = 1,500 lines\n;;   2. Batch registration: 780 calls × 1 line = 780 lines\n;;   3. Command templates: 200 functions × 3 lines = 600 lines\n;;   4. Data tables: 10 themes × 8 lines = 80 lines\n;;   5. Near-duplicates: 30 pairs × 5 lines = 150 lines\n;;   Total potential: ~3,110 lines (21% of codebase)\n\n;; === STEP 4: Implement macros (in dependency order) ===\n;; 1. Context macros first (with-editor-context, with-buffer, etc.)\n;;    — other macros may use them in their expansions\n;; 2. Template macros next (def-editor-command, def-buffer-cmd, etc.)\n;;    — these compose with context macros\n;; 3. Batch macros (register-commands!, define-themes, etc.)\n;;    — standalone, no dependencies\n;; 4. Shorthands last (echo!, msg!, log!, etc.)\n;;    — used inside the bodies of other macros\n\n;; === STEP 5: Verify with gerbil_verify and tests ===\n;; After each macro introduction:\n;;   gerbil_verify(file_path: \"src/commands.ss\")\n;;   gerbil_run_tests(directory: \".\")\n;; Macro expansion should be semantically identical to original code.\n",
+    "notes": "This is a meta-recipe — a workflow for using the other refactoring recipes systematically. The key insight is to START with automated detection (gerbil_macro_pattern_detector tool), then supplement with manual pattern scanning ordered by expected impact. The 6 patterns are listed in order of typical line reduction ratio. Step 3's prioritization formula (occurrences x lines-saved-each) gives an objective ranking. In real projects, context extraction and batch registration usually dominate. Always implement context macros first since other macros compose with them. After each macro, run gerbil_verify and tests to ensure semantic preservation. For identifier-synthesis macros (batch registration with auto-prefixing), see macro-identifier-synthesis-all-techniques.",
+    "related": [
+      "refactor-identify-macro-candidates",
+      "refactor-extract-defrule-step-by-step",
+      "refactor-batch-registration",
+      "refactor-register-commands-with-prefix",
+      "refactor-context-binding",
+      "refactor-command-template",
+      "refactor-data-table-to-macro",
+      "refactor-shorthand-wrapper",
+      "refactor-near-duplicate-functions",
+      "macro-identifier-synthesis-all-techniques"
+    ]
   }
 ]
