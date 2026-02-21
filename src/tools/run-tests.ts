@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { join, dirname, basename } from 'node:path';
-import { readFile, readdir, stat, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile, readdir, stat, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { runGxiFile, runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 
 /**
@@ -147,9 +147,18 @@ export function registerRunTestsTool(server: McpServer): void {
             'that could shadow source files (common cause of test failures when ' +
             'a module exports main for exe builds).',
           ),
+        verbose: z
+          .boolean()
+          .optional()
+          .describe(
+            'Verbose mode: instrument test check expressions to show intermediate values ' +
+            'before and after each check. Captures all stdout/stderr from the test case. ' +
+            'Only works in single-file mode (file_path). ' +
+            'Useful for debugging failing tests without adding manual displayln statements.',
+          ),
       },
     },
-    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path, env: extraEnv, clean_stale }) => {
+    async ({ file_path, directory, filter, quiet, timeout, loadpath, project_path, env: extraEnv, clean_stale, verbose }) => {
       // Validate: exactly one of file_path or directory
       if (file_path && directory) {
         return {
@@ -200,7 +209,9 @@ export function registerRunTestsTool(server: McpServer): void {
         }
       }
 
-      const result = await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
+      const result = verbose
+        ? await runVerboseTest(file_path!, timeout, effectiveLoadpath, extraEnv)
+        : await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
       if (staleWarnings.length > 0 && result.content?.[0]) {
         const existing = (result.content[0] as { text: string }).text;
         (result.content[0] as { text: string }).text = staleWarnings.join('\n') + '\n\n' + existing;
@@ -394,6 +405,168 @@ async function runDirectoryTests(
     ],
     isError: !parsed.passed,
   };
+}
+
+/**
+ * Run a test file in verbose mode: instruments check expressions to log
+ * their actual and expected values for every check (not just failures).
+ *
+ * Approach: read the test source, do a line-based transformation that inserts
+ * displayln tracing before each (check ...) form, write to a temp file, run it.
+ * Also includes the original source in the output for cross-referencing.
+ */
+async function runVerboseTest(
+  filePath: string,
+  timeout?: number,
+  loadpath?: string[],
+  extraEnv?: Record<string, string>,
+) {
+  const effectiveTimeout = timeout ?? 30_000;
+  const loadpathEnv =
+    loadpath && loadpath.length > 0 ? buildLoadpathEnv(loadpath) : undefined;
+  const env = { ...loadpathEnv, ...extraEnv };
+
+  // Read the original test file
+  let testSource: string;
+  try {
+    testSource = await readFile(filePath, 'utf-8');
+  } catch {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Cannot read test file: ${filePath}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Instrument the source: insert tracing lines before check expressions.
+  // We detect lines containing (check ...) and add a displayln before them
+  // showing the source expression being checked and its line number.
+  const lines = testSource.split('\n');
+  const instrumented: string[] = [];
+  let hasFormat = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Check if :std/format is already imported
+    if (/\bstd\/format\b/.test(line)) hasFormat = true;
+
+    // Insert :std/format import after :std/test import if not present
+    if (!hasFormat && /\bstd\/test\b/.test(line) && /\bimport\b/.test(line)) {
+      instrumented.push(line);
+      instrumented.push('(import :std/format)');
+      hasFormat = true;
+      continue;
+    }
+
+    // Detect lines containing (check ...) — add tracing before them
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('(check ') || trimmed.startsWith('(check-')) {
+      const indent = line.substring(0, line.length - trimmed.length);
+      const escapedExpr = trimmed
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/~~/g, '~~~~');
+      instrumented.push(
+        `${indent}(display (format "  [TRACE L${i + 1}] ~a~n" "${escapedExpr}") (current-error-port))`,
+      );
+    }
+
+    instrumented.push(line);
+  }
+
+  // Write instrumented source to temp file
+  const tmpPath = join(
+    tmpdir(),
+    `gerbil-verbose-test-${Date.now()}.ss`,
+  );
+  await writeFile(tmpPath, instrumented.join('\n'), 'utf-8');
+
+  try {
+    const testResult = await runGxiFile(tmpPath, {
+      timeout: effectiveTimeout,
+      env: Object.keys(env).length > 0 ? env : undefined,
+    });
+
+    if (testResult.timedOut) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Test execution timed out after ${Math.round(effectiveTimeout / 1000)} seconds.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Combine stdout and stderr for verbose output
+    const fullOutput = [testResult.stdout, testResult.stderr]
+      .filter(Boolean)
+      .join('\n');
+
+    const parsed = parseTestOutput(fullOutput);
+
+    // Build verbose formatted output
+    const sections: string[] = [];
+
+    sections.push(
+      `Result: ${parsed.passed ? 'PASSED' : 'FAILED'} (verbose mode)`,
+    );
+    sections.push('');
+
+    if (parsed.summary.length > 0) {
+      sections.push('Test Summary:');
+      for (const line of parsed.summary) {
+        sections.push(`  ${line}`);
+      }
+      sections.push('');
+    }
+
+    if (parsed.failures.length > 0) {
+      sections.push(`Failures (${parsed.failures.length}):`);
+      for (const failure of parsed.failures) {
+        sections.push(`  ${failure}`);
+      }
+      sections.push('');
+    }
+
+    if (parsed.checkCount > 0) {
+      sections.push(`Checks: ${parsed.checkCount} total`);
+    }
+
+    // In verbose mode, show ALL output including stderr trace lines
+    sections.push('');
+    sections.push('--- Full verbose output ---');
+    sections.push(fullOutput.trim());
+
+    // Include original source for cross-reference
+    sections.push('');
+    sections.push(`--- Source: ${filePath} ---`);
+    const srcLines = testSource.split('\n');
+    for (let i = 0; i < srcLines.length; i++) {
+      sections.push(`${String(i + 1).padStart(4)}: ${srcLines[i]}`);
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: sections.join('\n'),
+        },
+      ],
+      isError: !parsed.passed,
+    };
+  } finally {
+    try {
+      await rm(tmpPath, { force: true });
+    } catch {
+      /* ignore cleanup errors */
+    }
+  }
 }
 
 interface TestParseResult {

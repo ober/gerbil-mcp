@@ -1471,6 +1471,43 @@ void copy_data(const uint8_t *src, int len) {
       expect(result.text).toContain('Result:');
       expect(result.text).toContain('Filter: timeout');
     });
+
+    it('gerbil_run_tests verbose mode instruments checks with tracing', async () => {
+      const verboseTestFile = join(TEST_DIR, 'verbose-test.ss');
+      writeFileSync(
+        verboseTestFile,
+        `(import :std/test)
+(def verbose-suite
+  (test-suite "verbose"
+    (test-case "addition"
+      (check (+ 1 2) => 3)
+      (check (string-append "a" "b") => "ab"))))
+(run-tests! verbose-suite)
+(test-report-summary!)
+`,
+      );
+      const result = await client.callTool('gerbil_run_tests', {
+        file_path: verboseTestFile,
+        verbose: true,
+        timeout: 60000,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('verbose mode');
+      expect(result.text).toContain('[TRACE');
+      expect(result.text).toContain('Source:');
+    });
+
+    it('gerbil_run_tests verbose mode shows source with line numbers', async () => {
+      const result = await client.callTool('gerbil_run_tests', {
+        file_path: join(TEST_DIR, 'timeout-test.ss'),
+        verbose: true,
+        timeout: 60000,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('verbose mode');
+      // Source should include line numbers
+      expect(result.text).toMatch(/\d+:.*import/);
+    });
   });
 
   describe('Bisect crash tool', () => {
