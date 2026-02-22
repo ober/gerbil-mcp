@@ -13763,5 +13763,173 @@
       "gerbil-pkg-install-with-depend",
       "gerbil-pkg-depend-local-deps"
     ]
+  },
+  {
+    "id": "gambit-port-fd-offset-divergence-sync",
+    "title": "Sync Gambit port and raw fd offsets when mixing builtin/external command output",
+    "tags": [
+      "gambit",
+      "port",
+      "fd",
+      "offset",
+      "lseek",
+      "fork",
+      "redirect",
+      "external",
+      "builtin",
+      "sync",
+      "dup2",
+      "file-description"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When stdout (fd 1) is redirected to a file via ffi-dup2,\n;; and a new Gambit port is created for builtins via open-output-file,\n;; the Gambit port gets an INDEPENDENT file description with its own offset.\n;; External commands inherit fd 1 with a DIFFERENT offset.\n;;\n;; This causes output overwrites:\n;;   1. Builtin echo \"A\" → Gambit port buffer → flush → writes at port-fd offset 0\n;;   2. External /bin/echo \"B\" → writes via fd 1 at fd-1 offset 0 → OVERWRITES \"A\"\n;;   3. Builtin echo \"C\" → Gambit port → writes at port-fd offset 2 → FILE: \"B\\nC\\n\"\n;;\n;; SOLUTION: Sync both offsets before and after external commands.\n;;\n;; BEFORE fork (after force-output):\n;;   Seek fd 1 to EOF so child starts writing after Gambit port's output\n(force-output (current-output-port))\n(ffi-lseek-end 1)  ;; lseek(1, 0, SEEK_END) — returns new offset\n;;\n;; AFTER child finishes:\n;;   Seek Gambit port to EOF so next builtin writes after child's output\n(let ((end-pos (ffi-lseek-end 1)))\n  (when (> end-pos 0)\n    (with-catch void\n      (lambda ()\n        (output-port-byte-position (current-output-port) end-pos)))))\n;;\n;; KEY FACTS:\n;; - Gambit's default stdout port does NOT use fd 1 — it has its own internal fd\n;; - ffi-dup2(file-fd, 1) changes fd 1 but NOT the Gambit port's target\n;; - open-output-file \\\"/dev/fd/1\\\" on Linux opens the REAL file (symlink),\n;;   creating a NEW file description — NOT a dup of fd 1\n;; - fdopen from :std/os/fd creates BYTE ports — display/write fail with\n;;   \\\"Character OUTPUT PORT expected\\\"\n;; - Only lseek-based offset sync works without low-level Gambit port hacking",
+    "notes": "Critical for shell implementations mixing Gambit builtins (display/write) with fork+exec'd external commands writing to the same redirected file. The Gambit port and fd 1 have independent file descriptions on Linux because /dev/fd/N is a symlink to the real path (unlike macOS where it's a true dup). The ffi-lseek-end + output-port-byte-position combo is the only practical solution without accessing Gambit's internal port fd.",
+    "related": [
+      "dev-fd-port-creates-independent-dup",
+      "gambit-port-byte-position-seek",
+      "character-port-from-raw-fd-via-dev-fd",
+      "ffi-fork-exec-close-fds"
+    ]
+  },
+  {
+    "id": "gambit-os-exception-wrapped-in-runtime-exception",
+    "title": "Gambit os-exceptions are wrapped in RuntimeException — os-exception? returns #f",
+    "tags": [
+      "gambit",
+      "os-exception",
+      "RuntimeException",
+      "exception",
+      "class-of",
+      "with-catch",
+      "wrap",
+      "display-exception"
+    ],
+    "imports": [],
+    "code": ";; GOTCHA: When Gambit os-exceptions (file errors, write failures) are\n;; caught by with-catch in Gerbil, they may be wrapped in a RuntimeException.\n;;\n;; This means:\n;;   (os-exception? e)         → #f  (the wrapper, not the inner exception)\n;;   (class-of e)              → #<type RuntimeException>\n;;   (RuntimeException? e)     → #t\n;;\n;; There is NO public accessor like RuntimeException-exception to unwrap it.\n;;\n;; SOLUTION: Use display-exception which handles all exception types correctly:\n(def (exception-message e)\n  (cond\n    ((Error? e) (Error-message e))                    ;; Gerbil Error\n    ((error-exception? e) (error-exception-message e)) ;; Gambit error-exception\n    ((string? e) e)                                    ;; Raw string\n    ;; For os-exceptions and RuntimeException-wrapped exceptions,\n    ;; display-exception handles them correctly:\n    (else (call-with-output-string (lambda (p) (display-exception e p))))))\n\n;; Example:\n;; (with-catch\n;;   (lambda (e)\n;;     (displayln (exception-message e)))\n;;   (lambda ()\n;;     (open-input-file \"/nonexistent/path\")))",
+    "notes": "Do NOT try to use RuntimeException-exception — it is not a valid accessor and causes unbound variable errors at compile time. The display-exception function is the universal fallback for all Gambit/Gerbil exception types. This wrapping behavior occurs when Gambit's internal C-level exceptions cross the Gerbil runtime boundary.",
+    "related": [
+      "error-message-returns-false-for-non-error",
+      "gambit-file-exception-types",
+      "deferror-class-defraise"
+    ]
+  },
+  {
+    "id": "load-gxi-lazy-expander-compiled-exe",
+    "title": "Lazy Gerbil expander init in compiled exe for full-syntax eval",
+    "tags": [
+      "expander",
+      "__load-gxi",
+      "eval",
+      "compiled",
+      "exe",
+      "lazy",
+      "runtime-init",
+      "def",
+      "match"
+    ],
+    "imports": [
+      ":gerbil/runtime/init",
+      ":gerbil/expander"
+    ],
+    "code": ";; BOTH imports are required — :gerbil/runtime/init provides __load-gxi,\n;; :gerbil/expander links the actual expander modules into the binary.\n;; Without :gerbil/expander, __load-gxi fails with:\n;;   Operator is not a PROCEDURE (#!unbound ':gerbil/core)\n\n(def *gerbil-eval-initialized* #f)\n\n(def (ensure-gerbil-eval!)\n  \"Initialize the Gerbil expander on first use so eval supports full\n   Gerbil syntax (def, defstruct, hash, match, import, etc.).\n   Called lazily to avoid ~100ms startup cost.\"\n  (unless *gerbil-eval-initialized*\n    (set! *gerbil-eval-initialized* #t)\n    (__load-gxi)))\n\n;; Call before any eval that needs Gerbil syntax:\n(ensure-gerbil-eval!)\n(eval '(def x 42))                      ;; works\n(eval '(hash (\"a\" 1) (\"b\" 2)))          ;; works\n(eval '(match (list 1 2 3) ([a b c] (+ a b c)))) ;; => 6\n(eval '(begin (defstruct point (x y))\n              (point-x (make-point 10 20))))      ;; => 10\n(eval '(import :std/text/json))          ;; works for linked modules",
+    "notes": "Binary size impact: only +1MB (not the ~10-15MB predicted). Startup cost: ~100ms per __load-gxi call, so MUST be lazy — don't call in main if the app has a fast-path that doesn't need eval. The expander hooks ##expand-source-set! which changes Gambit's load behavior globally. (import :std/text/json) works for modules already transitively linked into the exe — no .o1 files on disk needed. IMPORTANT: importing :gerbil/expander changes hash-table iteration order in the binary — any code depending on hash iteration order (e.g. hash->list) must sort explicitly."
+  },
+  {
+    "id": "hash-iteration-order-unstable",
+    "title": "Hash table iteration order is unstable — sort hash->list for deterministic output",
+    "tags": [
+      "hash",
+      "iteration",
+      "order",
+      "sort",
+      "hash->list",
+      "deterministic",
+      "hash-for-each",
+      "nondeterministic"
+    ],
+    "imports": [
+      ":std/sort"
+    ],
+    "code": ";; hash->list and hash-for-each have UNSTABLE iteration order.\n;; The order can change when new modules are imported or the binary\n;; is recompiled with different dependencies.\n;;\n;; BAD — output order may change between builds:\n;; (hash->list my-table)\n;;\n;; GOOD — sort for deterministic output:\n(def (sorted-hash-entries table key<?)\n  (sort (hash->list table)\n        (lambda (a b) (key<? (car a) (car b)))))\n\n;; Example: signal trap table sorted by signal number, pseudo-signals first\n(def (trap-list-sorted trap-table signal-name->number)\n  (sort (hash->list trap-table)\n        (lambda (a b)\n          (let ((na (signal-name->number (car a)))\n                (nb (signal-name->number (car b))))\n            (cond\n              ((and (not na) nb) #t)   ;; pseudo-signals first\n              ((and na (not nb)) #f)\n              ((and (not na) (not nb)) (string<? (car a) (car b)))\n              (else (< na nb)))))))",
+    "notes": "Discovered when importing :gerbil/expander changed hash iteration order, breaking trap -p output tests. Any user-visible output derived from hash table iteration must be sorted. This applies to hash->list, hash-for-each, hash-keys, hash-values. The issue is especially insidious because it can work for months and then break when an unrelated import changes the hash table's internal bucket layout."
+  },
+  {
+    "id": "gerbil-module-symbol-not-keyword",
+    "title": "Module paths like :std/text/json are symbols, not Gambit keywords",
+    "tags": [
+      "import",
+      "module",
+      "keyword",
+      "symbol",
+      "eval",
+      "gotcha",
+      "string->symbol",
+      "string->keyword"
+    ],
+    "imports": [],
+    "code": ";; WRONG: (string->keyword \"test-mod\") creates Gambit keyword test-mod:\n;; This is NOT the same as :test-mod in Gerbil source code\n(keyword? ':test-mod)            ;; => #f  (it's a symbol!)\n(symbol? ':test-mod)             ;; => #t\n(eq? ':test-mod (string->keyword \"test-mod\"))  ;; => #f!\n\n;; RIGHT: use string->symbol with \":\" prefix\n(eq? ':test-mod (string->symbol \":test-mod\"))  ;; => #t\n\n;; Programmatic import construction:\n;; WRONG:\n;; (eval `(import ,(string->keyword \"test-mod\")))  ;; Bad syntax; illegal import\n;; RIGHT:\n(eval `(import ,(string->symbol \":test-mod\")))  ;; works!",
+    "notes": "In Gerbil, :foo is a SYMBOL whose name is \":foo\", not a Gambit keyword. Gambit keywords (created by string->keyword) are a different type. The import expander expects the symbol form. This matters when constructing import forms programmatically for eval."
+  },
+  {
+    "id": "embed-gambitgsc-compile-file",
+    "title": "Embed Gambit compiler (compile-file) into a Gerbil executable",
+    "tags": [
+      "gambit",
+      "gsc",
+      "compile-file",
+      "embed",
+      "static",
+      "link",
+      "gambitgsc",
+      "libgambitgsc",
+      "exe"
+    ],
+    "imports": [],
+    "code": "# Step 1: Extract matching Gambit source (gsc/ + lib/) from the commit Gerbil was built with\n#   Check: gsc -v  → e.g. v4.9.7-6-g64f4d369\n#   git -C ~/mine/gambit archive 64f4d369 -- gsc/ lib/ | tar -xC /tmp/gambitgsc-src/\n\n# Step 2: Compile .scm → .c WITH the internal macro prelude (CRITICAL!)\nfor f in /tmp/gambitgsc-src/gsc/_*.scm; do\n  gsc '-:~~=/tmp/gambitgsc-src' \\\n    -c -prelude '(##namespace (\"c#\"))(##include \"~~lib/header.scm\")' \\\n    -o \"/tmp/gambitgsc-c/$(basename ${f%.scm}.c)\" \"$f\"\ndone\n\n# Step 3: Compile .c → .o with gsc -obj (NOT raw gcc -c!)\nfor f in /tmp/gambitgsc-c/*.c; do\n  gsc -obj -cc-options \"-D___LIBRARY\" \"$f\"\ndone\n\n# Step 4: Generate linkfile including gambitgsc modules\ngsc -link -o /tmp/myapp__exe_.c \\\n  /path/to/gerbil/runtime*.c \\\n  /path/to/app*.c \\\n  /tmp/gambitgsc-c/_host.c /tmp/gambitgsc-c/_utils.c ... \\\n  myapp.scm\n\n# Step 5: Compile linkfile (NO -D___LIBRARY — needs main())\ngsc -obj /tmp/myapp__exe_.c\n\n# Step 6: Link everything\ngcc -w -o myapp /tmp/myapp__exe_.o /tmp/gambitgsc-c/*.o \\\n  /path/to/app*.o /path/to/runtime*.o \\\n  -L\"$GERBIL_HOME/lib\" -lgambit -ldl -lm -lpthread -lutil",
+    "notes": "CRITICAL: The -prelude flag is MANDATORY when compiling gambitgsc .scm files. Without it, internal macros like macro-absent-obj, macro-unused-obj, macro-deleted-obj are left as unresolved global function calls instead of being expanded, causing #!unbound errors at runtime.\n\nThe ~~lib/header.scm include loads gambit#.scm and _gambit#.scm which define all internal macros.\n\nMust use gsc -obj (not raw gcc -c) because it adds critical flags: -D___SINGLE_HOST, -D___TRUST_C_TCO, -D___CAN_IMPORT_CLIB_DYNAMICALLY, etc. Raw gcc -c causes exit code 71 (MODULE_INCOMPATIBILITY_ERR from struct size mismatch).\n\nThe gambitgsc .scm sources MUST match the exact Gambit version Gerbil was built with. Newer sources reference macros not in older gambit.h headers.\n\n-D___LIBRARY suppresses main() generation — use it for all module .o files but NOT for the linkfile __exe_.c which needs main().\n\nThe 33 gambitgsc modules are: _host, _utils, _source, _parms, _env, _ptree1, _ptree2, _gvm, _back, _front, _prims, _assert, _asm, _x86, _arm, _riscv, _codegen, _t-univ-1/2/3/4, _t-cpu-1/2/3, _t-c-1/2/3, _gsclib, plus arch-specific ones."
+  },
+  {
+    "id": "gambit-exit-code-71-diagnosis",
+    "title": "Diagnose Gambit exit code 71 (___EXIT_CODE_OSERR / module version mismatch)",
+    "tags": [
+      "gambit",
+      "exit-code",
+      "71",
+      "oserr",
+      "version",
+      "mismatch",
+      "setup",
+      "module",
+      "incompatibility",
+      "struct"
+    ],
+    "imports": [],
+    "code": "# Exit code 71 means ___setup() returned a negative error code.\n# Common causes:\n#   MODULE_VERSION_TOO_OLD_ERR  — .o compiled with older Gambit\n#   MODULE_VERSION_TOO_NEW_ERR  — .o compiled with newer Gambit\n#   MODULE_INCOMPATIBILITY_ERR  — struct size mismatch (most common)\n\n# Diagnosis: check Gambit version of ALL .o files match\n# The ___VERSION define must be identical across all modules and libgambit.a\n\n# Check what version your Gerbil uses:\ngsc -v\n# e.g. v4.9.7-6-g64f4d369 → ___VERSION 409007\n\n# Check .c files for version:\ngrep '___VERSION' some_module.c\n# Must match exactly\n\n# Fix: recompile ALL .c → .o with gsc -obj (NOT raw gcc)\n# gsc -obj adds -D___SINGLE_HOST and other struct-affecting flags\n# Raw gcc -c produces different struct layouts → exit code 71",
+    "notes": "Exit code 71 = ___EXIT_CODE_OSERR from Gambit's main.c. It means ___setup returned a negative error during module initialization. The most common cause is mixing .o files compiled with different Gambit versions or different compilation flags. Always use gsc -obj instead of raw gcc -c, and ensure all source files are from the same Gambit version. The -D___SINGLE_HOST flag in particular affects struct layout.",
+    "related": [
+      "embed-gambitgsc-compile-file"
+    ]
+  },
+  {
+    "id": "gsc-obj-vs-gcc-c",
+    "title": "Use gsc -obj instead of raw gcc -c for Gambit/Gerbil .c files",
+    "tags": [
+      "gsc",
+      "obj",
+      "gcc",
+      "compile",
+      "flags",
+      "SINGLE_HOST",
+      "TRUST_C_TCO",
+      "LIBRARY",
+      "gambit"
+    ],
+    "imports": [],
+    "code": "# WRONG — missing critical Gambit defines:\ngcc -c -O2 -I\"$GERBIL_HOME/include\" module.c -o module.o\n\n# RIGHT — gsc -obj adds all necessary flags:\ngsc -obj module.c\n# Adds: -D___SINGLE_HOST -D___TRUST_C_TCO -D___CAN_IMPORT_CLIB_DYNAMICALLY\n#        -D___GAMBCOMP -fwrapv -fno-trapping-math -fno-strict-aliasing -fPIC ...\n\n# For library modules (no main):\ngsc -obj -cc-options \"-D___LIBRARY\" module.c\n\n# For linkfile (needs main):\ngsc -obj linkfile__exe_.c\n# Do NOT add -D___LIBRARY here — it suppresses main() generation\n\n# To see what flags gsc -obj actually passes:\ngsc -obj -verbose module.c",
+    "notes": "gsc -obj is a wrapper around gcc that adds all the Gambit-required preprocessor defines and compiler flags. Using raw gcc -c causes subtle struct layout mismatches (exit code 71) because flags like -D___SINGLE_HOST affect internal Gambit struct definitions. The -D___LIBRARY flag controls whether the ___MAIN_PROC macro generates int main() — use it for all module .o files, omit it for the linkfile that serves as the program entry point.",
+    "related": [
+      "embed-gambitgsc-compile-file",
+      "gambit-exit-code-71-diagnosis"
+    ]
   }
 ]
