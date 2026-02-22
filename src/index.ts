@@ -139,6 +139,8 @@ import { registerMacroTemplateLibraryTool } from './tools/macro-template-library
 import { registerCheckCLibraryTool } from './tools/check-c-library.js';
 import { registerPatternCacheDetectorTool } from './tools/pattern-cache-detector.js';
 import { registerSigchldCheckTool } from './tools/sigchld-check.js';
+import { registerPortFdInspectorTool } from './tools/port-fd-inspector.js';
+import { registerGambitSourceExtractTool } from './tools/gambit-source-extract.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -290,6 +292,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check C library availability: use gerbil_check_c_library to scan build.ss for -lXXX linker flags and verify those libraries are installed via pkg-config or ldconfig. Reports missing libraries with suggested apt install commands. Use before building FFI projects to catch missing dependencies early.
 - To detect pattern caching issues: use gerbil_pattern_cache_check to find regex compilation anti-patterns — pregexp/pcre2-compile inside function bodies or loops, dynamic pattern building via string-append, redundant explicit compilation, and duplicate patterns. Suggests hoisting patterns to module level or using string-based APIs with automatic LRU caching.
 - To detect SIGCHLD conflicts: use gerbil_sigchld_check to find projects that use both add-signal-handler! (which blocks SIGCHLD via signalfd on Linux) and process-status (which relies on SIGCHLD). When both are present, process-status hangs. Suggests FFI-based waitpid polling as replacement.
+- To inspect port file descriptors: use gerbil_port_fd_inspector to extract the internal fd number and properties from a Gambit port object. Reports fd number, fd type, input/output direction, and tty status. Useful for debugging fd/port dual-layer issues.
+- To extract Gambit source: use gerbil_gambit_source_extract to identify the exact Gambit commit that Gerbil was built with and optionally extract matching source files from a Gambit git repo. Critical for embedding gambitgsc modules.
 
 ## Common Workflows
 
@@ -471,6 +475,8 @@ registerMacroTemplateLibraryTool(server);
 registerCheckCLibraryTool(server);
 registerPatternCacheDetectorTool(server);
 registerSigchldCheckTool(server);
+registerPortFdInspectorTool(server);
+registerGambitSourceExtractTool(server);
 
 registerPrompts(server);
 registerResources(server);

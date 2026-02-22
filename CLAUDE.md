@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 531 tests must pass before considering any change complete (531 passing + 1 pre-existing flaky). The test suite covers:
+All 537 tests must pass before considering any change complete (537 passing + 1 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -207,6 +207,8 @@ All 531 tests must pass before considering any change complete (531 passing + 1 
 - Check C library tool (build.ss scanning, direct library list, missing build file)
 - Pattern cache detector tool (pregexp in loop detection, duplicate patterns, clean file)
 - SIGCHLD compatibility check tool (conflict detection, no conflict, clean file)
+- Port FD inspector tool (current-input-port inspection, non-port rejection, annotation check)
+- Gambit source extract tool (version info without repo, nonexistent repo error, annotation check)
 - New tool annotation checks for batch 8 tools
 
 

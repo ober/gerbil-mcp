@@ -7652,4 +7652,61 @@ END-C
       }
     }, 10000);
   });
+
+  // ── Port FD Inspector ──────────────────────────────────────────────
+  describe('gerbil_port_fd_inspector', () => {
+    it('inspects current-input-port', async () => {
+      const result = await client.callTool('gerbil_port_fd_inspector', {
+        expression: '(current-input-port)',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('input-port:');
+      expect(result.text).toContain('fd:');
+    }, 30000);
+
+    it('rejects non-port values', async () => {
+      const result = await client.callTool('gerbil_port_fd_inspector', {
+        expression: '42',
+      });
+      expect(result.isError).toBeTruthy();
+      expect(result.text).toMatch(/port/i);
+    }, 30000);
+
+    it('has correct annotations', async () => {
+      const tools = await client.listTools();
+      const tool = tools.find(
+        (t: { name: string }) => t.name === 'gerbil_port_fd_inspector',
+      );
+      expect(tool).toBeDefined();
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.idempotentHint).toBe(false);
+    });
+  });
+
+  // ── Gambit Source Extract ──────────────────────────────────────────
+  describe('gerbil_gambit_source_extract', () => {
+    it('reports version info without repo', async () => {
+      const result = await client.callTool('gerbil_gambit_source_extract', {});
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('version:');
+      expect(result.text).toContain('commit:');
+    }, 30000);
+
+    it('errors on nonexistent repo', async () => {
+      const result = await client.callTool('gerbil_gambit_source_extract', {
+        gambit_repo_path: '/nonexistent/gambit/repo',
+      });
+      expect(result.isError).toBeTruthy();
+    }, 30000);
+
+    it('has correct annotations', async () => {
+      const tools = await client.listTools();
+      const tool = tools.find(
+        (t: { name: string }) => t.name === 'gerbil_gambit_source_extract',
+      );
+      expect(tool).toBeDefined();
+      expect(tool.annotations.readOnlyHint).toBe(false);
+      expect(tool.annotations.idempotentHint).toBe(true);
+    });
+  });
 });

@@ -36,6 +36,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_stdlib_source`**: Read the source code of any standard library module. Resolves module paths to source files via lib→src path rewrite. Useful for understanding internal implementations.
 - **`gerbil_trace_eval`**: Step through `let*/let/letrec/letrec*` bindings, showing each variable's name, type, and value as it is bound. Useful for understanding complex binding sequences.
 - **`gerbil_sxml_inspect`**: Parse XML text or evaluate an SXML expression and display the tree structure with labeled node types (DOCUMENT, PI, ELEMENT, ATTR, TEXT).
+- **`gerbil_port_fd_inspector`**: Extract the internal file descriptor number and properties from a Gambit port object. Evaluates an expression that returns a port and reports fd number, fd type, input/output direction, and tty status. Useful for debugging fd/port dual-layer issues (redirect offsets, pipe lifecycle, dup2). Parameters: `expression` (required), `imports`, `loadpath`, `project_path`, `env`.
 
 ### When Understanding Macros
 
@@ -54,6 +55,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_ffi_link_check`**: Cross-reference C function calls in `c-declare` against linked `.a` library symbols via `nm`. Catches missing library links before build.
 - **`gerbil_detect_ifdef_stubs`**: Scan `c-declare` blocks for `#ifdef`/`#else` stub patterns (NULL/0 returns) that cause segfaults in exe builds. Scans single file or project.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
+- **`gerbil_gambit_source_extract`**: Identify the exact Gambit commit Gerbil was built with (from `gsc -v`) and optionally extract matching source files from a Gambit git repo. Reports version, commit hash, build date, and architecture. When `gambit_repo_path` is provided, extracts source subdirectories matching the commit. Critical for embedding `gambitgsc` modules. Parameters: `gambit_repo_path`, `output_dir`, `subdirs` (all optional).
 
 ### For Multi-Step Exploration
 
