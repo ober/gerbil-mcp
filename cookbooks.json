@@ -13931,5 +13931,264 @@
       "embed-gambitgsc-compile-file",
       "gambit-exit-code-71-diagnosis"
     ]
+  },
+  {
+    "id": "build-ss-run-process-import",
+    "title": "build.ss must import :std/misc/process for run-process — :std/build-script and :std/make do NOT re-export it",
+    "tags": [
+      "build.ss",
+      "run-process",
+      "import",
+      "build-script",
+      "std/make",
+      "missing-import",
+      "silent-failure"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make",
+      ":std/misc/process"
+    ],
+    "code": ";; GOTCHA: :std/build-script and :std/make export cppflags/ldflags helpers\n;; but do NOT re-export run-process from :std/misc/process.\n;; If you use run-process in build.ss without importing :std/misc/process,\n;; every call wrapped in with-catch silently fails — returning the fallback.\n\n;; WRONG — run-process is unbound, with-catch silently catches it:\n(import :std/build-script\n        :std/make)\n\n(def have-feature?\n  (with-catch (lambda (_) #f)\n    (lambda ()\n      (run-process [\"pkg-config\" \"--exists\" \"some-lib\"] coprocess: void)\n      #t)))\n;; ^ Always #f — \"run-process\" is unbound, not a pkg-config failure!\n\n;; RIGHT — explicitly import :std/misc/process:\n(import :std/build-script\n        :std/make\n        :std/misc/process)\n\n(def have-feature?\n  (with-catch (lambda (_) #f)\n    (lambda ()\n      (run-process [\"pkg-config\" \"--exists\" \"some-lib\"] coprocess: void)\n      #t)))\n;; ^ Now correctly detects whether the library is installed",
+    "notes": "This caused a multi-hour debugging session: QScintilla detection, pkg-config --static --libs, and all other run-process calls in build.ss silently returned fallback values. The with-catch pattern is dangerous because it catches ALL exceptions including unbound identifier errors — making the actual bug invisible. Always verify imports with gerbil_module_exports before assuming a symbol is available.",
+    "related": [
+      "gambit-unbound-silent-in-compiled-exe",
+      "run-process-subprocess",
+      "qt-exe-transitive-static-deps"
+    ]
+  },
+  {
+    "id": "build-ss-gxc-vs-exe-static-flag",
+    "title": "gxc: modules must NOT use -static in ld-options — only exe: targets should",
+    "tags": [
+      "build.ss",
+      "gxc",
+      "exe",
+      "static",
+      "ld-options",
+      "musl",
+      "alpine",
+      "relocation",
+      "PIC"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; When building static executables on musl/Alpine, -static must ONLY\n;; appear in exe: target ld-options, NOT in gxc: module ld-options.\n;;\n;; gxc: entries compile .ss → .c → .o (shared objects needing PIC).\n;; Passing -static to gsc during module compilation causes:\n;;   \"relocation R_X86_64_32 against hidden symbol __TMC_END__\"\n;;   \"failed to set dynamic section sizes: bad value\"\n;;\n;; Split ld-opts into base (for modules) and exe (for final link):\n\n(def ld-opts-base   ;; for gxc: modules — no -static\n  (string-append\n   \"-L\" vendor-dir \" \"\n   (path-expand \"libshim.a\" vendor-dir) \" \"\n   \"-lstdc++ -lpthread\"))\n\n(def ld-opts ld-opts-base)  ;; gxc: modules use this\n\n(def exe-ld-opts              ;; exe: targets use this\n  (string-append\n   (if static-build? \"-static \" \"\")\n   ld-opts-base))\n\n;; In defbuild-script:\n(defbuild-script\n  `(\"my-module\"\n    (gxc: \"ffi-module\" \"-cc-options\" ,cc-opts \"-ld-options\" ,ld-opts)     ;; no -static\n    (exe: \"main\" bin: \"my-app\" \"-cc-options\" ,cc-opts \"-ld-options\" ,exe-ld-opts))  ;; -static here\n  )",
+    "notes": "This only manifests on musl (Alpine Docker). glibc tolerates -static during .o compilation, but musl's crtbeginT.o has relocations incompatible with PIC. The error is cryptic: 'relocation R_X86_64_32 against hidden symbol __TMC_END__ can not be used when making a shared object'. Fix: ensure -static only appears on exe: entries, never gxc: entries.",
+    "related": [
+      "exe-build-static-modules",
+      "ffi-multi-static-lib-link-order",
+      "qt-exe-transitive-static-deps"
+    ]
+  },
+  {
+    "id": "static-qt6-docker-alpine-pkg-config",
+    "title": "Static Qt6 on Alpine: generate .pc files from .prl with transitive deps",
+    "tags": [
+      "qt6",
+      "static",
+      "docker",
+      "alpine",
+      "pkg-config",
+      "prl",
+      "transitive",
+      "linking"
+    ],
+    "imports": [],
+    "code": ";; Static Qt6 cmake builds don't generate .pc files. For static linking,\n;; you must create them manually with full transitive deps.\n;;\n;; Key issues:\n;; 1. Qt6's cmake -DBUILD_SHARED_LIBS=OFF produces .prl files but NO .pc files\n;; 2. .prl files list DIRECT deps only (e.g. -lharfbuzz) — NOT their transitive\n;;    deps (e.g. harfbuzz → graphite2, freetype → bz2/brotli, fontconfig → expat)\n;; 3. Alpine's system pkg-config for harfbuzz includes -lglib-2.0 because\n;;    Alpine's harfbuzz was built WITH glib — but your Qt6 was built WITHOUT it\n;;    (-DFEATURE_glib=OFF). So you can't blindly use pkg-config --static --libs.\n;;\n;; Solution: Extract direct deps from .prl, manually add known transitive deps,\n;; and filter out deps from features you disabled.\n;;\n;; Shell snippet for Dockerfile (generates .pc files):\n;;\n;;   prl_libs() {\n;;     grep '^QMAKE_PRL_LIBS ' \"$1\" |\n;;       sed 's/^QMAKE_PRL_LIBS *= *//' |\n;;       tr ' ' '\\n' | grep '^-l' |\n;;       grep -v '^-lQt6' | tr '\\n' ' '\n;;   }\n;;   GUI_PRL=$(prl_libs /opt/qt6-static/lib/libQt6Gui.prl)\n;;   TRANSITIVE=\"-lgraphite2 -lbz2 -lbrotlidec -lbrotlicommon -lexpat -lXau -lXdmcp\"\n;;   GUI_PRIVATE=\"$GUI_PRL $TRANSITIVE\"\n;;\n;; Also required for static Qt6:\n;; - Build Qt6 with: -DFEATURE_glib=OFF -DFEATURE_icu=OFF (avoid missing deps)\n;; - Q_IMPORT_PLUGIN(QXcbIntegrationPlugin) compiled into your shim .a\n;; - Qt resource .o files from lib/objects-Release/ linked into the exe\n;; - Alpine packages: fontconfig-static freetype-static harfbuzz-static\n;;   libpng-static bzip2-static expat-static brotli-static graphite2-static\n;;   libxkbcommon-static libx11-static\n;; - Build libXau from source (no Alpine -static package)\n\"no-gerbil-code\"",
+    "notes": "This is a Docker/build-system recipe, not pure Gerbil code. It documents the complete set of steps needed for static Qt6 linking on Alpine musl, which is essential for the gemacs project's `make static-qt` target. The .prl → .pc conversion with transitive dep resolution took multiple iterations to get right. Key gotcha: Alpine's system harfbuzz.pc includes -lglib-2.0 but your Qt6 doesn't need glib if built with -DFEATURE_glib=OFF, so you can't naively use pkg-config --static for system libs.",
+    "related": [
+      "build-ss-gxc-vs-exe-static-flag",
+      "exe-build-static-modules"
+    ]
+  },
+  {
+    "id": "embed-gambitgsc-link-order",
+    "title": "Gambitgsc module link order for embedded compile-file (CRITICAL: not alphabetical)",
+    "tags": [
+      "gambitgsc",
+      "gsc-link",
+      "link-order",
+      "compile-file",
+      "embed",
+      "segfault",
+      "init-order"
+    ],
+    "imports": [],
+    "code": "# Correct dependency order for gambitgsc modules in gsc -link calls.\n# Using alphabetical order (*.c glob) causes segfaults in ___setup().\n# Order from Gambit's gsc/makefile.in LIBRARY_MODULES:\n#\n# _host _utils _source _parms _env _ptree1 _ptree2 _gvm _back _front\n# _prims _assert _asm _x86 _arm _riscv _codegen\n# _t-univ-1 _t-univ-2 _t-univ-3 _t-univ-4\n# _t-cpu-abstract-machine _t-cpu-primitives _t-cpu-object-desc _t-cpu-utils\n# _t-cpu-backend-x86 _t-cpu-backend-arm _t-cpu-backend-riscv _t-cpu\n# _t-c-1 _t-c-2 _t-c-3 _gsclib\n\n# Store order in LINK_ORDER file, read in wrapper script:\n# while IFS= read -r f; do\n#   gambitgsc_files+=(\"$GAMBITGSC_DIR/$f\")\n# done < \"$GAMBITGSC_DIR/LINK_ORDER\"",
+    "notes": "Segfault manifests in ___H___t_2d_cpu_2d_object_2d_desc during ___setup() → ___run(). The _t-cpu-object-desc module depends on _gvm, _source etc being initialized first. Also: gsc -link with incremental linking generates sub-linkfiles (*_.c, *__.c) in the gambitgsc directory — these must be deleted after the link step or they cause duplicate symbol errors with the main linkfile.",
+    "related": [
+      "embed-gambitgsc-compile-file"
+    ]
+  },
+  {
+    "id": "compile-module-package-prefixed-output",
+    "title": "compile-module outputs .scm files in package-prefixed subdirectory",
+    "tags": [
+      "compile-module",
+      "package",
+      "prefix",
+      "expander-context-id",
+      "import-module",
+      "scm",
+      "output-dir",
+      "module-path"
+    ],
+    "imports": [
+      ":gerbil/expander",
+      ":gerbil/compiler"
+    ],
+    "code": ";; compile-module puts .scm files in PACKAGE/basename.scm, not just basename.scm\n;; e.g. for package \"gsh\", bench.ss → outdir/gsh/bench.scm (not outdir/bench.scm)\n;;\n;; To find the correct subdirectory, use import-module + expander-context-id:\n(let* ((srcpath (path-normalize \"bench.ss\"))\n       (outdir (path-directory srcpath))\n       (opts [output-dir: outdir invoke-gsc: #f keep-scm: #t verbose: #f generate-ssxi: #f]))\n  (compile-module srcpath opts)\n  ;; Get the full module path INCLUDING package prefix\n  (let ((modpath (with-catch\n                  (lambda (e) (path-strip-extension (path-strip-directory srcpath)))\n                  (lambda ()\n                    (let ((ctx (import-module srcpath)))\n                      (symbol->string (expander-context-id ctx)))))))\n    ;; modpath = \"gsh/bench\" (not just \"bench\")\n    ;; .scm files are at: outdir/gsh/bench.scm, outdir/gsh/bench~0.scm, etc.\n    (let* ((scm-dir (path-expand (path-directory modpath) outdir))\n           (basename (path-strip-directory modpath)))\n      ;; Now iterate: basename.scm, basename~0.scm, basename~1.scm ...\n      (displayln \"scm-dir: \" scm-dir \" basename: \" basename))))",
+    "notes": "GOTCHA: If you use just the bare filename (e.g. \"bench\") instead of the full module path (e.g. \"gsh/bench\"), you'll look for .scm files in the wrong directory and find nothing. Always use expander-context-id to get the package-prefixed path. The ~N.scm files are generated when a module is split into multiple compilation units by the Gerbil compiler.",
+    "related": [
+      "embed-gambitgsc-compile-file"
+    ]
+  },
+  {
+    "id": "gsc-link-last-arg-output-naming",
+    "title": "gsc -link derives output filename from the LAST argument",
+    "tags": [
+      "gsc",
+      "link",
+      "output",
+      "filename",
+      "last-argument",
+      "linkfile",
+      "gambit",
+      "exe"
+    ],
+    "imports": [],
+    "code": "# gsc -link derives the output linkfile name from the LAST input file.\n# e.g.: gsc -link foo.scm bar.scm myapp__exe.scm\n#   → generates myapp__exe_.c (from last arg myapp__exe.scm)\n#\n# WRONG — appending extra .c files AFTER the exe .scm:\n#   gsc -link myapp__exe.scm extra1.c extra2.c\n#   → generates extra2_.c (NOT myapp__exe_.c!)\n#   → build fails with \"myapp__exe_.c: No such file or directory\"\n#\n# CORRECT — inject extra files BEFORE the last argument:\n#   gsc -link extra1.c extra2.c myapp__exe.scm\n#   → generates myapp__exe_.c (correct!)\n#\n# In a wrapper script:\nargs=(\"$@\")\nlast_idx=$(( ${#args[@]} - 1 ))\nlast_arg=\"${args[$last_idx]}\"\nhead_args=(\"${args[@]:0:$last_idx}\")\n\"$REAL_GSC\" \"${head_args[@]}\" \"${extra_files[@]}\" \"$last_arg\"",
+    "notes": "This is critical when writing a gsc wrapper script (e.g. for GERBIL_GSC) that injects additional .c files into gsc -link calls. The Gerbil build system expects the output linkfile to be named after the exe target (e.g. gsh__exe_.c). If extra files are appended after the exe .scm, the linkfile gets the wrong name and the build fails.",
+    "related": [
+      "embed-gambitgsc-compile-file",
+      "embed-gambitgsc-link-order"
+    ]
+  },
+  {
+    "id": "gsc-link-sublinkfile-cleanup",
+    "title": "Clean up gsc -link sub-linkfiles to prevent duplicate symbol errors",
+    "tags": [
+      "gsc",
+      "link",
+      "sub-linkfile",
+      "duplicate",
+      "symbol",
+      "cleanup",
+      "incremental",
+      "gambit"
+    ],
+    "imports": [],
+    "code": "# When gsc -link processes .c files from multiple directories, it generates\n# sub-linkfiles (*_.c, *__.c) in EACH directory containing input .c files.\n#\n# Example: injecting _vendor/gambitgsc/*.c into a gsc -link call generates:\n#   _vendor/gambitgsc/_x86_.c\n#   _vendor/gambitgsc/_x86__.c\n#   _vendor/gambitgsc/_arm_.c\n#   ... etc.\n#\n# These contain module registration tables that DUPLICATE entries in the\n# main linkfile (myapp__exe_.c). At final gcc link, you get:\n#   multiple definition of `___K_____noexpand'\n#\n# Fix: delete sub-linkfiles after gsc -link completes:\n\"$REAL_GSC\" \"${head_args[@]}\" \"${gambitgsc_files[@]}\" \"$last_arg\"\nrc=$?\nrm -f \"$GAMBITGSC_DIR\"/*_.c \"$GAMBITGSC_DIR\"/*__.c\nrm -f \"$GAMBITGSC_DIR\"/*_.o \"$GAMBITGSC_DIR\"/*__.o\nexit $rc\n\n# NOTE: Do NOT use -flat flag as an alternative. -flat changes module\n# initialization order in a way that's incompatible with Gerbil's runtime,\n# causing segfaults during ___setup().",
+    "notes": "The sub-linkfiles are generated by Gambit's incremental linking mechanism. They're normally useful for separate compilation but when injecting into an existing gsc -link call, they conflict with the main linkfile. The -flat flag was tried as a workaround but it changes module init ordering, causing segfaults in Gerbil's runtime initialization.",
+    "related": [
+      "embed-gambitgsc-link-order",
+      "embed-gambitgsc-compile-file",
+      "gsc-link-last-arg-output-naming"
+    ]
+  },
+  {
+    "id": "build-ss-env-conditional-ld-options",
+    "title": "Conditionally add -static to ld-options via environment variable in build.ss",
+    "tags": [
+      "build.ss",
+      "getenv",
+      "conditional",
+      "ld-options",
+      "static",
+      "defbuild-script",
+      "environment-variable"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": ";; In build.ss: check GSH_STATIC env var to conditionally add -static\n(def static-ld-opts\n  (if (getenv \"GSH_STATIC\" #f) \"-static \" \"\"))\n\n(defbuild-script\n  `(\"module1\"\n    \"module2\"\n    (exe: \"main\" bin: \"myapp\" optimize: #t\n          \"-ld-options\" ,(string-append static-ld-opts \"-lpcre2-8 \" extra-ld-opts)))\n  parallelize: (max 1 (quotient (##cpu-count) 2)))\n\n;; Then invoke: GSH_STATIC=1 gerbil build\n;; This avoids needing a separate gxc -exe call for static builds.",
+    "notes": "Using (getenv \\\"VAR\\\" #f) returns #f when unset, which is falsy for the if test. This pattern lets you use the same build.ss for both dynamic and static builds, controlled by an env var. Much simpler than having a separate gxc -exe invocation in the Makefile, which can cause issues with gsc -link injection (e.g. gambitgsc wrapper).",
+    "related": [
+      "build-ss-gxc-vs-exe-static-flag",
+      "exe-build-static-modules"
+    ]
+  },
+  {
+    "id": "gambitgsc-portable-generate",
+    "title": "Generate gambitgsc .c/.o portably from any Gerbil install",
+    "tags": [
+      "gambitgsc",
+      "libgambitgsc",
+      "ar",
+      "portable",
+      "compile-file",
+      "embed",
+      "gsc-version",
+      "generate"
+    ],
+    "imports": [],
+    "code": "# Detect Gambit version and commit hash\nFULL_VERSION=$(gsc -v 2>&1 | awk '{print $1}')\nCOMMIT_HASH=$(echo \"$FULL_VERSION\" | sed 's/.*-g//')\n\n# Locate libgambitgsc.a (ships with every Gerbil install)\nLIBGSC=$(gsc -e '(display (path-expand \"~~lib/libgambitgsc.a\"))')\n\n# Extract pre-compiled .o files (no need to compile .c -> .o ourselves)\nmkdir -p _vendor/gambitgsc\n(cd _vendor/gambitgsc && ar x \"$LIBGSC\")\nrm -f _vendor/gambitgsc/_gambitgsc.o  # library init, not needed\n\n# Generate .c files from Gambit source (needed for gsc -link)\n# Clone matching Gambit commit first:\n#   git clone --filter=blob:none --no-checkout https://github.com/gambit/gambit.git\n#   git checkout $COMMIT_HASH -- gsc lib\nGAMBIT_SRC=_vendor/.gambit-src\nfor mod in _host _utils _source _parms _env ...; do\n  gsc \"-:~~=$GAMBIT_SRC\" -c \\\n    -prelude '(##namespace (\"c#\"))(##include \"~~lib/header.scm\")' \\\n    -o \"_vendor/gambitgsc/${mod}.c\" \"$GAMBIT_SRC/gsc/${mod}.scm\"\ndone",
+    "notes": "Key insight: libgambitgsc.a ships with every Gerbil install and contains all 33 pre-compiled .o files. Use `ar x` to extract them instead of compiling .c -> .o with `gsc -obj -D___LIBRARY`. The .c files are still needed for `gsc -link` to generate the module init chain. Version stamp should include LIBGSC path (not just commit hash) so different installs (host vs Docker/musl) trigger regeneration. The .o files are platform-specific but the .c files are portable.",
+    "related": [
+      "embed-gambitgsc-compile-file",
+      "embed-gambitgsc-link-order"
+    ]
+  },
+  {
+    "id": "gambit-symbol-leak-link-file",
+    "title": "Gambit link file is the primary source of symbol name leaks in compiled binaries",
+    "tags": [
+      "gambit",
+      "link",
+      "symbols",
+      "binary",
+      "obfuscation",
+      "reverse-engineering",
+      "exe",
+      "strip"
+    ],
+    "imports": [],
+    "code": ";; The Gambit link file (*__exe_.c) aggregates ALL symbol names from all modules.\n;; It uses these macros in gambit.h.in:\n;;\n;; LINK FILE MODE (___COMPILING_EACH_MODULE undefined):\n;;   ___DEF_SYM(i,sym,str) => str goes into ___sym_names[] array (LEAKED)\n;;   ___DEF_GLO(i,name)    => name goes into globals (LEAKED)\n;;   ___DEF_NEW_SYM_GLO_SUP(sym,str,...) => str stored as (___FAKEWORD)str (LEAKED)\n;;\n;; MODULE MODE (___COMPILING_EACH_MODULE defined):\n;;   ___DEF_SYM(i,sym,str) => str is DISCARDED (not leaked)\n;;   ___DEF_GLO(i,name)    => name is DISCARDED (not leaked)\n;;\n;; String encoding format: ___NSTR8(b1,b2,...) = decimal byte values of chars\n;; Example: ___NSTR8(116,101,115,116) = \"test\"\n;;\n;; To find the link file after gxc -exe:\n;;   ls ~/.gerbil/lib/static/*__exe_.c\n;;\n;; The link file is the ONLY place where full symbol names appear.\n;; Individual module .c files do NOT leak symbol name strings.\n\n;; Post-build mitigation: strip + patch strings in the compiled binary\n;; See also: hide.md for comprehensive obfuscation pipeline",
+    "notes": "The link file is generated by `gsc -link` and contains ___sym_names[], ___glo_names[], and ___sup_names[] arrays with ALL Scheme symbol names in plaintext. In module .c files, the str argument to ___DEF_SYM is discarded. The key insight: obfuscating the link file before final gcc compilation would eliminate all symbol name leaks at the source. The ___NSTR encoding (decimal byte values) makes strings grep-resistant but they're trivially decoded."
+  },
+  {
+    "id": "post-build-binary-obfuscation-pipeline",
+    "title": "Post-build binary obfuscation pipeline for Gerbil executables",
+    "tags": [
+      "obfuscation",
+      "binary",
+      "strip",
+      "objcopy",
+      "exe",
+      "reverse-engineering",
+      "hardening",
+      "elf"
+    ],
+    "imports": [],
+    "code": ";; Post-build obfuscation pipeline (all steps verified working):\n;;\n;; 1. Strip symbols:\n;;    strip -s binary\n;;\n;; 2. Remove ELF sections:\n;;    objcopy --remove-section=.comment \\\n;;            --remove-section=.note.gnu.build-id \\\n;;            --remove-section=.note.stapsdt \\\n;;            --remove-section=.note.ABI-tag binary\n;;\n;; 3. Patch identifying strings (using python3):\n;;    python3 -c \"\n;;    import mmap, re\n;;    with open('binary', 'r+b') as f:\n;;        mm = mmap.mmap(f.fileno(), 0)\n;;        # Null out configure command, version strings, paths\n;;        for pat in [b'./configure', b'Gambit', b'gerbil', b'/home/', b'/opt/']:\n;;            idx = 0\n;;            while True:\n;;                idx = mm.find(pat, idx)\n;;                if idx == -1: break\n;;                mm[idx:idx+len(pat)] = b'\\\\x00' * len(pat)\n;;                idx += len(pat)\n;;        mm.close()\n;;    \"\n;;\n;; 4. GCC hardening flags (add to build):\n;;    CFLAGS: -Os -fdata-sections -ffunction-sections -fvisibility=hidden -fno-ident\n;;    LDFLAGS: -Wl,--gc-sections -Wl,-s -Wl,--build-id=none\n;;\n;; 5. Use musl libc for static linking (dramatically reduces string count):\n;;    Alpine Linux build: 748 long strings vs glibc: 23,537 long strings\n;;\n;; Binary remains fully functional after all steps.",
+    "notes": "Verified: a test binary with 339 string replacements still ran correctly. The most impactful single technique is using musl for static linking. UPX compression is NOT recommended — trivially reversible. For source-level obfuscation (eliminating strings before they enter the binary), modify the link file or Gambit's C code generation. See gambit-symbol-leak-link-file recipe.",
+    "related": [
+      "gambit-symbol-leak-link-file",
+      "exe-build-static-modules"
+    ]
+  },
+  {
+    "id": "gerbil-exe-module-name-leaks",
+    "title": "Gerbil exe stub embeds module names via builtin-modules list",
+    "tags": [
+      "gerbil",
+      "exe",
+      "modules",
+      "builtin-modules",
+      "driver",
+      "stub",
+      "information-leak",
+      "runtime-init"
+    ],
+    "imports": [],
+    "code": ";; Gerbil compiler driver.ss (src/gerbil/compiler/driver.ss) generates an exe stub\n;; that lists ALL module names in a `builtin-modules` list:\n;;\n;; (define builtin-modules\n;;   '(\"gerbil/runtime/gambit\"\n;;     \"gerbil/runtime/util\"\n;;     ...\n;;     \"yourpkg/module1\"\n;;     \"yourpkg/module2\"))\n;;\n;; This list is used by gerbil-runtime-init! (src/gerbil/runtime/init.ss)\n;; to register modules as 'builtin' in the __modules hash table.\n;;\n;; These module name strings survive into the compiled binary and reveal:\n;; - Package structure and naming\n;; - All dependencies used\n;; - Internal module organization\n;;\n;; Mitigation options:\n;; 1. Post-build: patch module name strings in binary (verified working)\n;; 2. Source-level: modify driver.ss to hash/obfuscate module names\n;; 3. Source-level: modify runtime/init.ss to accept hashed names\n;;\n;; To see the generated stub:\n;;   cat ~/.gerbil/lib/static/PKGNAME__exe.scm",
+    "notes": "The builtin-modules list in the exe stub is separate from the Gambit link file symbols. Even if you obfuscate Gambit symbols, module names still leak through this Gerbil-specific mechanism. Both need to be addressed for thorough obfuscation. The gsh binary (reference target) had module names present but NO Gambit symbol name strings.",
+    "related": [
+      "gambit-symbol-leak-link-file",
+      "post-build-binary-obfuscation-pipeline"
+    ]
   }
 ]

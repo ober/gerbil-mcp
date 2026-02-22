@@ -560,5 +560,39 @@
       "undefined-behavior",
       "stack-garbage"
     ]
+  },
+  {
+    "id": "hardcoded-path-in-source",
+    "title": "Hardcoded filesystem paths leak build environment info in compiled binaries",
+    "severity": "low",
+    "scope": "scheme",
+    "pattern": "\"\\/home\\/|\"\\/opt\\/|\"\\/usr\\/local\\/|\"\\/tmp\\/",
+    "message": "Hardcoded absolute filesystem paths survive into compiled binaries and reveal build environment details (usernames, directory structure, installed software locations). These strings appear in .rodata and can be extracted with `strings`.",
+    "remediation": "Use relative paths, environment variables, or runtime path resolution instead of hardcoded absolute paths. For paths needed only at build time, use build.ss configuration rather than embedding in source. If paths must be absolute, consider using a path prefix variable that can be overridden.",
+    "related_recipe": "post-build-binary-obfuscation-pipeline",
+    "tags": [
+      "path",
+      "information-leak",
+      "binary",
+      "hardcoded",
+      "build-environment"
+    ]
+  },
+  {
+    "id": "version-string-disclosure",
+    "title": "Version strings in source code reveal technology stack in compiled binaries",
+    "severity": "low",
+    "scope": "scheme",
+    "pattern": "\"[Gg]erbil|\"[Gg]ambit|\"[Ss]cheme|gerbil-version-string|gambit-version-string",
+    "message": "Explicit references to Gerbil, Gambit, or Scheme in string literals survive into compiled binaries. Combined with Gambit's own embedded version/configure strings, these make technology identification trivial for reverse engineers.",
+    "remediation": "Avoid embedding technology-identifying strings in production code. If version info is needed at runtime, gate it behind a debug/verbose flag or use a compile-time conditional. For maximum obfuscation, also patch Gambit's configure string and version info post-build.",
+    "related_recipe": "post-build-binary-obfuscation-pipeline",
+    "tags": [
+      "version",
+      "information-leak",
+      "binary",
+      "reverse-engineering",
+      "technology-stack"
+    ]
   }
 ]
