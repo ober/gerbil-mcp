@@ -14517,5 +14517,29 @@
       "defbuild-script-conditional-modules",
       "load-gxi-lazy-expander-compiled-exe"
     ]
+  },
+  {
+    "id": "qt-signal-callback-arity-types",
+    "title": "Qt signal callbacks have different arities — match handler args to signal type",
+    "tags": [
+      "qt",
+      "signal",
+      "callback",
+      "arity",
+      "text-changed",
+      "on-text-changed",
+      "handler",
+      "string-handler",
+      "silent-error"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; Qt signals dispatch through typed callbacks (void, string, int, bool).\n;; Your handler MUST accept the right number of arguments or it will\n;; silently fail — the FFI with-catch swallows arity exceptions.\n\n;; WRONG — qt-on-text-changed! is a string callback, passes text arg:\n;; (qt-on-text-changed! line-edit\n;;   (lambda ()  ;; BUG: 0 args, but called with 1 — silent exception!\n;;     (do-something (qt-line-edit-text line-edit))))\n\n;; RIGHT — accept the text argument:\n(qt-on-text-changed! line-edit\n  (lambda (text)  ;; string callback passes new text\n    (do-something text)))\n\n;; Void callbacks (0 args): qt-on-return-pressed!, qt-on-clicked!,\n;;   qt-on-timeout!, qt-on-key-press!, qt-on-text-edit-changed!,\n;;   qt-on-plain-text-edit-text-changed!\n;; String callbacks (1 arg): qt-on-text-changed! (QLineEdit),\n;;   qt-on-anchor-clicked!\n;; Int callbacks (1 arg): qt-on-value-changed!, qt-on-slider-value-changed!,\n;;   qt-on-index-changed!, qt-on-tab-changed!, qt-on-current-row-changed!\n;; Bool callbacks (1 arg): qt-on-toggled!, qt-on-group-box-toggled!",
+    "notes": "The FFI dispatch functions (ffi_qt_callback_void, ffi_qt_callback_string, etc.) wrap calls in with-catch that logs to stderr. If your handler has wrong arity, the exception is caught and printed to stderr only — the handler silently does nothing. This is extremely hard to debug because the UI appears to work (typing works) but the callback action never happens. Always check libqt~0.scm to see which register-qt-*-handler! function is used.",
+    "related": [
+      "qt-on-return-pressed-not-line-edit-return",
+      "qt-unregister-handler-prevent-accumulation"
+    ]
   }
 ]

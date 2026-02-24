@@ -31,3 +31,4 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+.aider*

@@ -148,5 +148,24 @@
     "example_scenario": "fzf-select was defined as (def (fzf-select candidates (prompt \\\"> \\\") (multi? #f) (initial-query \\\"\\\"))). Callers used (fzf-select cmds prompt: \\\"(history)> \\\"). This silently set multi? to the prompt string (truthy), causing fzf-select to return a list instead of a string. The bug only manifested at runtime as a type error in a completely different function (string-copy). Took debugging to trace back to the keyword dispatch mismatch.",
     "estimated_token_reduction": "~1000-2000 tokens per incident — eliminates runtime debugging, backtrace analysis, and hypothesis testing to find the root cause of silent keyword mismatch",
     "votes": 0
+  },
+  {
+    "id": "qt-callback-arity-lint",
+    "title": "Lint qt-on-*! signal handlers for callback arity mismatches",
+    "description": "A lint check that detects when a gerbil-qt signal connection function (qt-on-text-changed!, qt-on-value-changed!, qt-on-index-changed!, etc.) is called with a handler lambda whose arity doesn't match the expected callback type. The gerbil-qt FFI dispatches through typed callbacks (void, string, int, bool) — if the handler has the wrong arity, the exception is silently caught by with-catch in the FFI dispatch and the handler does nothing. The lint would map each qt-on-*! function to its expected callback type (void=0 args, string/int/bool=1 arg) and flag mismatches at the call site.",
+    "impact": "high",
+    "tags": [
+      "qt",
+      "callback",
+      "arity",
+      "lint",
+      "signal",
+      "silent-error",
+      "handler"
+    ],
+    "use_case": "When writing Qt UI code with signal handlers. The silent failure mode (handler silently does nothing because arity exception is caught) is extremely hard to debug — the UI appears functional but callback actions never fire.",
+    "example_scenario": "qt-on-text-changed! registers a string handler (1 arg) but the developer writes (lambda () ...) with 0 args. Every keystroke, ffi_qt_callback_string calls (handler value), gets a 'wrong number of arguments' exception, catches it silently via with-catch, and the narrowing-update-list! function is never called. The M-x helm list never filters, always shows the first item highlighted, and Enter always runs the wrong command. Took tracing through 4 layers (echo.ss → qt shim C++ → libqt~0.scm FFI dispatch → callback type registration) to find the root cause.",
+    "estimated_token_reduction": "~2000-5000 tokens per incident — eliminates tracing through FFI callback dispatch chain to diagnose why a signal handler silently does nothing",
+    "votes": 0
   }
 ]
