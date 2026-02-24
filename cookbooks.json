@@ -14496,5 +14496,26 @@
       "run-process-subprocess",
       "fuse-unmount-safe-open-process"
     ]
+  },
+  {
+    "id": "module-self-registration-make-parameter",
+    "title": "Self-registering module via make-parameter and top-level side effects",
+    "tags": [
+      "make-parameter",
+      "self-register",
+      "module",
+      "init",
+      "plugin",
+      "tier",
+      "conditional"
+    ],
+    "imports": [],
+    "code": ";; Pattern: Optional module that registers itself when imported.\n;; Use make-parameter in a shared registry, then set it at top-level\n;; in the optional module. Importing the module triggers registration;\n;; NOT importing it leaves the parameter at its default.\n\n;;; --- registry.ss (always imported) ---\n;; (export #t)\n;; (def *feature-handler* (make-parameter #f))\n;; (def *feature-builtins* (make-hash-table))\n\n;;; --- feature.ss (optionally imported) ---\n;; (import :myapp/registry)\n;;\n;; (def (handle-feature input) ...)\n;; (def (feature-builtin-run args) ...)\n;;\n;; ;; Self-registration runs at module init time (top-level)\n;; (*feature-handler* handle-feature)\n;; (hash-put! *feature-builtins* \"my-cmd\" feature-builtin-run)\n\n;;; --- stage.ss (generated glue — controls what's linked) ---\n;; ;; For minimal build:\n;; (import :myapp/registry)\n;; ;; For full build:\n;; (import :myapp/registry :myapp/feature)\n\n;;; --- main.ss (always the same, no conditional imports) ---\n;; (import :myapp/stage)\n;; (def (main . args)\n;;   (let ((handler (*feature-handler*)))\n;;     (if handler\n;;       (handler (car args))\n;;       (error \"Feature not available in this build\"))))",
+    "notes": "This pattern enables tiered/plugin builds without conditional imports in main.ss. The key insight: importing a module runs its top-level forms, which can set parameters and mutate shared state. NOT importing it leaves defaults. Combined with a generated stage.ss glue module (e.g. by Makefile), you control which modules are compiled into the binary without touching main.ss. Works for both dynamic and static Gerbil builds. The stage.ss should be in .gitignore since it's generated.",
+    "related": [
+      "break-circular-import-with-make-parameter",
+      "defbuild-script-conditional-modules",
+      "load-gxi-lazy-expander-compiled-exe"
+    ]
   }
 ]
