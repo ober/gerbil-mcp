@@ -1,0 +1,1 @@
+aider --mcp server-name --mcp-command "npx -y @mcp/server-package"
