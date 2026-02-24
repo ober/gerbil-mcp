@@ -180,6 +180,67 @@ Or for global instructions across all projects, copy to `~/.copilot-instructions
 cp /path/to/gerbil-mcp/copilot-instructions.md.gerbil-example ~/.copilot-instructions.md
 ```
 
+### OpenCode
+
+OpenCode reads MCP configuration from `opencode.json` files. Configuration is merged from multiple sources in priority order:
+
+1. **Global config**: `~/.config/opencode/opencode.json`
+2. **Project-local config**: `opencode.json` in the project root (or walked up from cwd)
+3. **Project `.opencode/` directory**: `.opencode/opencode.json`
+
+#### Global setup (all projects)
+
+Create or edit `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "gerbil": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "env": {
+        "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
+      }
+    }
+  }
+}
+```
+
+#### Project-local setup (single project)
+
+Create `opencode.json` in your project root:
+
+```json
+{
+  "mcp": {
+    "gerbil": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "env": {
+        "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
+      }
+    }
+  }
+}
+```
+
+To verify the configuration is loaded, run `opencode debug config` and check that the `mcp` section includes the `gerbil` entry.
+
+To auto-load Gerbil-specific instructions, copy the example file to your project:
+
+```sh
+mkdir -p .opencode
+cp /path/to/gerbil-mcp/CLAUDE.md.gerbil-example .opencode/AGENTS.md
+```
+
+Or for global instructions across all projects:
+
+```sh
+cp /path/to/gerbil-mcp/CLAUDE.md.gerbil-example ~/.config/opencode/AGENTS.md
+```
+
 ### Other MCP clients
 
 Any MCP-compatible client can connect using the stdio transport. The server reads JSON-RPC from stdin and writes to stdout:
