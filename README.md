@@ -196,10 +196,9 @@ Create or edit `~/.config/opencode/opencode.json`:
 {
   "mcp": {
     "gerbil": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
-      "env": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "environment": {
         "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
       }
     }
@@ -215,10 +214,9 @@ Create `opencode.json` in your project root:
 {
   "mcp": {
     "gerbil": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["/absolute/path/to/gerbil-mcp/dist/index.js"],
-      "env": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/gerbil-mcp/dist/index.js"],
+      "environment": {
         "GERBIL_MCP_GXI_PATH": "/opt/gerbil/bin/gxi"
       }
     }
