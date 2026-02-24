@@ -54,5 +54,99 @@
     "example_scenario": "A Gerbil project builds an exe with 2000+ symbol names embedded in the link file. Currently these all appear as readable strings in the binary. With this tool, the link file would be processed to replace `___DEF_SYM(0,___S_mymodule_2f_main,\"mymodule/main#secret-function\")` with `___DEF_SYM(0,___S_mymodule_2f_main,\"a3f8c2\")` (hashed) before gcc compiles it. Result: zero readable symbol names in the final binary.",
     "estimated_token_reduction": "~1000-2000 tokens per build — eliminates manual link file patching scripts and post-build string replacement",
     "votes": 0
+  },
+  {
+    "id": "gambit-primitive-lookup",
+    "title": "Look up Gambit internal primitives (## namespace)",
+    "description": "A tool that can search and document Gambit internal primitives in the ## namespace (e.g., ##set-gambitdir!, ##shell-command, ##eval-top, ##interaction-cte, ##global-var-set!, ##make-global-var). These are undocumented C-level or kernel-level primitives that Gerbil code sometimes needs to call directly. The tool would search _kernel.scm, _system.scm, and other Gambit lib/ source files, report the c-lambda signature (including parameter types like UCS-2-string vs char-string), and note gotchas (e.g., ___set_gambitdir takes UCS-2STRING not char*).",
+    "impact": "medium",
+    "tags": [
+      "gambit",
+      "primitive",
+      "internal",
+      "kernel",
+      "##namespace",
+      "undocumented"
+    ],
+    "use_case": "When Gerbil code needs to call Gambit internals for low-level operations (setting gambitdir, patching global vars, raw eval). Currently requires manually reading Gambit source files to discover signatures and parameter types.",
+    "example_scenario": "Needed to call ##set-gambitdir! to redirect ~~ for the static binary's compile-file environment. First tried wrapping ___set_gambitdir as a char-string c-lambda, which would have failed at runtime because it takes UCS-2STRING. Had to read 3 Gambit source files (_kernel.scm, setup.c, _gsclib.scm) to discover the correct approach. A lookup tool would have immediately shown the signature and type constraints.",
+    "estimated_token_reduction": "~1000-2000 tokens per lookup — eliminates reading multiple Gambit source files to find primitive signatures",
+    "votes": 0
+  },
+  {
+    "id": "gambuild-template-extract",
+    "title": "Extract and explain gambuild-C script templates",
+    "description": "A tool that reads the installed gambuild-C script, parses its operation templates (dyn, obj, exe), and explains each environment variable and flag. The gambuild-C script is the critical bridge between Gambit's compile-file and the system C compiler, but its template format (BUILD_DYN_CC_PARAM, GAMBITDIR_INCLUDE, etc.) is completely undocumented. The tool would extract the exact gcc invocation for each operation, list all environment variables with their purposes, and show the actual values from the current installation.",
+    "impact": "low",
+    "tags": [
+      "gambit",
+      "gambuild",
+      "compile-file",
+      "gcc",
+      "template",
+      "native-compilation"
+    ],
+    "use_case": "When implementing custom native compilation workflows (e.g., minimal gambuild-C for static binaries, cross-compilation, custom compiler flags). Currently requires reading the raw shell script and tracing through ##gambuild in _gsclib.scm.",
+    "example_scenario": "Needed to create a minimal gambuild-C script for the static binary that only handles the 'dyn' operation. Had to read the installed gambuild-C (200+ lines), trace through ##gambuild in _gsclib.scm to understand which env vars it sets, and extract just the relevant template. A tool would have shown: 'dyn operation: gcc -shared -fPIC ... -I$GAMBITDIR_INCLUDE -o $OUTPUT $INPUT' with all variable meanings.",
+    "estimated_token_reduction": "~500-1000 tokens — eliminates reading gambuild-C and _gsclib.scm to understand the template format",
+    "votes": 0
+  },
+  {
+    "id": "pre-add-symbol-conflict-check",
+    "title": "Check if a new definition will cause import conflicts before adding it",
+    "description": "A tool that takes a symbol name and a target file path, then scans all modules in the project's import chain to detect if that symbol is already defined elsewhere. When working with (export #t) module chains, adding a new `(def *foo* ...)` to one module frequently causes \"Bad binding; import conflict\" errors at build time because a sibling or downstream module already defines the same symbol. This tool would catch the conflict before you edit the file, saving a full build-fail-grep-fix cycle.",
+    "impact": "medium",
+    "tags": [
+      "import",
+      "conflict",
+      "export",
+      "duplicate",
+      "definition",
+      "pre-check",
+      "symbol"
+    ],
+    "use_case": "Before adding a new def to a module that uses (export #t), especially in large projects with module chains where multiple files export all their symbols to a facade module.",
+    "example_scenario": "Adding `(def *tramp-connections* (make-hash-table))` to editor-extra-helpers.ss. Build fails with 'Bad binding; import conflict' because editor-extra-editing.ss already defines *tramp-connections*. Had to build (60s), read error, grep for the symbol, then remove the duplicate. A pre-check would have caught this instantly.",
+    "estimated_token_reduction": "~500-1000 tokens per conflict — eliminates a full build + error diagnosis + grep + fix cycle, which happened 3 times in this session alone",
+    "votes": 2
+  },
+  {
+    "id": "exe-stale-static-scm-detector",
+    "title": "Detect stale global .scm files that shadow project-local in exe linking",
+    "description": "Extend gerbil_stale_static to compare timestamps of .scm files in ~/.gerbil/lib/static/ vs .gerbil/lib/static/ (project-local). When the global copy is older than the project-local copy, the exe linker silently uses the stale global code. This is different from the existing stale_static check (which compares source .ss timestamps) — here both copies exist but the global one is outdated. The tool should flag when a global .scm shadows a newer project-local .scm, and recommend deleting the global copy before rebuilding the exe.",
+    "impact": "high",
+    "tags": [
+      "stale",
+      "static",
+      "scm",
+      "exe",
+      "global",
+      "shadow",
+      "linker",
+      "build"
+    ],
+    "use_case": "After modifying a test file or module and rebuilding, the exe binary silently uses old code from ~/.gerbil/lib/static/ because the Gambit exe linker prefers the global copy over the project-local one. Tests appear to pass but new test groups are silently missing.",
+    "example_scenario": "Added Group 23 (helm tests) to qt-functional-test.ss. Built with `gerbil build` — build succeeded. Project-local .gerbil/lib/static/gemacs__qt-functional-test.scm contained Group 23 (verified with grep). But the exe binary had NO Group 23 output. Root cause: ~/.gerbil/lib/static/gemacs__qt-functional-test.scm was a stale copy from hours earlier. Deleting it and rebuilding fixed it. Spent ~15 tool calls and 3 rebuild cycles debugging this.",
+    "estimated_token_reduction": "~2000-4000 tokens per incident — eliminates multiple rebuild + grep + debug cycles to diagnose silent exe staleness",
+    "votes": 1
+  },
+  {
+    "id": "keyword-positional-mismatch-lint",
+    "title": "Detect keyword-style calls to functions with positional-only optionals",
+    "description": "A lint check that detects call sites using keyword syntax (e.g. `(f x prompt: \"foo\")`) where the called function defines positional optionals (e.g. `(def (f a (prompt \">\")))`), NOT keyword optionals (e.g. `(def (f a prompt: (prompt \">\")))`). In Gerbil, positional optionals silently accept keyword symbols as regular values — `prompt:` becomes a positional arg value. This causes subtle bugs: boolean parameters get truthy keyword strings, parameter values are shifted, and no error is raised. The lint should cross-reference call sites against function signatures and flag mismatches.",
+    "impact": "high",
+    "tags": [
+      "lint",
+      "keyword",
+      "positional",
+      "optional",
+      "dispatch",
+      "silent-bug",
+      "arity"
+    ],
+    "use_case": "Any time a function is defined with positional optionals but callers use keyword syntax. Especially dangerous across module boundaries where the caller assumes keyword dispatch works.",
+    "example_scenario": "fzf-select was defined as (def (fzf-select candidates (prompt \\\"> \\\") (multi? #f) (initial-query \\\"\\\"))). Callers used (fzf-select cmds prompt: \\\"(history)> \\\"). This silently set multi? to the prompt string (truthy), causing fzf-select to return a list instead of a string. The bug only manifested at runtime as a type error in a completely different function (string-copy). Took debugging to trace back to the keyword dispatch mismatch.",
+    "estimated_token_reduction": "~1000-2000 tokens per incident — eliminates runtime debugging, backtrace analysis, and hypothesis testing to find the root cause of silent keyword mismatch",
+    "votes": 0
   }
 ]

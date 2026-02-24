@@ -14190,5 +14190,311 @@
       "gambit-symbol-leak-link-file",
       "post-build-binary-obfuscation-pipeline"
     ]
+  },
+  {
+    "id": "capture-eval-stdout-stderr-parameterize",
+    "title": "Capture both stdout and stderr during eval using parameterize with string ports",
+    "tags": [
+      "parameterize",
+      "capture",
+      "stdout",
+      "stderr",
+      "eval",
+      "current-output-port",
+      "current-error-port",
+      "string-port"
+    ],
+    "imports": [],
+    "code": ";; Capture both stdout and stderr from eval'd code using parameterize\n;; Gambit builtins — no import needed\n\n(def (eval-with-capture expr-string)\n  \"Eval a string, capturing stdout and stderr separately.\n   Returns (values result stdout-text stderr-text error?).\"\n  (with-catch\n    (lambda (e)\n      (let ((msg (with-output-to-string (lambda () (display-exception e)))))\n        (values #f \"\" msg #t)))\n    (lambda ()\n      (let* ((out-port (open-output-string))\n             (err-port (open-output-string))\n             (expr (with-input-from-string expr-string read))\n             (result (parameterize ((current-output-port out-port)\n                                    (current-error-port err-port))\n                       (eval expr)))\n             (stdout-text (get-output-string out-port))\n             (stderr-text (get-output-string err-port)))\n        (values result stdout-text stderr-text #f)))))\n\n;; Example usage:\n(let-values (((result stdout stderr error?)\n              (eval-with-capture \"(begin (displayln \\\"hello\\\") (+ 1 2))\")))\n  (list result stdout stderr error?))\n;; => (3 \"hello\\n\" \"\" #f)",
+    "notes": "parameterize only redirects Scheme-level ports. C-level stderr writes (e.g. from Gambit's module loader, __load-gxi errors) bypass parameterize entirely and go to the process's fd 2. To capture those, you need to redirect the file descriptor at the OS level or use (current-error-port new-port) at the top level (not parameterize). Also note: with-output-to-string only captures current-output-port, not current-error-port — you need separate open-output-string ports for both.",
+    "related": [
+      "string-ports-io"
+    ]
+  },
+  {
+    "id": "append-log-file-with-timestamp",
+    "title": "Append timestamped lines to a log file with force-output",
+    "tags": [
+      "log",
+      "file",
+      "append",
+      "timestamp",
+      "open-output-file",
+      "force-output",
+      "time->seconds"
+    ],
+    "imports": [],
+    "code": ";; Persistent append-mode log file with timestamps\n;; Gambit builtins — no import needed\n\n(def *log-port* #f)\n\n(def (init-log! path)\n  \"Open a log file in append mode.\"\n  (set! *log-port* (open-output-file [path: path append: #t])))\n\n(def (log! . args)\n  \"Write a timestamped line to the log file.\"\n  (when *log-port*\n    (let ((port *log-port*)\n          (ts (number->string\n                (inexact->exact (floor (time->seconds (current-time)))))))\n      (display \"[\" port)\n      (display ts port)\n      (display \"] \" port)\n      (for-each (lambda (arg) (display arg port)) args)\n      (newline port)\n      (force-output port))))\n\n;; Usage:\n(init-log! \"/tmp/my-app.log\")\n(log! \"started with \" (number->string 42) \" items\")\n;; Writes: [1771790871] started with 42 items",
+    "notes": "Use Gambit settings-list syntax [path: ... append: #t] for open-output-file to append instead of overwrite. force-output is critical — without it, log entries may be buffered and lost on crash. time->seconds returns an inexact flonum, so use (inexact->exact (floor ...)) for a clean integer timestamp. No SRFI-19 import needed — time->seconds and current-time are Gambit builtins.",
+    "related": [
+      "file-append-gambit-settings-list",
+      "current-second-time"
+    ]
+  },
+  {
+    "id": "redirect-current-error-port-to-file",
+    "title": "Redirect Scheme current-error-port to a file at startup",
+    "tags": [
+      "current-error-port",
+      "redirect",
+      "stderr",
+      "file",
+      "startup",
+      "log"
+    ],
+    "imports": [],
+    "code": ";; Redirect current-error-port globally (not parameterize — permanent)\n;; This captures Gambit display-exception, warning messages, etc.\n\n(def *original-stderr* (current-error-port))\n\n(def (redirect-stderr-to-file! path)\n  \"Redirect Scheme stderr to a file. Saves original for fallback.\"\n  (let ((log-port (open-output-file [path: path append: #t])))\n    (current-error-port log-port)  ;; top-level set, not parameterize\n    log-port))\n\n;; Usage at startup:\n;; (redirect-stderr-to-file! (string-append (getenv \"HOME\" \"/tmp\") \"/.myapp-errors.log\"))\n;; Now (display \"oops\" (current-error-port)) goes to the file",
+    "notes": "Calling (current-error-port new-port) at top level permanently redirects the Scheme error port — unlike parameterize which is scoped. This captures Gambit's display-exception output and Scheme-level warnings. However, C-level stderr (e.g. Gambit module loader errors like '*** ERROR: cannot find library module') writes directly to fd 2 and bypasses Scheme ports entirely. To capture those, you'd need OS-level fd redirection (dup2). Save the original stderr port if you need fallback output.",
+    "related": [
+      "capture-eval-stdout-stderr-parameterize",
+      "append-log-file-with-timestamp"
+    ]
+  },
+  {
+    "id": "gambit-set-gambitdir-runtime",
+    "title": "Set Gambit's ~~ directory at runtime with ##set-gambitdir!",
+    "tags": [
+      "gambit",
+      "set-gambitdir",
+      "tilde-tilde",
+      "runtime",
+      "path",
+      "compile-file",
+      "gambuild"
+    ],
+    "imports": [],
+    "code": ";; Change where ~~ resolves to at runtime (affects compile-file, path-expand \"~~\", etc.)\n;; ##set-gambitdir! is a Gambit primitive — no imports needed.\n;; Internally calls ___set_gambitdir() which takes UCS-2 string,\n;; but Gambit handles the conversion from Scheme string automatically.\n(##set-gambitdir! \"/path/to/fake-gambit-home/\")\n\n;; Verify it took effect:\n(display (path-expand \"~~\"))  ;; => /path/to/fake-gambit-home/\n\n;; Use case: static binaries that embed gambit.h and a minimal gambuild-C\n;; can set ~~ to a cache directory so compile-file finds them:\n;;   ~/.cache/gsh/include/gambit.h\n;;   ~/.cache/gsh/bin/gambuild-C\n;;   ~/.cache/gsh/lib/  (empty, but referenced by GAMBITDIR_LIB)",
+    "notes": "WARNING: Do NOT try to call ___set_gambitdir() directly via char-string c-lambda — it takes ___UCS_2STRING internally. Always use ##set-gambitdir! from Scheme. The trailing slash in the path is important (Gambit treats ~~ as a directory). This affects ALL subsequent ~~ resolution including compile-file's gambuild path lookup.",
+    "related": [
+      "embed-gambitgsc-compile-file",
+      "gambit-path-builtins"
+    ]
+  },
+  {
+    "id": "create-directory-star-recursive",
+    "title": "Create directories recursively with create-directory* (Gambit builtin)",
+    "tags": [
+      "create-directory",
+      "mkdir",
+      "recursive",
+      "gambit",
+      "builtin",
+      "directory",
+      "path"
+    ],
+    "imports": [],
+    "code": ";; create-directory* is a Gambit builtin (no imports needed)\n;; Creates all parent directories recursively, like mkdir -p\n(create-directory* \"/tmp/foo/bar/baz\")\n;; All three directories created if they don't exist\n\n;; Single directory (also Gambit builtin):\n(create-directory \"/tmp/single-dir\")\n;; Fails if parent doesn't exist\n\n;; NOTE: create-directory* is NOT in :std/os/fs — it's a Gambit primitive\n;; Available in the empty namespace: create-directory*, create-directory*__%",
+    "notes": "create-directory* takes exactly 1 argument (the path). It's a Gambit builtin, not a Gerbil stdlib function. Don't try to import it from :std/os/fs — the module doesn't exist in v0.18. Use gerbil_apropos to discover Gambit builtins like this."
+  },
+  {
+    "id": "weak-symbol-optional-ffi-linking",
+    "title": "Use __attribute__((weak)) for optional FFI linking (compile-time optional .o files)",
+    "tags": [
+      "weak",
+      "symbol",
+      "ffi",
+      "optional",
+      "linking",
+      "c-declare",
+      "attribute",
+      "conditional"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Pattern: define weak C symbols that provide defaults when an optional .o is not linked.\n;; When the .o IS linked, its strong symbols override the weak defaults.\n;; This lets a binary have optional features without #ifdef or separate builds.\n\n(begin-ffi (my-optional-func my-has-optional-data)\n\n  ;; Weak symbol: returns default (0) when optional_data.o is not linked\n  ;; Strong definition in optional_data.c overrides when linked\n  (c-declare #<<END-C\nint __attribute__((weak)) my_extract_data(const char *dir) {\n    (void)dir; return -1;  /* no-op default */\n}\nint __attribute__((weak)) my_has_data(void) { return 0; }\nEND-C\n  )\n\n  (define-c-lambda my-optional-func (char-string) int \"my_extract_data\")\n  (define-c-lambda my-has-optional-data () int \"my_has_data\")\n)\n\n;; In optional_data.c (compiled separately, linked via -ld-options):\n;; int my_extract_data(const char *dir) { /* real implementation */ return 0; }\n;; int my_has_data(void) { return 1; }\n\n;; Usage:\n;; (when (> (my-has-optional-data) 0)\n;;   (my-optional-func \"/output/dir\"))",
+    "notes": "The weak/strong symbol pattern is used in gsh for embedded .ssi, .scm, and gambit.h data. The weak declarations go in ffi.ss (always compiled). The strong definitions live in generated .c files that are only linked for static builds via build.ss -ld-options. Works with both gcc and musl-gcc. The extern declaration must come before the weak definition to avoid 'conflicting types' errors.",
+    "related": [
+      "ffi-posix-syscall-begin-ffi"
+    ]
+  },
+  {
+    "id": "gambuild-c-minimal-dyn",
+    "title": "Minimal gambuild-C script for compile-file dyn operation (.c → .o1)",
+    "tags": [
+      "gambuild",
+      "compile-file",
+      "dyn",
+      "gcc",
+      "shared",
+      "o1",
+      "gambit",
+      "native"
+    ],
+    "imports": [],
+    "code": ";; Gambit's compile-file internally calls ##gambuild which runs ~~bin/gambuild-C\n;; with environment variables for build parameters. The script receives the\n;; operation name (\"dyn\") as its sole argument.\n;;\n;; Minimal gambuild-C for producing .o1 shared objects:\n;;\n;; #!/bin/sh\n;; case \"$1\" in\n;;   dyn)\n;;     ${BUILD_DYN_CC_PARAM:-cc} \\\n;;       -O1 -shared -fPIC -fwrapv -fno-strict-aliasing \\\n;;       -D___SINGLE_HOST -D___DYNAMIC \\\n;;       -I\"$GAMBITDIR_INCLUDE\" \\\n;;       -o \"$BUILD_DYN_OUTPUT_FILENAME_PARAM\" \\\n;;       $BUILD_DYN_CC_OPTIONS_PARAM \\\n;;       $BUILD_DYN_LD_OPTIONS_PRELUDE_PARAM \\\n;;       \"$BUILD_DYN_INPUT_FILENAMES_PARAM\" \\\n;;       $BUILD_DYN_LD_OPTIONS_PARAM \\\n;;       2>&1\n;;     ;;\n;;   *) echo \"unsupported: $1\" >&2; exit 1 ;;\n;; esac\n;;\n;; Place at ~~bin/gambuild-C, chmod +x. Set ~~ via ##set-gambitdir!.\n;; Also need gambit.h at ~~include/gambit.h.\n\n;; From Scheme, generate and install:\n(let ((bin-dir (string-append cache-dir \"/bin\")))\n  (create-directory* bin-dir)\n  (with-output-to-file (string-append bin-dir \"/gambuild-C\")\n    (lambda () (display script-content)))\n  (##shell-command (string-append \"chmod +x \" bin-dir \"/gambuild-C\")))",
+    "notes": "The full gambuild-C is 591 lines but most is for obj/exe/lib operations and pkg-config. For compile-file's dyn operation (the common case), only the gcc -shared -fPIC command is needed. Key env vars: GAMBITDIR_INCLUDE (set by ##shell-install-dirs from ~~include), BUILD_DYN_INPUT_FILENAMES_PARAM, BUILD_DYN_OUTPUT_FILENAME_PARAM. The -D___SINGLE_HOST and -D___DYNAMIC are required Gambit defines.",
+    "related": [
+      "gambit-set-gambitdir-runtime",
+      "embed-gambitgsc-compile-file"
+    ]
+  },
+  {
+    "id": "path-extension-returns-dotted",
+    "title": "path-extension returns dotted extension (.ss not ss)",
+    "tags": [
+      "path",
+      "extension",
+      "file",
+      "gambit",
+      "dotted",
+      "gotcha",
+      "member"
+    ],
+    "imports": [],
+    "code": ";; path-extension returns the dot: \".ss\" not \"ss\"\n(path-extension \"/home/user/file.ss\")   ;=> \".ss\"\n(path-extension \"/home/user/file.py\")   ;=> \".py\"\n(path-extension \"/home/user/Makefile\")  ;=> \"\"\n\n;; WRONG — comparing without dot:\n(member (path-extension fp) '(\"ss\" \"scm\"))  ;=> always #f\n\n;; RIGHT — include the dot:\n(member (path-extension fp) '(\".ss\" \".scm\" \".sld\"))\n\n;; Safe pattern for getting extension from a buffer:\n(let ((fp (buffer-file-path buf)))\n  (if fp (path-extension fp) \"\"))",
+    "notes": "Common gotcha: path-extension is a Gambit builtin that always includes the leading dot. When comparing extensions with member, always use dotted strings like \\\".ss\\\" not \\\"ss\\\". Returns empty string \\\"\\\" when there's no extension.",
+    "related": [
+      "gambit-path-builtins",
+      "path-manipulation-utilities"
+    ]
+  },
+  {
+    "id": "export-t-chain-conflict-resolution",
+    "title": "Resolve (export #t) chain import conflicts between sibling modules",
+    "tags": [
+      "export",
+      "import",
+      "conflict",
+      "chain",
+      "module",
+      "duplicate",
+      "bad-binding",
+      "sibling"
+    ],
+    "imports": [],
+    "code": ";; Problem: Module A and Module B both define *foo-mode*\n;; Module C imports both A and B => \"Bad binding; import conflict\"\n;;\n;; helpers.ss (export #t)\n;; (def *foo-mode* #f)           ;; <-- CONFLICT SOURCE\n;;\n;; modes.ss (export #t)\n;; (def *foo-mode* #f)           ;; <-- ALSO DEFINES IT\n;;\n;; facade.ss\n;; (import :my/helpers :my/modes) ;; => Bad binding: *foo-mode*\n\n;; Fix 1: Remove duplicate from one module (preferred)\n;; Delete (def *foo-mode* #f) from helpers.ss if modes.ss owns it\n\n;; Fix 2: Use (only-in ...) to exclude the conflicting symbol\n;; (import (only-in :my/helpers helper-fn1 helper-fn2)\n;;         :my/modes)\n\n;; Fix 3: Use (except-in ...) to exclude specific symbols\n;; (import (except-in :my/helpers *foo-mode*)\n;;         :my/modes)",
+    "notes": "With (export #t), ALL top-level defs are auto-exported. When building module chains (A → B → C → facade), adding a variable like *foo-mode* to a helpers module will conflict if any downstream module already defines it. Always grep for existing definitions before adding new ones: grep 'def.*symbol-name' *.ss",
+    "related": [
+      "export-t-does-not-reexport-imports",
+      "resolve-import-naming-conflicts",
+      "split-large-module-facade-pattern"
+    ]
+  },
+  {
+    "id": "exe-stale-global-static-scm-shadow",
+    "title": "Stale global .scm shadows project-local in exe linking",
+    "tags": [
+      "exe",
+      "stale",
+      "global",
+      "static",
+      "shadow",
+      "scm",
+      "build",
+      "linking",
+      "binary",
+      "test"
+    ],
+    "imports": [],
+    "code": ";; Problem: Gambit exe linker prefers ~/.gerbil/lib/static/pkg__module.scm\n;; over project-local .gerbil/lib/static/pkg__module.scm.\n;; If the global copy is stale (from an earlier build), the exe binary\n;; will contain old code even though `gerbil build` reported success.\n;;\n;; Symptom: test groups silently missing, functions not defined,\n;; code changes not taking effect in exe binaries despite clean rebuild.\n;;\n;; Fix: Delete the global copy THEN rebuild:\n;;   rm -f ~/.gerbil/lib/static/gemacs__my-test.{scm,c,o}\n;;   rm -f .gerbil/lib/static/gemacs__my-test.{scm,c,o}\n;;   rm -f .gerbil/bin/my-test*\n;;   gerbil build\n;;\n;; Verify the global copy wasn't silently recreated:\n;;   ls -la ~/.gerbil/lib/static/gemacs__my-test.scm\n;;\n;; Use gerbil_stale_static to detect this automatically.",
+    "notes": "This is particularly insidious for test exe binaries: the build succeeds, the .scm in the project-local static/ contains the new code, but the exe links against the global copy. The binary runs but silently uses old code — test groups appear to be skipped with no error. Always check both ~/.gerbil/lib/static/ AND .gerbil/lib/static/ when exe behavior doesn't match source.",
+    "related": [
+      "stale-global-static-files-segfault",
+      "gerbil-clean-does-not-remove-c-o-files"
+    ]
+  },
+  {
+    "id": "export-t-global-var-conflict-across-modules",
+    "title": "Resolve (export #t) global variable conflict when adding new modules",
+    "tags": [
+      "export",
+      "conflict",
+      "global",
+      "variable",
+      "module",
+      "rebind",
+      "import",
+      "helm-mode",
+      "duplicate"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; Problem: Two modules both define (def *helm-mode* #f) and both\n;; export it (one via explicit export, one via (export #t)).\n;; A third module importing both gets \"Bad binding; rebind conflict\".\n;;\n;; Common scenario: Adding a new feature module (helm.ss) that defines\n;; a global toggle (*helm-mode*) while an existing module chain\n;; (editor-extra-tools.ss with (export #t)) already defines it as a stub.\n;;\n;; Solution: Move the shared global to a common ancestor module\n;; (e.g. core.ss) that both modules already import.\n;;\n;; In core.ss (the common ancestor):\n(export *helm-mode*)\n(def *helm-mode* #f)\n\n;; In old module (editor-extra-tools.ss), replace definition with comment:\n;; *helm-mode* is defined in core.ss\n\n;; In new module (helm.ss), remove definition — it comes from :gemacs/core\n;; Both helm-commands.ss and qt/helm-commands.ss get it from :gemacs/core\n\n;; Key insight: With (export #t) chains, the build order matters.\n;; If module A is compiled before module B, A cannot import from B.\n;; Moving the definition to a common ancestor that's compiled first\n;; is the cleanest solution.",
+    "notes": "This pattern occurs whenever you add a new subsystem module that needs to share global state with an existing module chain. The existing chain uses (export #t) so all its defs are exported. Your new module also needs the global. The fix is always: move to a common ancestor. Don't try to have one module import from the other — build order constraints will bite you.",
+    "related": [
+      "export-t-chain-conflict-resolution",
+      "gerbil-def-rebind-conflict-same-module"
+    ]
+  },
+  {
+    "id": "make-simple-source-helm-arity",
+    "title": "Helm make-simple-source requires thunk and action (not bare list)",
+    "tags": [
+      "helm",
+      "source",
+      "arity",
+      "thunk",
+      "action",
+      "make-simple-source",
+      "candidates",
+      "lambda"
+    ],
+    "imports": [
+      ":gemacs/helm"
+    ],
+    "code": ";; make-simple-source signature:\n;; (def (make-simple-source name candidates-thunk action\n;;                          (fuzzy? #t) (persistent-action #f)\n;;                          (display-fn #f) (real-fn #f)\n;;                          (volatile? #f) (follow? #f))\n;;\n;; WRONG — bare list, missing action:\n;; (make-simple-source \"test\" '(\"alpha\" \"beta\" \"gamma\"))\n;; ERROR: Illegal case-lambda application; arity mismatch (3 4 5 6 7 8 9)\n;;\n;; RIGHT — thunk + action lambda:\n(make-simple-source \"test\"\n  (lambda () '(\"alpha\" \"beta\" \"gamma\"))\n  (lambda (app val) val))",
+    "notes": "The candidates parameter is a THUNK (zero-arg lambda), not a list. The action parameter is required (minimum arity = 3). Action receives (app selected-value). The error message 'arity mismatch (3 4 5 6 7 8 9)' means it accepts 3-9 args but got only 2."
+  },
+  {
+    "id": "positional-optional-no-keyword-dispatch",
+    "title": "GOTCHA: Positional optionals silently eat keyword symbols — use explicit keyword: syntax",
+    "tags": [
+      "keyword",
+      "optional",
+      "positional",
+      "dispatch",
+      "gotcha",
+      "silent-bug",
+      "def",
+      "parameter"
+    ],
+    "imports": [],
+    "code": ";; WRONG: positional optional — keyword syntax silently fails\n(def (make-widget label (color \"red\") (enabled? #t))\n  (list label color enabled?))\n;; Caller thinks they're using keywords, but color: becomes a positional value:\n(make-widget \"ok\" color: \"blue\")\n;; => (\"ok\" color: \"blue\")  — color = symbol color:, enabled? = \"blue\" (truthy!)\n\n;; RIGHT: explicit keyword parameters — keyword dispatch works correctly\n(def (make-widget label color: (color \"red\") enabled?: (enabled? #t))\n  (list label color enabled?))\n(make-widget \"ok\" color: \"blue\")\n;; => (\"ok\" \"blue\" #t)  — color = \"blue\", enabled? = #t (correct!)\n\n;; Verification:\n(def (f a (b 1) (c 2)) (list a b c))\n(f 'x b: 'y)   ;; => (x b: y) — WRONG! b = symbol b:, c = y\n\n(def (g a b: (b 1) c: (c 2)) (list a b c))\n(g 'x b: 'y)   ;; => (x y 2) — CORRECT! b = y, c = 2",
+    "notes": "This is a silent bug: no error is raised. The keyword symbol (e.g. color:) is passed as a regular positional argument. Especially dangerous when the optional has a boolean default — the keyword symbol is truthy, so (enabled? #t) becomes (enabled? \\\"some-string\\\") which is still truthy but changes semantics in multi-select modes etc. Always use explicit keyword: syntax in the def when callers use keyword-style calls.",
+    "related": [
+      "optional-keyword-args",
+      "keyword-args-vs-rest-args-gotcha"
+    ]
+  },
+  {
+    "id": "recursive-file-walk-skip-hidden",
+    "title": "Recursive file walk with hidden-file and directory skip-list filtering",
+    "tags": [
+      "directory-files",
+      "recursive",
+      "walk",
+      "hidden",
+      "skip",
+      "filter",
+      "filesystem",
+      "file-finder"
+    ],
+    "imports": [],
+    "code": "(def *skip-dirs* '(\".git\" \"node_modules\" \"__pycache__\" \".gerbil\"\n                   \".cache\" \"venv\" \".venv\" \"target\" \"dist\" \".hg\" \".svn\"))\n\n(def (collect-files dir max-files)\n  \"Recursively collect file paths under dir, up to max-files.\"\n  (let ((result [])\n        (count 0))\n    (let walk ((d dir) (prefix \"\"))\n      (when (< count max-files)\n        (with-catch\n         (lambda (e) #!void)  ;; skip permission errors\n         (lambda ()\n           (let ((entries (directory-files d)))\n             (for-each\n               (lambda (name)\n                 (when (and (< count max-files)\n                            (not (string=? name \".\"))\n                            (not (string=? name \"..\"))\n                            ;; Skip hidden at ALL levels (no root exception)\n                            (not (and (> (string-length name) 0)\n                                      (char=? (string-ref name 0) #\\.)))\n                            (not (member name *skip-dirs*)))\n                   (let* ((rel (if (string=? prefix \"\")\n                                 name\n                                 (string-append prefix \"/\" name)))\n                          (full (string-append d \"/\" name)))\n                     (if (file-directory? full)\n                       (walk full rel)\n                       (begin\n                         (set! result (cons rel result))\n                         (set! count (+ count 1)))))))\n               entries))))))\n    (reverse result)))",
+    "notes": "Key points: (1) directory-files returns just names, not full paths — must build both rel (for output) and full (for stat/recurse). (2) file-directory? requires the FULL path. (3) Only add non-directories to result — recurse into directories without adding them. (4) Filter hidden files at ALL levels, not just subdirectories — otherwise .git/.gerbil at root leak through. (5) with-catch around directory-files handles permission-denied gracefully. (6) Use a skip-list for known large directories to avoid slow traversals.",
+    "related": [
+      "directory-files-list-entries"
+    ]
+  },
+  {
+    "id": "open-process-git-ls-files-fallback",
+    "title": "Git-aware file listing with open-process fallback",
+    "tags": [
+      "open-process",
+      "git",
+      "ls-files",
+      "file-list",
+      "fallback",
+      "process-status"
+    ],
+    "imports": [],
+    "code": "(def (collect-files-git dir max-files)\n  \"Collect files using git ls-files if in a git repo, else fall back.\"\n  (with-catch\n   (lambda (e) (collect-files-fallback dir max-files))\n   (lambda ()\n     (let* ((proc (open-process (list path: \"git\"\n                                      arguments: (list \"ls-files\" \"--cached\" \"--others\"\n                                                       \"--exclude-standard\")\n                                      directory: dir\n                                      stdin-redirection: #f\n                                      stderr-redirection: #f)))\n            (files (let loop ((acc []))\n                     (let ((line (read-line proc)))\n                       (if (or (eof-object? line) (>= (length acc) max-files))\n                         (reverse acc)\n                         (loop (cons line acc))))))\n            (status (process-status proc)))\n       (if (= status 0)\n         files\n         (collect-files-fallback dir max-files))))))",
+    "notes": "Key points: (1) stdin-redirection: #f and stderr-redirection: #f so child inherits parent's stdin/stderr (git won't hang on missing stdin, errors go to terminal). (2) Must call process-status AFTER reading all output — it waits for the process to exit. (3) Check exit status: non-zero means not a git repo or git not available — fall back gracefully. (4) --cached --others --exclude-standard gives tracked files + untracked non-ignored files (matches what fzf sees). (5) with-catch around everything handles git not installed.",
+    "related": [
+      "run-process-subprocess",
+      "fuse-unmount-safe-open-process"
+    ]
   }
 ]

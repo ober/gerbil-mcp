@@ -594,5 +594,21 @@
       "reverse-engineering",
       "technology-stack"
     ]
+  },
+  {
+    "id": "gambit-shell-command-injection",
+    "title": "Shell injection via ##shell-command with string concatenation",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "##shell-command\\s*\\(string-append",
+    "message": "##shell-command executes a shell string directly. When combined with string-append using user-controlled or external input, this can lead to shell injection. Even with trusted input, prefer safer alternatives.",
+    "remediation": "Use open-process with explicit argument lists instead of ##shell-command with string concatenation. If ##shell-command is necessary (e.g., for chmod in build scripts), ensure all concatenated values are hardcoded constants, not user input.",
+    "tags": [
+      "shell-injection",
+      "gambit",
+      "##shell-command",
+      "string-append",
+      "command-injection"
+    ]
   }
 ]
