@@ -1,23 +1,5 @@
 [
   {
-    "id": "build-ss-import-audit",
-    "title": "Audit build.ss imports to detect silently-failing run-process calls",
-    "description": "A tool that parses a build.ss file, identifies all function calls (especially run-process, open-process, etc.) and cross-references them against the file's imports to detect unbound symbols that would be silently caught by with-catch wrappers. This is critical because build.ss files commonly wrap pkg-config calls in with-catch for fallback behavior, but if the function itself is unbound (missing import), the with-catch silently returns the fallback — making the actual bug invisible.",
-    "impact": "high",
-    "tags": [
-      "build.ss",
-      "import",
-      "audit",
-      "run-process",
-      "with-catch",
-      "silent-failure"
-    ],
-    "use_case": "When writing or modifying build.ss files that use run-process, pkg-config detection, or any external process calls wrapped in with-catch. Would have caught the :std/misc/process missing import that caused hours of debugging.",
-    "example_scenario": "build.ss imports :std/build-script and :std/make but NOT :std/misc/process. It uses run-process in 5 places, all wrapped in with-catch. Every call silently fails and returns fallback values. QScintilla detection returns #f, pkg-config --static --libs returns incomplete flags. The static build then fails with cryptic linker errors far downstream from the actual bug.",
-    "estimated_token_reduction": "~2000-5000 tokens per debugging session avoided — this single missing import caused 10+ rounds of build-test-debug cycles",
-    "votes": 0
-  },
-  {
     "id": "binary-info-leak-audit",
     "title": "Audit compiled Gerbil binary for information leaks",
     "description": "A tool that analyzes a compiled Gerbil/Gambit ELF binary and reports all information leaks: module names, symbol names, file paths, version strings, configure commands, compiler info, and other identifying metadata. Would scan .rodata, .data, .comment, .note sections and categorize findings by type and severity. Could also suggest specific obfuscation steps for each leak category.",

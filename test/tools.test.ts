@@ -749,6 +749,34 @@ extern void iterator_destroy(iterator_t *it);
 `,
     );
 
+    // Build.ss audit fixtures
+    writeFileSync(
+      join(TEST_DIR, 'build-audit-missing.ss'),
+      `(import :std/build-script)
+
+(defbuild-script
+  (static-include
+    (with-catch
+      (lambda (e) #f)
+      (lambda ()
+        (run-process ["pkg-config" "--libs" "somelib"]
+          stdout-redirection: #t)))))
+`,
+    );
+    writeFileSync(
+      join(TEST_DIR, 'build-audit-clean.ss'),
+      `(import :std/build-script :std/misc/process)
+
+(defbuild-script
+  (static-include
+    (with-catch
+      (lambda (e) #f)
+      (lambda ()
+        (run-process ["pkg-config" "--libs" "somelib"]
+          stdout-redirection: #t)))))
+`,
+    );
+
     // Security scan fixtures
     writeFileSync(
       join(TEST_DIR, 'sec-shell-inject.ss'),
@@ -4593,6 +4621,33 @@ END-C
       const result = await client.callTool('gerbil_pre_add_symbol_check', {
         file_path: '/tmp/test.ss',
       });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── Build.ss import audit ──────────────────────────────────────────
+
+  describe('Build.ss import audit', () => {
+    it('detects run-process inside with-catch without import', async () => {
+      const result = await client.callTool('gerbil_build_ss_audit', {
+        file_path: join(TEST_DIR, 'build-audit-missing.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('run-process');
+      expect(result.text).toContain('SILENT FAILURE');
+      expect(result.text).toContain(':std/misc/process');
+    }, 30000);
+
+    it('passes clean build.ss with correct imports', async () => {
+      const result = await client.callTool('gerbil_build_ss_audit', {
+        file_path: join(TEST_DIR, 'build-audit-clean.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('No issues found');
+    }, 30000);
+
+    it('requires file_path', async () => {
+      const result = await client.callTool('gerbil_build_ss_audit', {});
       expect(result.isError).toBe(true);
     });
   });

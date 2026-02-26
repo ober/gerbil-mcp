@@ -142,6 +142,7 @@ import { registerSigchldCheckTool } from './tools/sigchld-check.js';
 import { registerPortFdInspectorTool } from './tools/port-fd-inspector.js';
 import { registerGambitSourceExtractTool } from './tools/gambit-source-extract.js';
 import { registerPreAddSymbolCheckTool } from './tools/pre-add-symbol-check.js';
+import { registerBuildSsAuditTool } from './tools/build-ss-audit.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -287,6 +288,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To look up error fixes: use gerbil_error_fix_lookup for instant fix lookup from a database of ~20 common error→fix mappings. Much faster than explain_error for known errors.
 - To add error fixes: use gerbil_error_fix_add to record new error→fix mappings discovered during a session.
 - To diagnose exe link failures: use gerbil_build_linkage_diagnostic to trace transitive FFI link dependencies in build.ss exe targets. Detects missing C libraries that would cause silent link failures.
+- To audit build.ss imports: use gerbil_build_ss_audit to detect function calls (especially run-process) that silently fail due to missing imports. Calls inside with-catch blocks are especially dangerous — unbound identifier exceptions are swallowed, returning fallback values. The tool cross-references calls against imports and flags silent failures.
 - To check cross-module symbols: use gerbil_cross_module_check to detect unbound symbol references across project files before compilation. Critical when splitting large modules into sub-modules.
 - To find #ifdef stubs: use gerbil_detect_ifdef_stubs to scan c-declare blocks for #ifdef/#else stub patterns (NULL/0 returns) that cause segfaults in cross-project builds.
 - To run Qt FFI tests: use gerbil_qt_test_runner to build, patchelf, and run a Qt exe test in one step with QT_QPA_PLATFORM=offscreen.
@@ -480,6 +482,7 @@ registerSigchldCheckTool(server);
 registerPortFdInspectorTool(server);
 registerGambitSourceExtractTool(server);
 registerPreAddSymbolCheckTool(server);
+registerBuildSsAuditTool(server);
 
 registerPrompts(server);
 registerResources(server);
