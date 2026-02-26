@@ -953,6 +953,27 @@ void copy_data(const uint8_t *src, int len) {
 `,
     );
 
+    // Keyword-positional mismatch lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'kw-pos-mismatch.ss'),
+      `(def (fzf-select candidates (prompt "> ") (multi? #f) (initial-query ""))
+  (displayln prompt multi? initial-query candidates))
+
+(def (run-cmd)
+  (fzf-select '("a" "b") prompt: "(history)> "))
+`,
+    );
+
+    // Qt callback arity lint fixture
+    writeFileSync(
+      join(TEST_DIR, 'qt-cb-arity.ss'),
+      `(import :my/qt)
+(def (setup-ui widget)
+  (qt-on-text-changed! widget (lambda () (displayln "changed")))
+  (qt-on-clicked! widget (lambda (x) (displayln x))))
+`,
+    );
+
     // Start MCP client
     client = new McpClient();
     await client.start();
@@ -7986,6 +8007,100 @@ END-C
       expect(tool).toBeDefined();
       expect(tool.annotations.readOnlyHint).toBe(false);
       expect(tool.annotations.idempotentHint).toBe(true);
+    });
+  });
+
+  // ── Gambuild Extract ──────────────────────────────────────────────
+  describe('gerbil_gambuild_extract', () => {
+    it('extracts gambuild-C templates', async () => {
+      const result = await client.callTool('gerbil_gambuild_extract', {});
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('Gambuild-C');
+      expect(result.text).toContain('Environment Variables');
+    }, 30000);
+
+    it('filters by specific operation', async () => {
+      const result = await client.callTool('gerbil_gambuild_extract', {
+        operation: 'dyn',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('dyn');
+    }, 30000);
+
+    it('has correct annotations', async () => {
+      const tools = await client.listTools();
+      const tool = tools.find(
+        (t: { name: string }) => t.name === 'gerbil_gambuild_extract',
+      );
+      expect(tool).toBeDefined();
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.idempotentHint).toBe(true);
+    });
+  });
+
+  // ── Keyword-positional mismatch lint ──────────────────────────────
+  describe('Keyword-positional mismatch lint', () => {
+    it('gerbil_lint detects keyword call to positional-optional function', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'kw-pos-mismatch.ss'),
+      });
+      expect(result.text).toContain('keyword-positional-mismatch');
+      expect(result.text).toContain('prompt:');
+      expect(result.text).toContain('positional');
+    });
+
+    it('gerbil_lint does not warn for keyword-defined functions', async () => {
+      const testFile = join(TEST_DIR, 'kw-pos-clean.ss');
+      writeFileSync(
+        testFile,
+        `(def (my-func a prompt: (prompt "> ") multi?: (multi? #f))
+  (displayln prompt multi? a))
+
+(def (caller)
+  (my-func "x" prompt: "hello"))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).not.toContain('keyword-positional-mismatch');
+    });
+  });
+
+  // ── Qt callback arity lint ────────────────────────────────────────
+  describe('Qt callback arity lint', () => {
+    it('gerbil_lint detects qt-on-text-changed! with 0-arg lambda', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'qt-cb-arity.ss'),
+      });
+      expect(result.text).toContain('qt-callback-arity');
+      expect(result.text).toContain('qt-on-text-changed!');
+      expect(result.text).toContain('string handler');
+    });
+
+    it('gerbil_lint detects qt-on-clicked! with 1-arg lambda', async () => {
+      const result = await client.callTool('gerbil_lint', {
+        file_path: join(TEST_DIR, 'qt-cb-arity.ss'),
+      });
+      expect(result.text).toContain('qt-callback-arity');
+      expect(result.text).toContain('qt-on-clicked!');
+      expect(result.text).toContain('void handler');
+    });
+
+    it('gerbil_lint does not warn for correct qt callback arities', async () => {
+      const testFile = join(TEST_DIR, 'qt-cb-clean.ss');
+      writeFileSync(
+        testFile,
+        `(import :my/qt)
+(def (setup-ui widget)
+  (qt-on-text-changed! widget (lambda (text) (displayln text)))
+  (qt-on-clicked! widget (lambda () (displayln "clicked"))))
+`,
+      );
+      const result = await client.callTool('gerbil_lint', {
+        file_path: testFile,
+      });
+      expect(result.text).not.toContain('qt-callback-arity');
     });
   });
 });

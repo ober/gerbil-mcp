@@ -146,6 +146,7 @@ import { registerBuildSsAuditTool } from './tools/build-ss-audit.js';
 import { registerBinaryAuditTool } from './tools/binary-audit.js';
 import { registerObfuscateLinkFileTool } from './tools/obfuscate-link-file.js';
 import { registerGambitPrimitiveLookupTool } from './tools/gambit-primitive-lookup.js';
+import { registerGambuildExtractTool } from './tools/gambuild-extract.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -189,7 +190,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To examine C bindings: use gerbil_ffi_inspect to classify a module's FFI exports (constants, C functions, wrappers).
 - To inspect types: use gerbil_class_info to examine defclass/defstruct types (slots, fields, inheritance, precedence).
 - To find where a symbol is defined: use gerbil_find_definition to locate the source file and module for any symbol. Set source_preview: true to include the actual source code. Automatically resolves standard library source files via the Gerbil installation's src/ tree (lib/ → src/ path rewrite).
-- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions with re-export awareness, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, byte/char port type mismatch, compilation errors).
+- To lint code: use gerbil_lint for static analysis (unused imports, duplicates, style, hash literal symbol keys, channel anti-patterns, unquote outside quasiquote, dot in brackets, missing exported definitions with re-export awareness, SRFI-19 time->seconds shadow, unsafe mutex-lock!/unlock! without unwind-protect, byte/char port type mismatch, keyword-positional-mismatch detection, qt-callback-arity checking, compilation errors).
 - To get a structural file overview: use gerbil_file_summary for imports, exports, and definitions grouped by kind — without reading the entire file.
 - To get project overview: use gerbil_project_info for package name, build targets, source files, and dependencies.
 - To find imports: use gerbil_suggest_imports to discover which module exports a given symbol.
@@ -304,6 +305,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To detect SIGCHLD conflicts: use gerbil_sigchld_check to find projects that use both add-signal-handler! (which blocks SIGCHLD via signalfd on Linux) and process-status (which relies on SIGCHLD). When both are present, process-status hangs. Suggests FFI-based waitpid polling as replacement.
 - To inspect port file descriptors: use gerbil_port_fd_inspector to extract the internal fd number and properties from a Gambit port object. Reports fd number, fd type, input/output direction, and tty status. Useful for debugging fd/port dual-layer issues.
 - To extract Gambit source: use gerbil_gambit_source_extract to identify the exact Gambit commit that Gerbil was built with and optionally extract matching source files from a Gambit git repo. Critical for embedding gambitgsc modules.
+- To understand gambuild-C: use gerbil_gambuild_extract to read and explain the installed gambuild-C script. Extracts operation templates (dyn, obj, exe, lib), lists all environment variables with purposes, and shows actual values from the current installation. Critical for custom native compilation workflows.
 
 ## Common Workflows
 
@@ -492,6 +494,7 @@ registerBuildSsAuditTool(server);
 registerBinaryAuditTool(server);
 registerObfuscateLinkFileTool(server);
 registerGambitPrimitiveLookupTool(server);
+registerGambuildExtractTool(server);
 
 registerPrompts(server);
 registerResources(server);

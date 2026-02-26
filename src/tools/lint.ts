@@ -121,6 +121,8 @@ export function registerLintTool(server: McpServer): void {
       checkPregexpInlineFlags(lines, diagnostics);
       checkCharByteIOMixing(lines, diagnostics);
       checkMacroSuggestions(lines, diagnostics);
+      checkKeywordPositionalMismatch(content, analysis, diagnostics);
+      checkQtCallbackArity(lines, diagnostics);
 
       // Compile check via gxc
       const compileResult = await runGxc(file_path, { timeout: 30_000 });
@@ -1290,6 +1292,134 @@ function checkMacroSuggestions(
           code: 'suggest-let-star-or-chain',
           message: `Consider using 'let*' for sequential bindings or 'chain' for threading values: (let* ((a expr1) (b (use-a a))) ...) or (chain expr (fn1) (fn2))`,
         });
+      }
+    }
+  }
+}
+
+/**
+ * Detect call sites using keyword syntax on functions defined with positional optionals.
+ * e.g., (def (f a (prompt ">")) ...) called as (f x prompt: "hello")
+ * The keyword symbol silently becomes a positional argument value.
+ */
+function checkKeywordPositionalMismatch(
+  content: string,
+  analysis: FileAnalysis,
+  diagnostics: LintDiagnostic[],
+): void {
+  // Find function definitions with positional optionals (not keyword optionals)
+  // Positional: (def (f a (prompt ">") (multi? #f)))
+  // Keyword: (def (f a prompt: (prompt ">")))
+  const positionalOptFuncs = new Map<string, number>(); // name -> line
+
+  for (const def of analysis.definitions) {
+    if (def.kind !== 'procedure') continue;
+    // Find the definition line to check for positional optionals
+    const lines = content.split('\n');
+    const defLine = lines[def.line - 1] || '';
+    // Look for (def (name ... (opt default) ... ) pattern WITHOUT keyword: syntax
+    const paramMatch = defLine.match(
+      /\(\s*(?:def\*?|define)\s+\(\s*([a-zA-Z_!?<>=+\-*/][a-zA-Z0-9_!?<>=+\-*/.:#~]*)\s+(.*)/,
+    );
+    if (!paramMatch) continue;
+    const paramStr = paramMatch[2];
+    // Has positional optionals (parenthesized defaults) but NOT keyword: params
+    if (paramStr.match(/\([a-zA-Z_!?<>=+\-*/]/) && !paramStr.match(/[a-zA-Z_!?<>=+\-*/]+:/)) {
+      positionalOptFuncs.set(def.name, def.line);
+    }
+  }
+
+  if (positionalOptFuncs.size === 0) return;
+
+  // Scan for call sites that use keyword syntax on these functions
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const commentIdx = line.indexOf(';');
+    const effective = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+
+    for (const [funcName, defLine] of positionalOptFuncs) {
+      // Look for (funcName ... keyword: value)
+      const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const callPattern = new RegExp(`\\(\\s*${escaped}\\b.*\\s([a-zA-Z_!?<>=+\\-*/][a-zA-Z0-9_!?<>=+\\-*/.#~]*):\\s`);
+      const callMatch = effective.match(callPattern);
+      if (callMatch && i + 1 !== defLine) {
+        diagnostics.push({
+          line: i + 1,
+          severity: 'warning',
+          code: 'keyword-positional-mismatch',
+          message: `"${funcName}" uses positional optionals (line ${defLine}) but is called with keyword syntax "${callMatch[1]}:". ` +
+            `The keyword symbol will be consumed as a positional arg value, shifting subsequent parameters. ` +
+            `Either change the definition to use keyword args (e.g., ${callMatch[1]}: (${callMatch[1]} default)) or remove the keyword syntax from the call.`,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Qt callback arity checking.
+ * Maps qt-on-*! functions to expected handler arities based on signal type.
+ */
+const QT_SIGNAL_ARITIES: Record<string, { arity: number; type: string }> = {
+  'qt-on-clicked!': { arity: 0, type: 'void' },
+  'qt-on-toggled!': { arity: 1, type: 'bool' },
+  'qt-on-text-changed!': { arity: 1, type: 'string' },
+  'qt-on-text-edited!': { arity: 1, type: 'string' },
+  'qt-on-value-changed!': { arity: 1, type: 'int' },
+  'qt-on-index-changed!': { arity: 1, type: 'int' },
+  'qt-on-current-index-changed!': { arity: 1, type: 'int' },
+  'qt-on-return-pressed!': { arity: 0, type: 'void' },
+  'qt-on-activated!': { arity: 1, type: 'int' },
+  'qt-on-pressed!': { arity: 0, type: 'void' },
+  'qt-on-released!': { arity: 0, type: 'void' },
+  'qt-on-selection-changed!': { arity: 0, type: 'void' },
+  'qt-on-current-changed!': { arity: 1, type: 'int' },
+  'qt-on-item-clicked!': { arity: 1, type: 'int' },
+  'qt-on-double-clicked!': { arity: 1, type: 'int' },
+  'qt-on-state-changed!': { arity: 1, type: 'int' },
+  'qt-on-timeout!': { arity: 0, type: 'void' },
+  'qt-on-finished!': { arity: 1, type: 'int' },
+  'qt-on-triggered!': { arity: 0, type: 'void' },
+};
+
+/**
+ * Detect qt-on-*! signal handler calls with lambda arity mismatches.
+ */
+function checkQtCallbackArity(
+  lines: string[],
+  diagnostics: LintDiagnostic[],
+): void {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const commentIdx = line.indexOf(';');
+    const effective = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+
+    for (const [funcName, info] of Object.entries(QT_SIGNAL_ARITIES)) {
+      if (!effective.includes(funcName)) continue;
+
+      // Look for (qt-on-*! widget (lambda (...) ...))
+      const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`${escaped}[^(]*\\(\\s*lambda\\s+\\(([^)]*)\\)`);
+
+      // Check current and next few lines (lambda may be on next line)
+      const context = lines.slice(i, Math.min(i + 5, lines.length)).join(' ');
+      const match = context.match(pattern);
+
+      if (match) {
+        const params = match[1].trim();
+        const actualArity = params.length === 0 ? 0 : params.split(/\s+/).length;
+
+        if (actualArity !== info.arity) {
+          diagnostics.push({
+            line: i + 1,
+            severity: 'warning',
+            code: 'qt-callback-arity',
+            message: `${funcName} expects a ${info.type} handler (${info.arity} arg${info.arity === 1 ? '' : 's'}) ` +
+              `but lambda has ${actualArity} parameter${actualArity === 1 ? '' : 's'}. ` +
+              `The arity exception will be silently caught by the FFI dispatch — the handler will never fire.`,
+          });
+        }
       }
     }
   }

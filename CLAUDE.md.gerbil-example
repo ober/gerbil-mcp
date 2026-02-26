@@ -56,6 +56,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 - **`gerbil_detect_ifdef_stubs`**: Scan `c-declare` blocks for `#ifdef`/`#else` stub patterns (NULL/0 returns) that cause segfaults in exe builds. Scans single file or project.
 - **`gerbil_error_hierarchy`**: View the full exception/error class hierarchy tree.
 - **`gerbil_gambit_source_extract`**: Identify the exact Gambit commit Gerbil was built with (from `gsc -v`) and optionally extract matching source files from a Gambit git repo. Reports version, commit hash, build date, and architecture. When `gambit_repo_path` is provided, extracts source subdirectories matching the commit. Critical for embedding `gambitgsc` modules. Parameters: `gambit_repo_path`, `output_dir`, `subdirs` (all optional).
+- **`gerbil_gambuild_extract`**: Read and explain the installed gambuild-C script. Extracts operation templates (dyn, obj, exe, lib), lists all environment variables with purposes, and shows actual values from the current installation. Critical for custom native compilation workflows.
 
 ### For Multi-Step Exploration
 
@@ -94,7 +95,7 @@ When a Gerbil MCP server is available, you MUST use its tools extensively instea
 
 ### For Code Quality
 
-- **`gerbil_lint`**: Static analysis: unused imports, duplicate defs, shadowed bindings, hash literal keys, channel anti-patterns, missing exports (re-export aware), port-type mismatches, pregexp inline flags, macro suggestions, and compilation errors.
+- **`gerbil_lint`**: Static analysis: unused imports, duplicate defs, shadowed bindings, hash literal keys, channel anti-patterns, missing exports (re-export aware), port-type mismatches, pregexp inline flags, macro suggestions, keyword-positional-mismatch detection, qt-callback-arity checking, and compilation errors.
 - **`gerbil_diagnostics`**: Run `gxc -S` on a file or project and get structured diagnostics with file, line, column, severity, and message. Use `loadpath` to resolve project-local module imports.
 - **`gerbil_check_exports`**: Cross-module export/import consistency checker. Detects symbols exported but not defined, and cross-module import mismatches across a project.
 - **`gerbil_check_import_conflicts`**: Detect import conflicts before build. Finds local-def vs import conflicts, cross-import collisions, and cross-module export collisions. Suggests `(only-in)`/`(except-in)` fixes. Supports `project_path` for batch checking.

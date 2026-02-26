@@ -14635,5 +14635,98 @@
     "imports": [],
     "code": ";; gerbil-shell supports a lib-only build mode that compiles all modules\n;; without linking the gsh executable. This is needed for embedding gsh\n;; as a library in another project.\n;;\n;; Build command:\n;;   GSH_LIB_ONLY=1 gerbil build\n;;\n;; This produces:\n;;   .gerbil/lib/gsh/*.ssi     — module interfaces\n;;   .gerbil/lib/gsh/*.o1      — compiled bytecode\n;;   .gerbil/lib/static/gsh__*.scm — static artifacts for exe linking\n;;\n;; It does NOT produce:\n;;   .gerbil/lib/static/gsh__*.c  — C compilation (done during exe link)\n;;   .gerbil/lib/static/gsh__*.o  — object files (done during exe link)\n;;   .gerbil/bin/gsh               — no executable\n;;\n;; The lib-only build includes: core-modules + \"lib\" entry point\n;; (ffi, util, ast, environment, lexer, parser, executor, builtins, etc.)\n;;\n;; Tier support: GSH_TIER=tiny (default), small, medium, large\n;; Tiny is sufficient for most embedding use cases.\n;;\n;; In gerbil.pkg of the consuming project:\n;;   (depend: (github: \"ober/gerbil-shell\"))\n;;\n;; In build.ss:\n;;   (def gsh-base (or (getenv \"GEMACS_GSH_BASE\" #f)\n;;                     (find-pkg-source \"gerbil-shell\")))",
     "notes": "After GSH_LIB_ONLY=1 build, the .scm static files exist but .c/.o do NOT. These are generated later by gsc during the consuming project's exe link phase. Do NOT copy stale .c/.o files from a previous full build — they may have mismatched timestamps causing the 'Incomplete form, EOF reached' error. If you see that error, rm all gsh__*.c and gsh__*.o from ~/.gerbil/lib/static/ and let gsc rebuild from .scm."
+  },
+  {
+    "id": "try-catch-predicate-binding",
+    "title": "try/catch with predicate requires binding variable",
+    "tags": [
+      "try",
+      "catch",
+      "exception",
+      "predicate",
+      "defstruct",
+      "gotcha",
+      "bug"
+    ],
+    "imports": [],
+    "code": ";; WRONG — (catch (pred?) body) is a CATCH-ALL that binds exception to pred?\n;; This catches ALL exceptions, not just sig-a:\n(defstruct sig-a ())\n(defstruct sig-b ())\n(try\n  (raise (make-sig-b))\n  (catch (sig-a?) 'caught))  ;; => 'caught (WRONG! catches sig-b too)\n\n;; CORRECT — (catch (pred? var) body) uses pred? as a predicate filter\n(try\n  (raise (make-sig-b))\n  (catch (sig-a? _) 'caught-a))  ;; sig-b propagates (CORRECT)\n\n;; Always use (catch (pred? e) body) or (catch (pred? _) body)\n;; Never (catch (pred?) body) — that's a catch-all!",
+    "notes": "CRITICAL GOTCHA: In Gerbil's try/catch, (catch (X) body) with a single item in the condition list is ALWAYS a catch-all that binds the exception to X, regardless of whether X ends with ?. To use X as a predicate, you MUST include a binding variable: (catch (X e) body) or (catch (X _) body). Without the binding var, it becomes (catch (var) body) which catches everything."
+  },
+  {
+    "id": "gsh-expand-prompt-positional-args",
+    "title": "Use gsh expand-prompt with positional args (NOT keyword args)",
+    "tags": [
+      "gsh",
+      "expand-prompt",
+      "PS1",
+      "prompt",
+      "positional",
+      "keyword",
+      "arity",
+      "gsh/prompt"
+    ],
+    "imports": [
+      ":gsh/lib",
+      ":gsh/environment",
+      "(only-in :gsh/prompt expand-prompt)"
+    ],
+    "code": ";; expand-prompt signature (all optional args are POSITIONAL, not keyword):\n;;   (expand-prompt ps-string env-get\n;;                  (job-count 0)\n;;                  (cmd-number 0)\n;;                  (history-number 0)\n;;                  (cmd-exec-fn #f))\n;;\n;; WRONG — keyword args cause \"illegal application; not a procedure\":\n;;   (expand-prompt ps1 getter (cmd-number: 42))\n;;\n;; RIGHT — positional args:\n(def env (gsh-init! #t))\n(env-set! env \"PS1\" \"\\\\u@\\\\h:\\\\w\\\\$ \")\n\n(def (get-prompt env)\n  (let* ((ps1 (or (env-get env \"PS1\") \"$ \"))\n         (env-getter (lambda (name) (env-get env name))))\n    (expand-prompt ps1 env-getter\n                   0   ; job-count (positional, not keyword!)\n                   (shell-environment-cmd-number env))))",
+    "notes": "expand-prompt takes positional optional args, NOT keyword args. Using (cmd-number: ...) causes a cryptic 'illegal application; not a procedure' error because the keyword symbol is treated as a function call. Also: import with (only-in :gsh/prompt expand-prompt) to avoid string-prefix? clash with :std/srfi/13.",
+    "related": [
+      "gsh-capture-in-process-shell",
+      "resolve-import-naming-conflicts",
+      "gsh-interactive-shell-with-gshrc"
+    ]
+  },
+  {
+    "id": "gsh-interactive-shell-with-gshrc",
+    "title": "Initialize gsh interactive shell with ~/.gshrc sourcing and PS1",
+    "tags": [
+      "gsh",
+      "interactive",
+      "gshrc",
+      "startup",
+      "PS1",
+      "load-startup-files",
+      "shell-environment",
+      "embed"
+    ],
+    "imports": [
+      ":gsh/lib",
+      ":gsh/environment",
+      ":gsh/startup",
+      "(only-in :gsh/prompt expand-prompt)"
+    ],
+    "code": ";; Full interactive shell initialization pattern:\n;; 1. gsh-init! with interactive?=#t (enables alias expansion)\n;; 2. Set SHELL env var\n;; 3. Set default PS1 before sourcing rc (rc may override)\n;; 4. Source ~/.gshrc for aliases, PS1, functions\n;; 5. Use expand-prompt to render PS1 with escapes\n\n(def (create-interactive-shell!)\n  (let ((env (gsh-init! #t)))  ; interactive?=#t\n    (env-set! env \"SHELL\" \"gsh\")\n    ;; Set default PS1 (rc file may override)\n    (unless (env-get env \"PS1\")\n      (env-set! env \"PS1\" \"\\\\u@\\\\h:\\\\w\\\\$ \"))\n    ;; Source ~/.gshrc (ignore errors in rc file)\n    (with-catch\n      (lambda (e) (void))\n      (lambda () (load-startup-files! env #f #t)))  ; login?=#f interactive?=#t\n    env))\n\n;; Get expanded prompt string\n(def (shell-prompt env)\n  (let* ((ps1 (or (env-get env \"PS1\") \"$ \"))\n         (env-getter (lambda (name) (env-get env name))))\n    (expand-prompt ps1 env-getter\n                   0  ; job-count\n                   (shell-environment-cmd-number env))))\n\n;; Execute and capture both stdout AND stderr\n(def (shell-execute input env)\n  (let* ((err-port (open-output-string))\n         (result (parameterize ((current-error-port err-port))\n                   (gsh-capture input env))))\n    (let-values (((stdout status) result))\n      (let ((stderr (get-output-string err-port)))\n        (values (string-append (or stdout \"\")\n                               (if (> (string-length stderr) 0) stderr \"\"))\n                status)))))",
+    "notes": "load-startup-files! from :gsh/startup sources ~/.gshrc for interactive non-login shells. Always wrap in with-catch to ignore rc errors. gsh-capture only captures stdout; stderr goes to current-error-port. Wrap in (parameterize ((current-error-port ...))) to capture stderr too. The env-inc-cmd-number! call should happen before each command execution to keep the prompt counter accurate.",
+    "related": [
+      "gsh-capture-in-process-shell",
+      "gsh-expand-prompt-positional-args",
+      "capture-eval-stdout-stderr-parameterize"
+    ]
+  },
+  {
+    "id": "gsh-prompt-import-conflict-srfi13",
+    "title": "Fix :gsh/prompt vs :std/srfi/13 import conflict (string-prefix?)",
+    "tags": [
+      "gsh",
+      "prompt",
+      "import",
+      "conflict",
+      "only-in",
+      "string-prefix",
+      "srfi-13",
+      "bad-binding"
+    ],
+    "imports": [
+      "(only-in :gsh/prompt expand-prompt)",
+      ":std/srfi/13"
+    ],
+    "code": ";; :gsh/prompt exports string-prefix? which clashes with :std/srfi/13.\n;; Error: \"Bad binding; import conflict ... string-prefix?\"\n;;\n;; WRONG — causes import conflict:\n;;   (import :std/srfi/13 :gsh/prompt)\n;;\n;; RIGHT — use only-in to import just what you need:\n(import :std/srfi/13\n        (only-in :gsh/prompt expand-prompt))\n\n;; Now string-prefix? comes from srfi/13 and expand-prompt from gsh/prompt",
+    "notes": ":gsh/prompt uses (export #t) and re-exports string-prefix? from its own imports. When combined with :std/srfi/13 (which also exports string-prefix?), you get a 'Bad binding; import conflict' error. Fix with (only-in :gsh/prompt expand-prompt) to import only the function you need.",
+    "related": [
+      "resolve-import-naming-conflicts",
+      "gsh-expand-prompt-positional-args"
+    ]
   }
 ]

@@ -1,61 +1,5 @@
 [
   {
-    "id": "gambuild-template-extract",
-    "title": "Extract and explain gambuild-C script templates",
-    "description": "A tool that reads the installed gambuild-C script, parses its operation templates (dyn, obj, exe), and explains each environment variable and flag. The gambuild-C script is the critical bridge between Gambit's compile-file and the system C compiler, but its template format (BUILD_DYN_CC_PARAM, GAMBITDIR_INCLUDE, etc.) is completely undocumented. The tool would extract the exact gcc invocation for each operation, list all environment variables with their purposes, and show the actual values from the current installation.",
-    "impact": "low",
-    "tags": [
-      "gambit",
-      "gambuild",
-      "compile-file",
-      "gcc",
-      "template",
-      "native-compilation"
-    ],
-    "use_case": "When implementing custom native compilation workflows (e.g., minimal gambuild-C for static binaries, cross-compilation, custom compiler flags). Currently requires reading the raw shell script and tracing through ##gambuild in _gsclib.scm.",
-    "example_scenario": "Needed to create a minimal gambuild-C script for the static binary that only handles the 'dyn' operation. Had to read the installed gambuild-C (200+ lines), trace through ##gambuild in _gsclib.scm to understand which env vars it sets, and extract just the relevant template. A tool would have shown: 'dyn operation: gcc -shared -fPIC ... -I$GAMBITDIR_INCLUDE -o $OUTPUT $INPUT' with all variable meanings.",
-    "estimated_token_reduction": "~500-1000 tokens — eliminates reading gambuild-C and _gsclib.scm to understand the template format",
-    "votes": 0
-  },
-  {
-    "id": "keyword-positional-mismatch-lint",
-    "title": "Detect keyword-style calls to functions with positional-only optionals",
-    "description": "A lint check that detects call sites using keyword syntax (e.g. `(f x prompt: \"foo\")`) where the called function defines positional optionals (e.g. `(def (f a (prompt \">\")))`), NOT keyword optionals (e.g. `(def (f a prompt: (prompt \">\")))`). In Gerbil, positional optionals silently accept keyword symbols as regular values — `prompt:` becomes a positional arg value. This causes subtle bugs: boolean parameters get truthy keyword strings, parameter values are shifted, and no error is raised. The lint should cross-reference call sites against function signatures and flag mismatches.",
-    "impact": "high",
-    "tags": [
-      "lint",
-      "keyword",
-      "positional",
-      "optional",
-      "dispatch",
-      "silent-bug",
-      "arity"
-    ],
-    "use_case": "Any time a function is defined with positional optionals but callers use keyword syntax. Especially dangerous across module boundaries where the caller assumes keyword dispatch works.",
-    "example_scenario": "fzf-select was defined as (def (fzf-select candidates (prompt \\\"> \\\") (multi? #f) (initial-query \\\"\\\"))). Callers used (fzf-select cmds prompt: \\\"(history)> \\\"). This silently set multi? to the prompt string (truthy), causing fzf-select to return a list instead of a string. The bug only manifested at runtime as a type error in a completely different function (string-copy). Took debugging to trace back to the keyword dispatch mismatch.",
-    "estimated_token_reduction": "~1000-2000 tokens per incident — eliminates runtime debugging, backtrace analysis, and hypothesis testing to find the root cause of silent keyword mismatch",
-    "votes": 0
-  },
-  {
-    "id": "qt-callback-arity-lint",
-    "title": "Lint qt-on-*! signal handlers for callback arity mismatches",
-    "description": "A lint check that detects when a gerbil-qt signal connection function (qt-on-text-changed!, qt-on-value-changed!, qt-on-index-changed!, etc.) is called with a handler lambda whose arity doesn't match the expected callback type. The gerbil-qt FFI dispatches through typed callbacks (void, string, int, bool) — if the handler has the wrong arity, the exception is silently caught by with-catch in the FFI dispatch and the handler does nothing. The lint would map each qt-on-*! function to its expected callback type (void=0 args, string/int/bool=1 arg) and flag mismatches at the call site.",
-    "impact": "high",
-    "tags": [
-      "qt",
-      "callback",
-      "arity",
-      "lint",
-      "signal",
-      "silent-error",
-      "handler"
-    ],
-    "use_case": "When writing Qt UI code with signal handlers. The silent failure mode (handler silently does nothing because arity exception is caught) is extremely hard to debug — the UI appears functional but callback actions never fire.",
-    "example_scenario": "qt-on-text-changed! registers a string handler (1 arg) but the developer writes (lambda () ...) with 0 args. Every keystroke, ffi_qt_callback_string calls (handler value), gets a 'wrong number of arguments' exception, catches it silently via with-catch, and the narrowing-update-list! function is never called. The M-x helm list never filters, always shows the first item highlighted, and Enter always runs the wrong command. Took tracing through 4 layers (echo.ss → qt shim C++ → libqt~0.scm FFI dispatch → callback type registration) to find the root cause.",
-    "estimated_token_reduction": "~2000-5000 tokens per incident — eliminates tracing through FFI callback dispatch chain to diagnose why a signal handler silently does nothing",
-    "votes": 0
-  },
-  {
     "id": "parser-error-line-column-numbers",
     "title": "Add line/column numbers to parser error messages",
     "description": "Enhance parser error reporting to include line and column numbers for all syntax errors. Currently, parser errors only show generic messages without location information, making debugging difficult for scripts and long commands.",
@@ -69,6 +13,25 @@
     "use_case": "When a shell script fails due to syntax errors, users need to know exactly where the error occurred to fix it quickly.",
     "example_scenario": "Shell script: 'for i in 1 2 3; do echo $i; done' (missing 'do') currently shows: 'syntax error' without line/column. Should show: 'line 1, column 20: syntax error'",
     "estimated_token_reduction": "~200 tokens per debugging session",
+    "votes": 0
+  },
+  {
+    "id": "export-t-re-export-conflict-detector",
+    "title": "Detect (export #t) re-export conflicts before build",
+    "description": "A tool that statically detects import conflicts caused by modules using (export #t) that re-export symbols from their own imports. When module A imports :foo and :bar, and both transitively export the same symbol (e.g. string-prefix?), (export #t) in A causes a 'Bad binding; import conflict' at compile time. The tool would: (1) resolve all imports for a module, (2) compute the full set of transitively re-exported symbols for each import, (3) detect overlapping symbols, and (4) suggest (only-in ...) fixes. This is especially problematic with third-party packages that use (export #t) liberally.",
+    "impact": "medium",
+    "tags": [
+      "import",
+      "export",
+      "conflict",
+      "re-export",
+      "only-in",
+      "transitive",
+      "bad-binding"
+    ],
+    "use_case": "When adding a new import to a module that already imports :std/srfi/13 or similar string-heavy modules. Third-party packages like :gsh/prompt use (export #t) and inadvertently re-export common symbols like string-prefix? that clash.",
+    "example_scenario": "Adding (import :gsh/prompt) to a module that already imports :std/srfi/13 causes 'Bad binding; import conflict' for string-prefix? because :gsh/prompt uses (export #t) and re-exports string-prefix? from its own imports. The build error gives the two conflicting sources but doesn't suggest a fix. The developer must manually figure out to use (only-in :gsh/prompt expand-prompt).",
+    "estimated_token_reduction": "~500-1000 tokens per incident — eliminates the build-fail-read-error-fix cycle and directly suggests the (only-in ...) fix",
     "votes": 0
   }
 ]
