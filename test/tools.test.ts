@@ -3576,6 +3576,44 @@ END-C
       // .o file should not appear since we filtered to .scm only
       expect(result.text).not.toContain('mod.o');
     });
+
+    it('exe_check detects stale .scm and warns about exe linker', async () => {
+      const globalDir = join(staleDir, 'global-exe', 'lib', 'static');
+      const localDir = join(staleDir, 'exe-proj', '.gerbil', 'lib', 'static');
+      mkdirSync(globalDir, { recursive: true });
+      mkdirSync(localDir, { recursive: true });
+      writeFileSync(join(globalDir, 'pkg__mod.scm'), 'old-scm');
+      writeFileSync(join(localDir, 'pkg__mod.scm'), 'new-longer-scm-content');
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'exe-proj'),
+        gerbil_path: join(staleDir, 'global-exe'),
+        exe_check: true,
+      });
+      expect(result.text).toContain('Exe Linking');
+      expect(result.text).toContain('exe linker');
+      expect(result.text).toContain('STALE');
+      expect(result.text).toContain('pkg__mod.scm');
+      expect(result.text).toContain('rm ');
+    });
+
+    it('exe_check detects orphaned .c without .o', async () => {
+      const globalDir = join(staleDir, 'global-orphan', 'lib', 'static');
+      const localDir = join(staleDir, 'orphan-proj', '.gerbil', 'lib', 'static');
+      mkdirSync(globalDir, { recursive: true });
+      mkdirSync(localDir, { recursive: true });
+      // Global has .c but no .o, and a matching local .scm
+      writeFileSync(join(globalDir, 'pkg__broken.c'), 'c-code-here');
+      writeFileSync(join(globalDir, 'pkg__broken.scm'), 'scm-content');
+      writeFileSync(join(localDir, 'pkg__broken.scm'), 'scm-content');
+      const result = await client.callTool('gerbil_stale_static', {
+        project_path: join(staleDir, 'orphan-proj'),
+        gerbil_path: join(staleDir, 'global-orphan'),
+        exe_check: true,
+      });
+      expect(result.text).toContain('ORPHAN');
+      expect(result.text).toContain('pkg__broken.c');
+      expect(result.text).toContain('Incomplete form');
+    });
   });
 
   describe('Balanced replace tool', () => {

@@ -239,7 +239,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check existing feature suggestions: use gerbil_list_features to search or list existing feature suggestions.
 - To vote for a feature: use gerbil_vote_feature to increment the vote count for a feature you could have used.
 - To decode mangled C symbols: use gerbil_demangle to convert Gambit-mangled C identifiers back to readable module/function paths.
-- To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files.
+- To detect stale build artifacts: use gerbil_stale_static to compare global vs project-local static files. Use exe_check: true to focus on exe-linking risks: detects stale .scm files (exe linker prefers global copies, silently using outdated code) and orphaned .c files without .o (crash exe linker with "Incomplete form, EOF reached"). Provides ready-to-run rm commands.
 - For balance-safe editing: use gerbil_balanced_replace instead of string replace. Validates delimiter balance before and after.
 - To wrap code in a form: use gerbil_wrap_form to wrap lines in a new Scheme form with guaranteed matching parentheses.
 - To unwrap/splice a form: use gerbil_splice_form to remove a wrapper form while keeping selected children.

@@ -81,10 +81,18 @@ export function registerStaleStaticTool(server: McpServer): void {
           .describe(
             'File extensions to check (default: [".scm", ".c", ".o"])',
           ),
+        exe_check: z
+          .boolean()
+          .optional()
+          .describe(
+            'Focus on exe-linking risks: detect stale .scm files where the global copy is older ' +
+            'than the project-local copy. The Gambit exe linker prefers global copies, silently ' +
+            'using outdated code. Also detects orphaned .c files without matching .o that crash linking.',
+          ),
       },
     },
-    async ({ project_path, gerbil_path, extensions }) => {
-      const exts = extensions ?? ['.scm', '.c', '.o'];
+    async ({ project_path, gerbil_path, extensions, exe_check }) => {
+      const exts = exe_check ? ['.scm', '.c', '.o'] : (extensions ?? ['.scm', '.c', '.o']);
 
       // Resolve global gerbil path
       const globalBase =
@@ -158,6 +166,19 @@ export function registerStaleStaticTool(server: McpServer): void {
         };
       }
 
+      // Detect orphaned .c files (have .c but no .o — crashes exe linker)
+      const orphanedCFiles: string[] = [];
+      if (exe_check) {
+        for (const [name] of globalFiles) {
+          if (name.endsWith('.c')) {
+            const oName = name.replace(/\.c$/, '.o');
+            if (!globalFiles.has(oName)) {
+              orphanedCFiles.push(name);
+            }
+          }
+        }
+      }
+
       // Sort: stale first, then by name
       entries.sort((a, b) => {
         if (a.stale !== b.stale) return a.stale ? -1 : 1;
@@ -168,17 +189,34 @@ export function registerStaleStaticTool(server: McpServer): void {
       const okCount = entries.length - staleCount;
 
       const lines: string[] = [];
+
+      if (exe_check) {
+        lines.push('Exe Linking Stale File Report');
+      } else {
+        lines.push('Stale Static File Report');
+      }
       lines.push(
-        `Stale Static File Report`,
         ``,
         `Global: ${globalDir}`,
         `Local:  ${localDir}`,
         ``,
         `Found ${entries.length} overlapping files: ${staleCount} STALE, ${okCount} ok`,
-        ``,
       );
+      if (exe_check && orphanedCFiles.length > 0) {
+        lines.push(`Found ${orphanedCFiles.length} orphaned .c file(s) without matching .o`);
+      }
+      lines.push('');
 
       if (staleCount > 0) {
+        const staleScm = entries.filter((e) => e.stale && e.name.endsWith('.scm'));
+
+        if (exe_check && staleScm.length > 0) {
+          lines.push('WARNING: Stale .scm files detected — exe linker will use outdated global copies!');
+          lines.push('The Gambit exe linker prefers global ~/.gerbil/lib/static/ over project-local copies.');
+          lines.push('Your executable will silently contain old code even after rebuilding.');
+          lines.push('');
+        }
+
         lines.push('STALE files (global copy differs from local — may shadow build):');
         lines.push('');
         for (const e of entries.filter((e) => e.stale)) {
@@ -197,9 +235,32 @@ export function registerStaleStaticTool(server: McpServer): void {
           lines.push('');
         }
 
-        lines.push('To fix: delete the stale global copies, or run:');
-        lines.push(`  rm ${globalDir}/<stale-file>`);
-        lines.push('Then rebuild the project.');
+        if (exe_check && staleScm.length > 0) {
+          lines.push('To fix stale .scm files, delete the global copies:');
+          for (const e of staleScm) {
+            lines.push(`  rm ${join(globalDir, e.name)}`);
+          }
+          lines.push('Then rebuild: gerbil build');
+        } else {
+          lines.push('To fix: delete the stale global copies, or run:');
+          lines.push(`  rm ${globalDir}/<stale-file>`);
+          lines.push('Then rebuild the project.');
+        }
+      }
+
+      if (exe_check && orphanedCFiles.length > 0) {
+        lines.push('');
+        lines.push('ORPHANED .c files (no matching .o — will crash exe linker with "Incomplete form, EOF reached"):');
+        lines.push('');
+        for (const name of orphanedCFiles) {
+          lines.push(`  ORPHAN  ${name}`);
+        }
+        lines.push('');
+        lines.push('To fix orphaned .c files, delete them:');
+        for (const name of orphanedCFiles) {
+          lines.push(`  rm ${join(globalDir, name)}`);
+        }
+        lines.push('The exe linker will regenerate .c/.o from .scm as needed.');
       }
 
       if (okCount > 0) {

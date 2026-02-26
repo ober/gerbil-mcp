@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 543 tests must pass before considering any change complete (543 passing + 3 pre-existing flaky). The test suite covers:
+All 545 tests must pass before considering any change complete (545 passing + 3 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -87,7 +87,7 @@ All 543 tests must pass before considering any change complete (543 passing + 3 
 - Eval project_path support
 - Feature suggestion tools (suggest_feature, list_features, vote_feature, gerbil_version tagging and filtering)
 - Demangle tool (hex decoding, double underscore, prefix recognition, module/symbol split)
-- Stale static files tool (no local files, no overlap, size mismatch detection, matching files, extension filtering)
+- Stale static files tool (no local files, no overlap, size mismatch detection, matching files, extension filtering, exe_check mode with stale .scm warning, orphaned .c without .o detection)
 - Module exports declare fallback (compiled .scm artifact scanning when expander fails)
 - Build and report auto-loadpath (gerbil.pkg depend: auto-detection, non-executable build.ss detection)
 - Balanced replace tool (balance-preserving edits, rejection on break, fix detection, dry-run, ambiguous match, strings with parens)
