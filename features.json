@@ -1,43 +1,5 @@
 [
   {
-    "id": "binary-info-leak-audit",
-    "title": "Audit compiled Gerbil binary for information leaks",
-    "description": "A tool that analyzes a compiled Gerbil/Gambit ELF binary and reports all information leaks: module names, symbol names, file paths, version strings, configure commands, compiler info, and other identifying metadata. Would scan .rodata, .data, .comment, .note sections and categorize findings by type and severity. Could also suggest specific obfuscation steps for each leak category.",
-    "impact": "medium",
-    "tags": [
-      "binary",
-      "obfuscation",
-      "audit",
-      "information-leak",
-      "exe",
-      "reverse-engineering",
-      "strip"
-    ],
-    "use_case": "When building release binaries that should resist reverse engineering. After compilation, run the audit to see what metadata survives in the binary and get actionable recommendations to reduce it.",
-    "example_scenario": "User compiles a Gerbil project with `gxc -exe`. The resulting binary contains: 500+ Scheme symbol names in .data, 30+ file paths in .rodata, Gambit version string, configure command with full build system paths, module names revealing internal architecture. The audit tool would report all of these categorized by type, with specific mitigation commands (strip, objcopy, string patching) for each.",
-    "estimated_token_reduction": "~3000-5000 tokens per audit — eliminates manual strings/objdump/readelf analysis and interpretation",
-    "votes": 0
-  },
-  {
-    "id": "obfuscated-link-file-build",
-    "title": "Build exe with obfuscated link file (symbol name removal)",
-    "description": "A build mode or tool that intercepts the gsc -link step and post-processes the generated link file (*__exe_.c) to replace all symbol name strings with hashes or nulls before final gcc compilation. The link file is THE primary source of symbol name leaks — it contains ___sym_names[], ___glo_names[], and ___sup_names[] arrays with ALL Scheme symbol names in plaintext. By obfuscating these at the C source level (before gcc), the strings never enter the binary at all, which is far more effective than post-build patching.",
-    "impact": "high",
-    "tags": [
-      "obfuscation",
-      "link-file",
-      "build",
-      "exe",
-      "symbols",
-      "gambit",
-      "hardening"
-    ],
-    "use_case": "When building production/release Gerbil executables that need to resist reverse engineering. Source-level obfuscation is superior to post-build patching because it eliminates strings before they enter the binary, handles all encoding variants (___NSTR, raw strings), and doesn't risk breaking length-sensitive binary formats.",
-    "example_scenario": "A Gerbil project builds an exe with 2000+ symbol names embedded in the link file. Currently these all appear as readable strings in the binary. With this tool, the link file would be processed to replace `___DEF_SYM(0,___S_mymodule_2f_main,\"mymodule/main#secret-function\")` with `___DEF_SYM(0,___S_mymodule_2f_main,\"a3f8c2\")` (hashed) before gcc compiles it. Result: zero readable symbol names in the final binary.",
-    "estimated_token_reduction": "~1000-2000 tokens per build — eliminates manual link file patching scripts and post-build string replacement",
-    "votes": 0
-  },
-  {
     "id": "gambit-primitive-lookup",
     "title": "Look up Gambit internal primitives (## namespace)",
     "description": "A tool that can search and document Gambit internal primitives in the ## namespace (e.g., ##set-gambitdir!, ##shell-command, ##eval-top, ##interaction-cte, ##global-var-set!, ##make-global-var). These are undocumented C-level or kernel-level primitives that Gerbil code sometimes needs to call directly. The tool would search _kernel.scm, _system.scm, and other Gambit lib/ source files, report the c-lambda signature (including parameter types like UCS-2-string vs char-string), and note gotchas (e.g., ___set_gambitdir takes UCS-2STRING not char*).",

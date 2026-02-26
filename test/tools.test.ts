@@ -4652,6 +4652,70 @@ END-C
     });
   });
 
+  // ── Binary information leak audit ──────────────────────────────────
+
+  describe('Binary audit', () => {
+    it('reports file not found for missing binary', async () => {
+      const result = await client.callTool('gerbil_binary_audit', {
+        binary_path: '/tmp/nonexistent-binary-xyz',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('File not found');
+    });
+
+    it('scans a real binary (gxi)', async () => {
+      // Use gxi as a test binary since it's always available
+      const result = await client.callTool('gerbil_binary_audit', {
+        binary_path: '/opt/gerbil/bin/gxi',
+      });
+      // gxi will have leaks (isError may be true for high severity), that's expected
+      expect(result.text).toContain('Binary');
+      expect(result.text).toContain('strings scanned');
+    }, 30000);
+  });
+
+  // ── Obfuscate link file ───────────────────────────────────────────
+
+  describe('Obfuscate link file', () => {
+    it('obfuscates ___DEF_SYM strings in dry-run mode', async () => {
+      const linkFile = join(TEST_DIR, 'test__exe_.c');
+      writeFileSync(linkFile, [
+        '#include "gambit.h"',
+        '___DEF_SYM(0,___S_my_2d_func,"my-func")',
+        '___DEF_GLO(1,___G_my_2d_var,"my-var#secret")',
+        '___DEF_SUP(2,___S_mod,"mymod/main#init")',
+      ].join('\n'));
+
+      const result = await client.callTool('gerbil_obfuscate_link_file', {
+        file_path: linkFile,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Dry run');
+      expect(result.text).toContain('3 symbol name string');
+      // After lines should contain hashes, not original names
+      expect(result.text).toContain('After:');
+      expect(result.text).toContain('e2c7bbc1'); // md5 hash of "my-func"
+    });
+
+    it('rejects non-link files', async () => {
+      const notLink = join(TEST_DIR, 'not-a-link.c');
+      writeFileSync(notLink, 'int main() { return 0; }');
+      const result = await client.callTool('gerbil_obfuscate_link_file', {
+        file_path: notLink,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('does not appear to be a Gambit link file');
+    });
+
+    it('reports file not found', async () => {
+      const result = await client.callTool('gerbil_obfuscate_link_file', {
+        file_path: '/tmp/nonexistent-link-file.c',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('File not found');
+    });
+  });
+
   // ── Version tagging for cookbook recipes ─────────────────────────
 
   describe('Cookbook version tagging', () => {

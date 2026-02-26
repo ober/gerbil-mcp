@@ -143,6 +143,8 @@ import { registerPortFdInspectorTool } from './tools/port-fd-inspector.js';
 import { registerGambitSourceExtractTool } from './tools/gambit-source-extract.js';
 import { registerPreAddSymbolCheckTool } from './tools/pre-add-symbol-check.js';
 import { registerBuildSsAuditTool } from './tools/build-ss-audit.js';
+import { registerBinaryAuditTool } from './tools/binary-audit.js';
+import { registerObfuscateLinkFileTool } from './tools/obfuscate-link-file.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -289,6 +291,8 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To add error fixes: use gerbil_error_fix_add to record new error→fix mappings discovered during a session.
 - To diagnose exe link failures: use gerbil_build_linkage_diagnostic to trace transitive FFI link dependencies in build.ss exe targets. Detects missing C libraries that would cause silent link failures.
 - To audit build.ss imports: use gerbil_build_ss_audit to detect function calls (especially run-process) that silently fail due to missing imports. Calls inside with-catch blocks are especially dangerous — unbound identifier exceptions are swallowed, returning fallback values. The tool cross-references calls against imports and flags silent failures.
+- To audit binary for leaks: use gerbil_binary_audit to scan a compiled Gerbil/Gambit ELF binary for information leaks (symbol names, file paths, version strings, configure commands). Reports categorized findings with severity and remediation steps.
+- To obfuscate link files: use gerbil_obfuscate_link_file to replace Scheme symbol name strings in Gambit link files (*__exe_.c) with hashes before gcc compilation. Source-level obfuscation is more effective than post-build patching. Dry-run by default.
 - To check cross-module symbols: use gerbil_cross_module_check to detect unbound symbol references across project files before compilation. Critical when splitting large modules into sub-modules.
 - To find #ifdef stubs: use gerbil_detect_ifdef_stubs to scan c-declare blocks for #ifdef/#else stub patterns (NULL/0 returns) that cause segfaults in cross-project builds.
 - To run Qt FFI tests: use gerbil_qt_test_runner to build, patchelf, and run a Qt exe test in one step with QT_QPA_PLATFORM=offscreen.
@@ -483,6 +487,8 @@ registerPortFdInspectorTool(server);
 registerGambitSourceExtractTool(server);
 registerPreAddSymbolCheckTool(server);
 registerBuildSsAuditTool(server);
+registerBinaryAuditTool(server);
+registerObfuscateLinkFileTool(server);
 
 registerPrompts(server);
 registerResources(server);
