@@ -4716,6 +4716,33 @@ END-C
     });
   });
 
+  // ── Gambit primitive lookup ─────────────────────────────────────────
+
+  describe('Gambit primitive lookup', () => {
+    it('looks up a known Gambit primitive', async () => {
+      const result = await client.callTool('gerbil_gambit_primitive_lookup', {
+        symbol: '##current-directory',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('##current-directory');
+      expect(result.text).toContain('Type:');
+    }, 15000);
+
+    it('reports unbound for nonexistent primitive', async () => {
+      const result = await client.callTool('gerbil_gambit_primitive_lookup', {
+        symbol: '##zzz-nonexistent-primitive-qqq',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('not bound');
+    }, 15000);
+
+    it('requires symbol or search parameter', async () => {
+      const result = await client.callTool('gerbil_gambit_primitive_lookup', {});
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('required');
+    });
+  });
+
   // ── Version tagging for cookbook recipes ─────────────────────────
 
   describe('Cookbook version tagging', () => {

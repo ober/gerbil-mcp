@@ -1,23 +1,5 @@
 [
   {
-    "id": "gambit-primitive-lookup",
-    "title": "Look up Gambit internal primitives (## namespace)",
-    "description": "A tool that can search and document Gambit internal primitives in the ## namespace (e.g., ##set-gambitdir!, ##shell-command, ##eval-top, ##interaction-cte, ##global-var-set!, ##make-global-var). These are undocumented C-level or kernel-level primitives that Gerbil code sometimes needs to call directly. The tool would search _kernel.scm, _system.scm, and other Gambit lib/ source files, report the c-lambda signature (including parameter types like UCS-2-string vs char-string), and note gotchas (e.g., ___set_gambitdir takes UCS-2STRING not char*).",
-    "impact": "medium",
-    "tags": [
-      "gambit",
-      "primitive",
-      "internal",
-      "kernel",
-      "##namespace",
-      "undocumented"
-    ],
-    "use_case": "When Gerbil code needs to call Gambit internals for low-level operations (setting gambitdir, patching global vars, raw eval). Currently requires manually reading Gambit source files to discover signatures and parameter types.",
-    "example_scenario": "Needed to call ##set-gambitdir! to redirect ~~ for the static binary's compile-file environment. First tried wrapping ___set_gambitdir as a char-string c-lambda, which would have failed at runtime because it takes UCS-2STRING. Had to read 3 Gambit source files (_kernel.scm, setup.c, _gsclib.scm) to discover the correct approach. A lookup tool would have immediately shown the signature and type constraints.",
-    "estimated_token_reduction": "~1000-2000 tokens per lookup — eliminates reading multiple Gambit source files to find primitive signatures",
-    "votes": 0
-  },
-  {
     "id": "gambuild-template-extract",
     "title": "Extract and explain gambuild-C script templates",
     "description": "A tool that reads the installed gambuild-C script, parses its operation templates (dyn, obj, exe), and explains each environment variable and flag. The gambuild-C script is the critical bridge between Gambit's compile-file and the system C compiler, but its template format (BUILD_DYN_CC_PARAM, GAMBITDIR_INCLUDE, etc.) is completely undocumented. The tool would extract the exact gcc invocation for each operation, list all environment variables with their purposes, and show the actual values from the current installation.",

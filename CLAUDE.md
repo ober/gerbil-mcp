@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 553 tests must pass before considering any change complete (553 passing + 3 pre-existing flaky). The test suite covers:
+All 556 tests must pass before considering any change complete (556 passing + 3 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -114,6 +114,7 @@ All 553 tests must pass before considering any change complete (553 passing + 3 
 - Build.ss import audit tool (missing import detection, with-catch silent failure detection, clean file passing, parameter validation)
 - Binary audit tool (file not found handling, real binary scanning with leak detection)
 - Obfuscate link file tool (___DEF_SYM hash replacement, non-link file rejection, file not found handling)
+- Gambit primitive lookup tool (known primitive lookup, unbound detection, parameter validation)
 - Cookbook version tagging (gerbil_version field in howto_add, version tag display in howto search, explicit version filter excluding mismatched recipes, howto_verify version filtering, per-recipe version tags in verify output)
 - Feature version tagging (gerbil_version field in suggest_feature, version tag display in list_features, explicit version filter excluding mismatched features)
 - Cross-version cookbook testing (valid_for field in Recipe, prefix matching for version filtering, valid_for storage and preservation in howto_add, valid_for display in howto search and verify, shared verify-utils extraction)
