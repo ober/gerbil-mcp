@@ -707,6 +707,48 @@ extern void iterator_destroy(iterator_t *it);
 `,
     );
 
+    // Pre-add symbol check fixtures
+    writeFileSync(
+      join(TEST_DIR, 'pre-add-clean.ss'),
+      `(import :std/text/json)
+(export parse-data)
+(def (parse-data s) (read-json (open-input-string s)))
+`,
+    );
+    writeFileSync(
+      join(TEST_DIR, 'pre-add-has-dup.ss'),
+      `(import :std/text/json)
+(export my-fn)
+(def (my-fn x) x)
+`,
+    );
+
+    const preAddProjectDir = join(TEST_DIR, 'pre-add-project');
+    mkdirSync(preAddProjectDir, { recursive: true });
+    writeFileSync(
+      join(preAddProjectDir, 'gerbil.pkg'),
+      '(package: preaddtest)',
+    );
+    writeFileSync(
+      join(preAddProjectDir, 'mod-a.ss'),
+      `(export #t)
+(def (shared-sym x) x)
+`,
+    );
+    writeFileSync(
+      join(preAddProjectDir, 'mod-b.ss'),
+      `(export #t)
+(def (other-fn x) x)
+`,
+    );
+    writeFileSync(
+      join(preAddProjectDir, 'facade.ss'),
+      `(import :preaddtest/mod-a :preaddtest/mod-b)
+(export run)
+(def (run) (shared-sym 1))
+`,
+    );
+
     // Security scan fixtures
     writeFileSync(
       join(TEST_DIR, 'sec-shell-inject.ss'),
@@ -4461,6 +4503,59 @@ END-C
       const result = await client.callTool('gerbil_check_import_conflicts', {});
       expect(result.isError).toBe(true);
       expect(result.text).toContain('required');
+    });
+  });
+
+  // ── Pre-add symbol conflict check ─────────────────────────────────
+
+  describe('Pre-add symbol check', () => {
+    it('reports safe when symbol does not conflict', async () => {
+      const result = await client.callTool('gerbil_pre_add_symbol_check', {
+        symbol: 'my-unique-fn-xyz',
+        file_path: join(TEST_DIR, 'pre-add-clean.ss'),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.text).toContain('Safe to add');
+      expect(result.text).toContain('my-unique-fn-xyz');
+    }, 30000);
+
+    it('detects conflict with imported module export', async () => {
+      const result = await client.callTool('gerbil_pre_add_symbol_check', {
+        symbol: 'read-json',
+        file_path: join(TEST_DIR, 'pre-add-clean.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('IMPORT CONFLICT');
+      expect(result.text).toContain('read-json');
+      expect(result.text).toContain(':std/text/json');
+    }, 30000);
+
+    it('detects local duplicate definition', async () => {
+      const result = await client.callTool('gerbil_pre_add_symbol_check', {
+        symbol: 'my-fn',
+        file_path: join(TEST_DIR, 'pre-add-has-dup.ss'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('LOCAL DUPLICATE');
+      expect(result.text).toContain('my-fn');
+    }, 30000);
+
+    it('detects co-import conflict in export-all project', async () => {
+      const result = await client.callTool('gerbil_pre_add_symbol_check', {
+        symbol: 'shared-sym',
+        file_path: join(TEST_DIR, 'pre-add-project', 'mod-b.ss'),
+        project_path: join(TEST_DIR, 'pre-add-project'),
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('CO-IMPORT CONFLICT');
+      expect(result.text).toContain('shared-sym');
+    }, 30000);
+
+    it('requires symbol parameter', async () => {
+      const result = await client.callTool('gerbil_pre_add_symbol_check', {
+        file_path: '/tmp/test.ss',
+      });
+      expect(result.isError).toBe(true);
     });
   });
 

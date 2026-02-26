@@ -141,6 +141,7 @@ import { registerPatternCacheDetectorTool } from './tools/pattern-cache-detector
 import { registerSigchldCheckTool } from './tools/sigchld-check.js';
 import { registerPortFdInspectorTool } from './tools/port-fd-inspector.js';
 import { registerGambitSourceExtractTool } from './tools/gambit-source-extract.js';
+import { registerPreAddSymbolCheckTool } from './tools/pre-add-symbol-check.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -250,6 +251,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To validate example imports: use gerbil_validate_example_imports to check that imports match used symbols.
 - To bisect crashes: use gerbil_bisect_crash to binary-search a crashing file for minimal reproducing forms.
 - To detect import conflicts: use gerbil_check_import_conflicts to find clashing symbol definitions before building.
+- To pre-check symbol conflicts: use gerbil_pre_add_symbol_check before adding a new definition to a file. Checks if the symbol name conflicts with any imported module's exports or sibling modules in (export #t) chains. Prevents "Bad binding; import conflict" errors before you edit.
 - To scan for security issues: use gerbil_security_scan for vulnerability pattern detection in Gerbil and C code. Supports inline suppression comments: add "; gerbil-security: suppress <rule-id>" or "; gerbil-security: suppress-all" on or above the flagged line to suppress false positives. Suppressed findings are reported separately.
 - To add security patterns: use gerbil_security_pattern_add to contribute new detection rules.
 - To detect stale linked packages: use gerbil_stale_linked_pkg to check if linked packages need rebuilding.
@@ -477,6 +479,7 @@ registerPatternCacheDetectorTool(server);
 registerSigchldCheckTool(server);
 registerPortFdInspectorTool(server);
 registerGambitSourceExtractTool(server);
+registerPreAddSymbolCheckTool(server);
 
 registerPrompts(server);
 registerResources(server);

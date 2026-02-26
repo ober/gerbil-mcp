@@ -92,25 +92,6 @@
     "votes": 0
   },
   {
-    "id": "pre-add-symbol-conflict-check",
-    "title": "Check if a new definition will cause import conflicts before adding it",
-    "description": "A tool that takes a symbol name and a target file path, then scans all modules in the project's import chain to detect if that symbol is already defined elsewhere. When working with (export #t) module chains, adding a new `(def *foo* ...)` to one module frequently causes \"Bad binding; import conflict\" errors at build time because a sibling or downstream module already defines the same symbol. This tool would catch the conflict before you edit the file, saving a full build-fail-grep-fix cycle.",
-    "impact": "medium",
-    "tags": [
-      "import",
-      "conflict",
-      "export",
-      "duplicate",
-      "definition",
-      "pre-check",
-      "symbol"
-    ],
-    "use_case": "Before adding a new def to a module that uses (export #t), especially in large projects with module chains where multiple files export all their symbols to a facade module.",
-    "example_scenario": "Adding `(def *tramp-connections* (make-hash-table))` to editor-extra-helpers.ss. Build fails with 'Bad binding; import conflict' because editor-extra-editing.ss already defines *tramp-connections*. Had to build (60s), read error, grep for the symbol, then remove the duplicate. A pre-check would have caught this instantly.",
-    "estimated_token_reduction": "~500-1000 tokens per conflict — eliminates a full build + error diagnosis + grep + fix cycle, which happened 3 times in this session alone",
-    "votes": 3
-  },
-  {
     "id": "exe-stale-static-scm-detector",
     "title": "Detect stale global .scm files that shadow project-local in exe linking",
     "description": "Extend gerbil_stale_static to compare timestamps of .scm files in ~/.gerbil/lib/static/ vs .gerbil/lib/static/ (project-local). When the global copy is older than the project-local copy, the exe linker silently uses the stale global code. This is different from the existing stale_static check (which compares source .ss timestamps) — here both copies exist but the global one is outdated. The tool should flag when a global .scm shadows a newer project-local .scm, and recommend deleting the global copy before rebuilding the exe.",
