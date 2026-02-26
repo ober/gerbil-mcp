@@ -610,5 +610,21 @@
       "string-append",
       "command-injection"
     ]
+  },
+  {
+    "id": "import-conflict-except-in-required",
+    "title": "Import conflicts require except-in or only-in",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "\\(import :std/srfi/1\\)",
+    "message": "Local definition conflicts with imported symbol from :std/srfi/1. Without except-in or only-in, the conflicting symbol will cause \"Bad binding; import conflict\" errors at build time.",
+    "remediation": "Use (except-in :std/srfi/1 append-map) to exclude the conflicting symbol, or use (only-in :std/srfi/1 (only-this-symbol)) to import only specific symbols.",
+    "related_recipe": "import-conflict-resolution",
+    "tags": [
+      "import",
+      "conflict",
+      "except-in",
+      "only-in"
+    ]
   }
 ]

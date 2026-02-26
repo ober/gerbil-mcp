@@ -108,7 +108,7 @@
     "use_case": "Before adding a new def to a module that uses (export #t), especially in large projects with module chains where multiple files export all their symbols to a facade module.",
     "example_scenario": "Adding `(def *tramp-connections* (make-hash-table))` to editor-extra-helpers.ss. Build fails with 'Bad binding; import conflict' because editor-extra-editing.ss already defines *tramp-connections*. Had to build (60s), read error, grep for the symbol, then remove the duplicate. A pre-check would have caught this instantly.",
     "estimated_token_reduction": "~500-1000 tokens per conflict — eliminates a full build + error diagnosis + grep + fix cycle, which happened 3 times in this session alone",
-    "votes": 2
+    "votes": 3
   },
   {
     "id": "exe-stale-static-scm-detector",
@@ -128,7 +128,7 @@
     "use_case": "After modifying a test file or module and rebuilding, the exe binary silently uses old code from ~/.gerbil/lib/static/ because the Gambit exe linker prefers the global copy over the project-local one. Tests appear to pass but new test groups are silently missing.",
     "example_scenario": "Added Group 23 (helm tests) to qt-functional-test.ss. Built with `gerbil build` — build succeeded. Project-local .gerbil/lib/static/gemacs__qt-functional-test.scm contained Group 23 (verified with grep). But the exe binary had NO Group 23 output. Root cause: ~/.gerbil/lib/static/gemacs__qt-functional-test.scm was a stale copy from hours earlier. Deleting it and rebuilding fixed it. Spent ~15 tool calls and 3 rebuild cycles debugging this.",
     "estimated_token_reduction": "~2000-4000 tokens per incident — eliminates multiple rebuild + grep + debug cycles to diagnose silent exe staleness",
-    "votes": 1
+    "votes": 3
   },
   {
     "id": "keyword-positional-mismatch-lint",
@@ -166,6 +166,43 @@
     "use_case": "When writing Qt UI code with signal handlers. The silent failure mode (handler silently does nothing because arity exception is caught) is extremely hard to debug — the UI appears functional but callback actions never fire.",
     "example_scenario": "qt-on-text-changed! registers a string handler (1 arg) but the developer writes (lambda () ...) with 0 args. Every keystroke, ffi_qt_callback_string calls (handler value), gets a 'wrong number of arguments' exception, catches it silently via with-catch, and the narrowing-update-list! function is never called. The M-x helm list never filters, always shows the first item highlighted, and Enter always runs the wrong command. Took tracing through 4 layers (echo.ss → qt shim C++ → libqt~0.scm FFI dispatch → callback type registration) to find the root cause.",
     "estimated_token_reduction": "~2000-5000 tokens per incident — eliminates tracing through FFI callback dispatch chain to diagnose why a signal handler silently does nothing",
+    "votes": 0
+  },
+  {
+    "id": "parser-error-line-column-numbers",
+    "title": "Add line/column numbers to parser error messages",
+    "description": "Enhance parser error reporting to include line and column numbers for all syntax errors. Currently, parser errors only show generic messages without location information, making debugging difficult for scripts and long commands.",
+    "impact": "high",
+    "tags": [
+      "error",
+      "parser",
+      "debugging",
+      "user-experience"
+    ],
+    "use_case": "When a shell script fails due to syntax errors, users need to know exactly where the error occurred to fix it quickly.",
+    "example_scenario": "Shell script: 'for i in 1 2 3; do echo $i; done' (missing 'do') currently shows: 'syntax error' without line/column. Should show: 'line 1, column 20: syntax error'",
+    "estimated_token_reduction": "~200 tokens per debugging session",
+    "votes": 0
+  },
+  {
+    "id": "orphaned-static-c-file-detector",
+    "title": "Detect orphaned .c files without .o in static/ that crash exe linking",
+    "description": "Extend gerbil_stale_static (or create a new tool) to detect .c files in ~/.gerbil/lib/static/ that have no corresponding .o file. These orphaned .c files cause gsc's exe linker to fail with 'Incomplete form, EOF reached' when reading the LINKER_INFO section as Scheme data. The tool should: (1) scan for *.c without matching *.o, (2) check timestamp ordering (.scm vs .c vs .o), (3) recommend removing orphaned .c files so gsc can cleanly regenerate from .scm. Should also detect when .scm is newer than .c (stale .c from previous build).",
+    "impact": "high",
+    "tags": [
+      "stale",
+      "static",
+      "orphan",
+      "c-file",
+      "o-file",
+      "exe",
+      "linker",
+      "build",
+      "crash"
+    ],
+    "use_case": "After switching between lib-only and full builds, or after copying static artifacts between directories, orphaned .c files accumulate. The resulting exe link error ('Incomplete form, EOF reached') is cryptic and hard to diagnose without knowing about gsc's LINKER_INFO parsing.",
+    "example_scenario": "Built gsh with full build (producing .c/.o), then rebuilt with GSH_LIB_ONLY=1 (refreshing .scm but not .c/.o). Copied .scm to ~/.gerbil/lib/static/. 14 modules had .c without .o. Exe linking failed with 'Incomplete form, EOF reached' on gsh__builtins.c. Took ~15 tool calls across multiple debug cycles to identify the root cause as orphaned .c files.",
+    "estimated_token_reduction": "~3000-5000 tokens per incident — eliminates multiple ls/stat/grep debug cycles to diagnose the cryptic gsc error",
     "votes": 0
   }
 ]

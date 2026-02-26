@@ -14541,5 +14541,99 @@
       "qt-on-return-pressed-not-line-edit-return",
       "qt-unregister-handler-prevent-accumulation"
     ]
+  },
+  {
+    "id": "fix-export-consistency-issues",
+    "title": "Fix Export Consistency Issues in Gerbil Modules",
+    "tags": [
+      "export",
+      "consistency",
+      "module",
+      "lint",
+      "fix"
+    ],
+    "imports": [],
+    "code": ";; Example: Fix export consistency issues in arithmetic.ss\n;; Problem: Struct types defined but not exported\n;; Solution: Export struct types using (struct-out)\n\n(export (struct-out arith-token) \n        (struct-out arith-state)\n        ;; ... other exports\n        arith-eval \n        arith-tokenize)\n\n;; Example: Fix missing type export in ast.ss\n;; Problem: 't' exported but not defined\n;; Solution: Either remove export or define 't'\n\n;; Option 1: Remove from export\n(export #t)  ; Export all defined symbols\n\n;; Option 2: Define missing symbol\n(def t \"some-value\")  ; Define before exporting\n\n;; Example: Fix partial struct export in fuzzy.ss\n;; Problem: 'search-term' struct exported but 'search-term' symbol not defined\n;; Solution: Ensure struct definition matches export\n\n(defstruct search-term\n  (type    :string)\n  (pattern :string)\n  (negate?  :bool))\n\n;; Export both struct and constructor\n(export (struct-out search-term)\n        search-term-type\n        search-term-pattern\n        search-term-negate?\n        ;; ... other exports\n        fuzzy-match-score\n        fuzzy-match?)\n        \n;; Common patterns for export fixes:\n;; 1. Use (struct-out struct-name) to export struct predicate, constructor, and accessors\n;; 2. Use (export #t) to export all defined symbols (but watch for import conflicts)\n;; 3. Use (except-in module ...) to exclude conflicting symbols\n;; 4. Use (only-in module ...) to import only specific symbols\n;; 5. Use (prefix-in module ...) to add prefix to all imports\n\n;; Test that exports work after fixes:\n;; (import :gsh/arithmetic)  ; Should succeed\n;; (import :gsh/ast)         ; Should succeed\n;; (import :gsh/fuzzy)       ; Should succeed\n;; (import :gsh/expander)    ; Should succeed (for append-map)\n;; (import :gsh/lineedit)    ; Should succeed (for ESC-STR)\n;; (import :gsh/lexer)       ; Should succeed (for update-case-depth)\n;; (import :gsh/expander)    ; Should succeed (for update-case-depth)",
+    "notes": "Export consistency issues are common when structs are defined but not properly exported. The Gerbil module system requires explicit exports for structs, unlike regular procedures. Use (struct-out struct-name) to export the struct predicate, constructor, and all accessors. For missing symbols, either define them or remove them from the export list. For import conflicts, use (except-in) or (only-in) to manage symbol visibility.",
+    "related": [
+      "import-conflicts",
+      "module-exports",
+      "struct-definition"
+    ]
+  },
+  {
+    "id": "orphaned-c-without-o-exe-linker-crash",
+    "title": "Orphaned .c files without .o crash exe linking — gsc reads LINKER_INFO as Scheme",
+    "tags": [
+      "exe",
+      "static",
+      "linker",
+      "orphan",
+      "c-file",
+      "o-file",
+      "crash",
+      "LINKER_INFO",
+      "gsc",
+      "build",
+      "gambit"
+    ],
+    "imports": [],
+    "code": ";; Problem: After a partial or lib-only build, some modules have .scm and .c\n;; in ~/.gerbil/lib/static/ but NO .o file. During exe linking, gsc reads\n;; the .c file's #ifdef ___LINKER_INFO section as Scheme data. For very large\n;; modules (e.g. 109K lines), the reader fails:\n;;\n;;   *** ERROR IN \"../../.gerbil/lib/static/gsh__builtins.c\"@219.1-219.13\n;;     -- Incomplete form, EOF reached\n;;\n;; Fix: Remove orphaned .c files (those without .o). gsc will regenerate\n;; from .scm → .c → .o during the next exe link.\n\n;; Shell script to detect and remove orphaned .c files:\n;;   for f in ~/.gerbil/lib/static/PKG__*.c; do\n;;     base=\"${f%.c}\"\n;;     if [ ! -f \"${base}.o\" ]; then\n;;       echo \"Removing orphaned: $(basename $f)\"\n;;       rm -f \"$f\"\n;;     fi\n;;   done\n\n;; Also check timestamp ordering — if .scm is newer than .c, or .c is newer\n;; than .o, gsc may try to recompile. Safest: rm all .c and .o, let gsc\n;; rebuild from .scm.",
+    "notes": "This commonly happens when: (1) A full build produced .c/.o, then a lib-only rebuild refreshed .scm but not .c/.o. (2) Artifacts were copied between directories with wrong timestamps. (3) A build was interrupted mid-compilation. The gsc exe linker reads the #ifdef ___LINKER_INFO section of each .c file for module metadata. Without a .o, it still tries to process the .c. For large modules (builtins at 109K lines of LINKER_INFO), the Scheme reader fails. The fix is always: remove orphaned .c files and let gsc compile from .scm."
+  },
+  {
+    "id": "gxpkg-install-artifacts-in-package-local",
+    "title": "gxpkg install keeps build artifacts in package-local .gerbil/, not global ~/.gerbil/lib/",
+    "tags": [
+      "gxpkg",
+      "install",
+      "package",
+      "local",
+      "global",
+      "artifacts",
+      "loadpath",
+      "build",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; After `gxpkg install github.com/foo/bar`:\n;;\n;; Artifacts go to:\n;;   ~/.gerbil/pkg/github.com/foo/bar/.gerbil/lib/      ← .ssi, .o1, .scm\n;;   ~/.gerbil/pkg/github.com/foo/bar/.gerbil/lib/static/ ← .scm for exe linking\n;;\n;; NOT to:\n;;   ~/.gerbil/lib/           ← empty for this package\n;;   ~/.gerbil/lib/static/    ← empty for this package\n;;\n;; Consequence: Other projects importing :foo/bar need the package's\n;; local .gerbil/lib/ on GERBIL_LOADPATH.\n;;\n;; Fix for Makefiles / Docker builds:\n;;   PKG_DIR = ~/.gerbil/pkg/github.com/foo/bar\n;;   PKG_LIB = $(PKG_DIR)/.gerbil/lib\n;;   GERBIL_LOADPATH = $(PKG_LIB):~/.gerbil/lib\n;;\n;; Fix for build.ss:\n;;   (def pkg-base (find-pkg-source \"bar\"))\n;;   ;; Then use GEMACS_FOO_BASE env var override for Docker builds",
+    "notes": "This is a common gotcha in Docker builds where HOME differs between the install step (root) and the build step (non-root user). The package is installed into /root/.gerbil/pkg/ but the build runs with HOME=/tmp/build. Even with chown, find-pkg-source fails because it looks in $HOME/.gerbil/pkg/. Use env var overrides (e.g. GEMACS_GSH_BASE) and explicit GERBIL_LOADPATH entries for the package's .gerbil/lib/ directory."
+  },
+  {
+    "id": "gsh-capture-in-process-shell",
+    "title": "Use gerbil-shell (gsh) for in-process POSIX shell execution via gsh-capture",
+    "tags": [
+      "gsh",
+      "gerbil-shell",
+      "shell",
+      "capture",
+      "subprocess",
+      "posix",
+      "in-process",
+      "eshell"
+    ],
+    "imports": [
+      ":gsh/lib",
+      ":gsh/environment"
+    ],
+    "code": ";; gerbil-shell provides a full POSIX shell in-process.\n;; Key API from :gsh/lib:\n;;   gsh-init!    — create a fresh shell-environment\n;;   gsh-run      — run a command string (returns exit code)\n;;   gsh-capture  — run and capture stdout as string (strips trailing newlines)\n\n(import :gsh/lib :gsh/environment)\n\n;; Initialize a shell environment (one per context/buffer)\n(def env (gsh-init!))\n\n;; Capture output of a shell command\n(def output (parameterize ((*shell-environment* env))\n              (gsh-capture \"echo hello world\")))\n;; => \"hello world\"\n\n;; Run a command (returns exit code, output goes to current-output-port)\n(def exit-code (parameterize ((*shell-environment* env))\n                 (gsh-run \"ls -la /tmp\")))\n\n;; Feed stdin via heredoc pattern\n(def result (parameterize ((*shell-environment* env))\n              (gsh-capture\n                (string-append \"cat <<'__EOF__'\\n\" some-text \"\\n__EOF__\\n\"\n                               \" | grep pattern\"))))\n\n;; gsh supports full POSIX: pipes, redirects, variables, builtins, etc.\n(parameterize ((*shell-environment* env))\n  (gsh-run \"export FOO=bar\")\n  (gsh-capture \"echo $FOO\"))  ;; => \"bar\"",
+    "notes": "gerbil-shell (github.com/ober/gerbil-shell) is a complete POSIX shell written in Gerbil. For embedding in editors/tools, use GSH_LIB_ONLY=1 to build without the exe target. Each shell-environment maintains its own variables, so create one per buffer/context. gsh-capture strips trailing newlines (like shell command substitution). For build.ss integration: add (github: \\\"ober/gerbil-shell\\\") to gerbil.pkg depend: and use find-pkg-source in build.ss to resolve the package path."
+  },
+  {
+    "id": "gsh-lib-only-build-mode",
+    "title": "Build gerbil-shell in lib-only mode (no exe) for embedding in other projects",
+    "tags": [
+      "gsh",
+      "gerbil-shell",
+      "build",
+      "lib-only",
+      "embed",
+      "library",
+      "GSH_LIB_ONLY",
+      "dependency"
+    ],
+    "imports": [],
+    "code": ";; gerbil-shell supports a lib-only build mode that compiles all modules\n;; without linking the gsh executable. This is needed for embedding gsh\n;; as a library in another project.\n;;\n;; Build command:\n;;   GSH_LIB_ONLY=1 gerbil build\n;;\n;; This produces:\n;;   .gerbil/lib/gsh/*.ssi     — module interfaces\n;;   .gerbil/lib/gsh/*.o1      — compiled bytecode\n;;   .gerbil/lib/static/gsh__*.scm — static artifacts for exe linking\n;;\n;; It does NOT produce:\n;;   .gerbil/lib/static/gsh__*.c  — C compilation (done during exe link)\n;;   .gerbil/lib/static/gsh__*.o  — object files (done during exe link)\n;;   .gerbil/bin/gsh               — no executable\n;;\n;; The lib-only build includes: core-modules + \"lib\" entry point\n;; (ffi, util, ast, environment, lexer, parser, executor, builtins, etc.)\n;;\n;; Tier support: GSH_TIER=tiny (default), small, medium, large\n;; Tiny is sufficient for most embedding use cases.\n;;\n;; In gerbil.pkg of the consuming project:\n;;   (depend: (github: \"ober/gerbil-shell\"))\n;;\n;; In build.ss:\n;;   (def gsh-base (or (getenv \"GEMACS_GSH_BASE\" #f)\n;;                     (find-pkg-source \"gerbil-shell\")))",
+    "notes": "After GSH_LIB_ONLY=1 build, the .scm static files exist but .c/.o do NOT. These are generated later by gsc during the consuming project's exe link phase. Do NOT copy stale .c/.o files from a previous full build — they may have mismatched timestamps causing the 'Incomplete form, EOF reached' error. If you see that error, rm all gsh__*.c and gsh__*.o from ~/.gerbil/lib/static/ and let gsc rebuild from .scm."
   }
 ]
