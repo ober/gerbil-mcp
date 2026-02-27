@@ -56,7 +56,7 @@ After adding or modifying any code in this repository, you MUST run the test sui
 npm run build && npm run test
 ```
 
-All 564 tests must pass before considering any change complete (564 passing + 3 pre-existing flaky). The test suite covers:
+All 575 tests must pass before considering any change complete (575 passing + 3 pre-existing flaky). The test suite covers:
 - Core evaluation tools (eval, syntax checking, compilation, compile-check error details)
 - Module inspection tools (exports, dependencies, signatures)
 - Symbol lookup tools (doc, find definition, suggest imports)
@@ -218,6 +218,11 @@ All 564 tests must pass before considering any change complete (564 passing + 3 
 - Gambuild extract tool (operation parsing, environment variable listing, installation values, operation filtering, annotation check)
 - Keyword-positional mismatch lint (positional optional detection, keyword call-site flagging, keyword-defined function skip)
 - Qt callback arity lint (arity mismatch detection for void/string/int handlers, correct arity skip)
+- Check syntax line/column reporting (reader/parser error position extraction)
+- Build and report enhanced error extraction (standalone Syntax Error, unbound identifier, multi-line context, ProcessError raw output fallback)
+- Run tests verbose fix (string-append instead of nonexistent :std/format)
+- Export re-export conflict tool (transitive export resolution, overlapping symbol detection, only-in fix suggestions)
+- Exe macro check tool (macro expansion unbound identifier detection, runtime symbol scanning, import suggestion)
 
 
 ### MANDATORY: Update Documentation After Every Change

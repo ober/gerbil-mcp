@@ -447,20 +447,9 @@ async function runVerboseTest(
   // showing the source expression being checked and its line number.
   const lines = testSource.split('\n');
   const instrumented: string[] = [];
-  let hasFormat = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Check if :std/format is already imported
-    if (/\bstd\/format\b/.test(line)) hasFormat = true;
-
-    // Insert :std/format import after :std/test import if not present
-    if (!hasFormat && /\bstd\/test\b/.test(line) && /\bimport\b/.test(line)) {
-      instrumented.push(line);
-      instrumented.push('(import :std/format)');
-      hasFormat = true;
-      continue;
-    }
 
     // Detect lines containing (check ...) — add tracing before them
     const trimmed = line.trimStart();
@@ -468,10 +457,9 @@ async function runVerboseTest(
       const indent = line.substring(0, line.length - trimmed.length);
       const escapedExpr = trimmed
         .replace(/\\/g, '\\\\')
-        .replace(/"/g, '\\"')
-        .replace(/~~/g, '~~~~');
+        .replace(/"/g, '\\"');
       instrumented.push(
-        `${indent}(display (format "  [TRACE L${i + 1}] ~a~n" "${escapedExpr}") (current-error-port))`,
+        `${indent}(display (string-append "  [TRACE L${i + 1}] " "${escapedExpr}" "\\n") (current-error-port))`,
       );
     }
 

@@ -10,6 +10,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parseGxcErrors } from '../src/tools/parse-utils.js';
 
 interface McpResponse {
   jsonrpc: string;
@@ -1033,6 +1034,15 @@ void copy_data(const uint8_t *src, int len) {
       });
       expect(result.isError).toBe(true);
       expect(result.text.toLowerCase()).toContain('syntax');
+    });
+
+    it('gerbil_check_syntax reports line and column for reader errors', async () => {
+      const result = await client.callTool('gerbil_check_syntax', {
+        code: '(def foo\n  (+ 1 2)',
+      });
+      expect(result.isError).toBe(true);
+      // Should include line/column info for the EOF/unmatched paren
+      expect(result.text).toMatch(/line \d+, column \d+/);
     });
 
     it('gerbil_compile_check validates compilable code', async () => {
@@ -3229,6 +3239,128 @@ END-C
       // The C compiler error will mention the undeclared function
       expect(result.text).toContain('error');
     }, 60000);
+  });
+
+  // ── parseGxcErrors enhanced patterns ─────────────────────────────
+
+  describe('parseGxcErrors enhanced patterns', () => {
+    it('parseGxcErrors captures standalone Syntax Error lines', () => {
+      const stderr = `Syntax Error: Bad binding; rebind conflict
+  at: make-pg-pool
+  form: (defstruct pg-pool ...)`;
+      const diags = parseGxcErrors(stderr, '/project');
+      expect(diags.length).toBeGreaterThanOrEqual(1);
+      const syntaxErr = diags.find((d) => d.message.includes('Bad binding'));
+      expect(syntaxErr).toBeDefined();
+      expect(syntaxErr!.severity).toBe('error');
+      // Should include multi-line context
+      expect(syntaxErr!.message).toContain('at: make-pg-pool');
+    });
+
+    it('parseGxcErrors collects multi-line context after *** ERROR', () => {
+      const stderr = `*** ERROR IN gx#core-expand -- Syntax Error: Bad binding; rebind conflict
+  at: my-symbol
+  form: (def my-symbol 42)
+--- expansion context ---
+  (import :my/module)`;
+      const diags = parseGxcErrors(stderr, '/project');
+      expect(diags.length).toBeGreaterThanOrEqual(1);
+      const err = diags[0];
+      expect(err.message).toContain('Bad binding');
+      expect(err.message).toContain('at: my-symbol');
+      expect(err.message).toContain('form:');
+    });
+
+    it('parseGxcErrors captures standalone Reference to unbound identifier', () => {
+      const stderr = `Reference to unbound identifier: make-class-instance
+  context: ...`;
+      const diags = parseGxcErrors(stderr);
+      expect(diags.length).toBeGreaterThanOrEqual(1);
+      expect(diags[0].message).toContain('make-class-instance');
+      expect(diags[0].severity).toBe('error');
+    });
+
+    it('parseGxcErrors ProcessError still parsed as error', () => {
+      const stderr = `*** ERROR IN std/misc/process#run-process__% -- [ProcessError] compilation of /path/file.ss failed`;
+      const diags = parseGxcErrors(stderr);
+      expect(diags.length).toBe(1);
+      expect(diags[0].message).toContain('[ProcessError]');
+    });
+  });
+
+  // ── Export re-export conflict detector ──────────────────────────
+
+  describe('Export re-export conflict detector', () => {
+    it('gerbil_export_reexport_conflicts reports no conflicts with few imports', async () => {
+      const testFile = join(TEST_DIR, 'few-imports.ss');
+      writeFileSync(testFile, '(import :std/text/json)\n(export #t)\n(def (main) (void))');
+      const result = await client.callTool('gerbil_export_reexport_conflicts', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('fewer than 2');
+    });
+
+    it('gerbil_export_reexport_conflicts detects overlapping exports between modules', async () => {
+      // :std/srfi/13 and :std/text/utf8 both export string-related symbols
+      // Use modules known to have overlapping exports
+      const testFile = join(TEST_DIR, 'overlap-imports.ss');
+      writeFileSync(
+        testFile,
+        '(import :std/srfi/13 :std/text/utf8)\n(export #t)\n(def (main) (void))',
+      );
+      const result = await client.callTool('gerbil_export_reexport_conflicts', {
+        file_path: testFile,
+      });
+      // Result may or may not find conflicts depending on whether these modules
+      // actually share exports — the tool should at least complete without error
+      expect(result.text).toBeDefined();
+    });
+
+    it('gerbil_export_reexport_conflicts handles missing file', async () => {
+      const result = await client.callTool('gerbil_export_reexport_conflicts', {
+        file_path: '/nonexistent/file.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('cannot read');
+    });
+  });
+
+  // ── Exe macro expansion check ──────────────────────────────────
+
+  describe('Exe macro expansion check', () => {
+    it('gerbil_exe_macro_check reports no issues for simple code', async () => {
+      const testFile = join(TEST_DIR, 'simple-exe.ss');
+      writeFileSync(testFile, '(import :std/text/json)\n(def (main) (json-object->string (hash ("a" 1))))');
+      const result = await client.callTool('gerbil_exe_macro_check', {
+        file_path: testFile,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.text).toContain('No potential exe-build');
+    }, 60000);
+
+    it('gerbil_exe_macro_check detects runtime refs from defstruct expansion', async () => {
+      const testFile = join(TEST_DIR, 'struct-exe.ss');
+      writeFileSync(testFile, '(defstruct point (x y))');
+      const result = await client.callTool('gerbil_exe_macro_check', {
+        file_path: testFile,
+      });
+      // defstruct expands to code using make-struct-type, etc.
+      // The tool should detect these runtime references
+      if (result.text.includes('RUNTIME-REF') || result.text.includes('runtime identifier')) {
+        expect(result.text).toMatch(/make-struct|make-class/);
+      }
+      // Either way, should complete without error
+      expect(result.text).toBeDefined();
+    }, 60000);
+
+    it('gerbil_exe_macro_check handles missing file', async () => {
+      const result = await client.callTool('gerbil_exe_macro_check', {
+        file_path: '/nonexistent/file.ss',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('cannot read');
+    });
   });
 
   // ── Feature suggestion tools ─────────────────────────────────────

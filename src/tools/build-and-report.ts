@@ -341,6 +341,12 @@ export function registerBuildAndReportTool(server: McpServer): void {
         };
       }
 
+      // If the only diagnostics are ProcessError wrappers, append raw output
+      // so the actual error (which may not have been parsed) is visible.
+      const allProcessErrors = diagnostics.every(
+        (d) => d.message.includes('[ProcessError]'),
+      );
+
       const errors = diagnostics.filter((d) => d.severity === 'error');
       const warnings = diagnostics.filter((d) => d.severity === 'warning');
 
@@ -389,6 +395,14 @@ export function registerBuildAndReportTool(server: McpServer): void {
             }
           }
         }
+      }
+
+      // When only ProcessError wrappers were parsed, append raw build output
+      // so the actual compiler error (which may not match known patterns) is visible.
+      if (allProcessErrors && combined.length > 0) {
+        sections.push('');
+        sections.push('Raw build output:');
+        sections.push(combined);
       }
 
       if (makefileNote) {

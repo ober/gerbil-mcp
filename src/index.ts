@@ -79,6 +79,8 @@ import { registerExampleApiCoverageTool } from './tools/example-api-coverage.js'
 import { registerValidateExampleImportsTool } from './tools/validate-example-imports.js';
 import { registerBisectCrashTool } from './tools/bisect-crash.js';
 import { registerCheckImportConflictsTool } from './tools/check-import-conflicts.js';
+import { registerExportReexportConflictsTool } from './tools/export-reexport-conflicts.js';
+import { registerExeMacroCheckTool } from './tools/exe-macro-check.js';
 import { registerSecurityScanTool } from './tools/security-scan.js';
 import { registerSecurityPatternAddTool } from './tools/security-pattern-add.js';
 import { registerHowtoGetTool } from './tools/howto-get.js';
@@ -256,6 +258,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To validate example imports: use gerbil_validate_example_imports to check that imports match used symbols.
 - To bisect crashes: use gerbil_bisect_crash to binary-search a crashing file for minimal reproducing forms.
 - To detect import conflicts: use gerbil_check_import_conflicts to find clashing symbol definitions before building.
+- To detect re-export conflicts: use gerbil_export_reexport_conflicts to find transitive re-export conflicts caused by (export #t) modules. Reports which symbols clash across imported modules and suggests (only-in ...) fixes.
 - To pre-check symbol conflicts: use gerbil_pre_add_symbol_check before adding a new definition to a file. Checks if the symbol name conflicts with any imported module's exports or sibling modules in (export #t) chains. Prevents "Bad binding; import conflict" errors before you edit.
 - To scan for security issues: use gerbil_security_scan for vulnerability pattern detection in Gerbil and C code. Supports inline suppression comments: add "; gerbil-security: suppress <rule-id>" or "; gerbil-security: suppress-all" on or above the flagged line to suppress false positives. Suppressed findings are reported separately.
 - To add security patterns: use gerbil_security_pattern_add to contribute new detection rules.
@@ -291,6 +294,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To generate project structure: use gerbil_project_template to create a complete multi-file project from a template (cli, http-api, library, actor-service, db-crud, parser, ffi-wrapper, test-project).
 - To look up error fixes: use gerbil_error_fix_lookup for instant fix lookup from a database of ~20 common error→fix mappings. Much faster than explain_error for known errors.
 - To add error fixes: use gerbil_error_fix_add to record new error→fix mappings discovered during a session.
+- To check exe macro expansion: use gerbil_exe_macro_check to detect unbound identifiers from macro expansion that only appear in gxc -exe builds. Scans for runtime symbols (make-class-instance, make-struct-type, etc.) in expanded forms and suggests which imports to add or re-export from the macro module.
 - To diagnose exe link failures: use gerbil_build_linkage_diagnostic to trace transitive FFI link dependencies in build.ss exe targets. Detects missing C libraries that would cause silent link failures.
 - To audit build.ss imports: use gerbil_build_ss_audit to detect function calls (especially run-process) that silently fail due to missing imports. Calls inside with-catch blocks are especially dangerous — unbound identifier exceptions are swallowed, returning fallback values. The tool cross-references calls against imports and flags silent failures.
 - To audit binary for leaks: use gerbil_binary_audit to scan a compiled Gerbil/Gambit ELF binary for information leaks (symbol names, file paths, version strings, configure commands). Reports categorized findings with severity and remediation steps.
@@ -325,7 +329,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - **Port from Racket**: gerbil_translate_scheme → gerbil_verify → gerbil_suggest_imports → manual review
 - **Fix common error**: gerbil_error_fix_lookup → apply fix → gerbil_verify
 - **Start new project**: gerbil_project_template → gerbil build → make test
-- **Diagnose exe build issues**: gerbil_build_linkage_diagnostic → gerbil_detect_ifdef_stubs → gerbil_ffi_link_check → gerbil_stale_static
+- **Diagnose exe build issues**: gerbil_exe_macro_check → gerbil_build_linkage_diagnostic → gerbil_detect_ifdef_stubs → gerbil_ffi_link_check → gerbil_stale_static
 - **Split a module**: gerbil_cross_module_check → fix missing imports → gerbil_check_import_conflicts → gerbil_verify
 
 ## Important Guidance
@@ -426,6 +430,8 @@ registerExampleApiCoverageTool(server);
 registerValidateExampleImportsTool(server);
 registerBisectCrashTool(server);
 registerCheckImportConflictsTool(server);
+registerExportReexportConflictsTool(server);
+registerExeMacroCheckTool(server);
 registerSecurityScanTool(server);
 registerSecurityPatternAddTool(server);
 registerHowtoGetTool(server);

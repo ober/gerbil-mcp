@@ -253,19 +253,20 @@ export function parseGxcErrors(
   const diagnostics: Diagnostic[] = [];
   const lines = stderr.split('\n');
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  for (let idx = 0; idx < lines.length; idx++) {
+    const trimmed = lines[idx].trim();
     if (!trimmed) continue;
 
     // Pattern 1: /path/file.ss:LINE:COL: message
     const match1 = trimmed.match(/^(.+\.ss?):(\d+):(\d+):\s*(.+)$/);
     if (match1) {
+      const context = collectErrorContext(lines, idx);
       diagnostics.push({
         file: match1[1],
         line: parseInt(match1[2], 10),
         column: parseInt(match1[3], 10),
         severity: classifySeverity(match1[4]),
-        message: match1[4],
+        message: context ? `${match1[4]}\n${context}` : match1[4],
       });
       continue;
     }
@@ -273,12 +274,13 @@ export function parseGxcErrors(
     // Pattern 2: "file.ss"@LINE.COL -- message  (Gambit format)
     const match2 = trimmed.match(/"([^"]+)"@(\d+)\.(\d+)\s+--\s+(.+)$/);
     if (match2) {
+      const context = collectErrorContext(lines, idx);
       diagnostics.push({
         file: match2[1],
         line: parseInt(match2[2], 10),
         column: parseInt(match2[3], 10),
         severity: 'error',
-        message: match2[4],
+        message: context ? `${match2[4]}\n${context}` : match2[4],
       });
       continue;
     }
@@ -286,12 +288,13 @@ export function parseGxcErrors(
     // Pattern 2b: *** ERROR IN "file.ss"@LINE.COL[-LINE.COL]  (Gambit build error, may not have -- suffix)
     const match2b = trimmed.match(/^\*\*\*\s+ERROR\s+IN\s+"([^"]+)"@(\d+)\.(\d+)/);
     if (match2b) {
+      const context = collectErrorContext(lines, idx);
       diagnostics.push({
         file: match2b[1],
         line: parseInt(match2b[2], 10),
         column: parseInt(match2b[3], 10),
         severity: 'error',
-        message: trimmed,
+        message: context ? `${trimmed}\n${context}` : trimmed,
       });
       continue;
     }
@@ -301,12 +304,13 @@ export function parseGxcErrors(
       /^\*\*\*\s+ERROR\s+(?:IN\s+.+?\s+)?--\s*(.+)$/,
     );
     if (match3) {
+      const context = collectErrorContext(lines, idx);
       diagnostics.push({
         file: defaultFile || '<unknown>',
         line: null,
         column: null,
         severity: 'error',
-        message: match3[1],
+        message: context ? `${match3[1]}\n${context}` : match3[1],
       });
       continue;
     }
@@ -324,6 +328,33 @@ export function parseGxcErrors(
       continue;
     }
 
+    // Pattern 5: Standalone "Syntax Error: ..." lines (from gxc stderr forwarded through gerbil build)
+    const match5 = trimmed.match(/^(?:---\s+)?Syntax Error:\s*(.+)$/);
+    if (match5) {
+      const context = collectErrorContext(lines, idx);
+      diagnostics.push({
+        file: defaultFile || '<unknown>',
+        line: null,
+        column: null,
+        severity: 'error',
+        message: context ? `Syntax Error: ${match5[1]}\n${context}` : `Syntax Error: ${match5[1]}`,
+      });
+      continue;
+    }
+
+    // Pattern 6: "Reference to unbound identifier: SYMBOL" (standalone, not inside *** ERROR)
+    if (/^Reference to unbound identifier:/.test(trimmed)) {
+      const context = collectErrorContext(lines, idx);
+      diagnostics.push({
+        file: defaultFile || '<unknown>',
+        line: null,
+        column: null,
+        severity: 'error',
+        message: context ? `${trimmed}\n${context}` : trimmed,
+      });
+      continue;
+    }
+
     // Fallback: unrecognized error line
     if (trimmed.startsWith('***') || trimmed.startsWith('Error')) {
       diagnostics.push({
@@ -337,6 +368,30 @@ export function parseGxcErrors(
   }
 
   return diagnostics;
+}
+
+/**
+ * Collect multi-line error context following an error line.
+ * Captures "at:", "form:", "... context", and indented continuation lines.
+ */
+function collectErrorContext(lines: string[], errorIdx: number): string {
+  const contextLines: string[] = [];
+  for (let j = errorIdx + 1; j < lines.length && j <= errorIdx + 10; j++) {
+    const next = lines[j].trim();
+    if (!next) break;
+    // Context continuation lines: at:, form:, ... (ellipsis), expansion context, indented details
+    if (
+      /^(at|form|context|where|source|expander|macro)\s*:/.test(next) ||
+      next.startsWith('...') ||
+      next.startsWith('--- ') ||
+      (lines[j].startsWith('   ') && !next.startsWith('***'))
+    ) {
+      contextLines.push(`  ${next}`);
+    } else {
+      break;
+    }
+  }
+  return contextLines.join('\n');
 }
 
 /**
