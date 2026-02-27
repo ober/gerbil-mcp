@@ -14728,5 +14728,218 @@
       "resolve-import-naming-conflicts",
       "gsh-expand-prompt-positional-args"
     ]
+  },
+  {
+    "id": "let-hash-nested-avoid-double-dot",
+    "title": "Nested let-hash: avoid ..field — use hash-ref on captured binding instead",
+    "tags": [
+      "let-hash",
+      "nested",
+      "hash",
+      "sugar",
+      "gotcha",
+      "double-dot"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; WRONG: ..name tries to access outer scope, not inner hash\n;; (let-hash outer\n;;   (let-hash .inner\n;;     ..name))  ;; accesses outer hash 'name key!\n\n;; CORRECT: capture inner hash, use hash-ref directly\n(let-hash outer\n  (def fn .function)  ;; capture the inner hash\n  (list .id             ;; .id from outer hash\n        (hash-ref fn 'name)       ;; name from inner hash\n        (hash-get fn 'arguments))) ;; optional from inner hash",
+    "notes": "The ..field syntax in nested let-hash accesses the OUTER scope hash, not the inner one. This is the opposite of what you usually want when parsing nested JSON. Instead, capture the inner hash with def and use hash-ref/hash-get explicitly. This pattern is especially common when parsing API responses with nested objects like OpenAI's tool_calls[].function.",
+    "related": [
+      "let-hash-destructure"
+    ]
+  },
+  {
+    "id": "cons-pair-in-list-literal",
+    "title": "Cons pairs in list literals: use (list (cons ...)) not [(...  . expr)]",
+    "tags": [
+      "cons",
+      "pair",
+      "list",
+      "literal",
+      "alist",
+      "headers",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; WRONG: dotted pair syntax with computed values in [] list literal\n;; [(\"key\" . (string-append \"prefix\" val)) ...]\n;; => Syntax Error: invalid match target\n\n;; CORRECT: use explicit list + cons\n(def (make-headers api-key)\n  (list (cons \"Authorization\" (string-append \"Bearer \" api-key))\n        (cons \"Content-Type\" \"application/json\")))",
+    "notes": "Gerbil's [] list literal syntax does not support dotted pairs with computed values. The (\\\"key\\\" . expr) form inside [] is parsed incorrectly. Use explicit (list (cons k v) ...) instead. Literal alist pairs like '((\\\"a\\\" . \\\"b\\\")) work fine since both sides are constants."
+  },
+  {
+    "id": "defstruct-no-redefine-constructor",
+    "title": "defstruct auto-generates make-X — never redefine it",
+    "tags": [
+      "defstruct",
+      "constructor",
+      "make",
+      "rebind",
+      "conflict",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; WRONG: causes \"Bad binding; rebind conflict\"\n;; (defstruct my-pool (conn config) constructor: :init!)\n;; (def (make-my-pool . args) ...)  ;; REBIND!\n\n;; RIGHT: use a different name for the convenience constructor\n(defstruct my-pool (conn config) constructor: :init!)\n(def (my-pool-open conn config: (config (hash)))\n  (make-my-pool conn config))",
+    "notes": "defstruct always generates make-X. If you need a convenience constructor with keyword args, name it something else like X-open or create-X."
+  },
+  {
+    "id": "defrules-multi-clause-macro",
+    "title": "Use defrules (plural) for multi-clause syntax macros",
+    "tags": [
+      "defrules",
+      "defrule",
+      "macro",
+      "multi-clause",
+      "rebind",
+      "syntax-rules"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; WRONG: multiple defrule for same name = rebind conflict\n;; (defrule (with-foo (opts ...) body ...) ...)\n;; (defrule (with-foo body ...) ...)  ;; REBIND!\n\n;; RIGHT: use defrules (plural) for multiple patterns\n(defrules with-foo ()\n  ((_ (opts ...) body ...)\n   (call-with-foo (lambda () body ...) opts ...))\n  ((_ body ...)\n   (call-with-foo (lambda () body ...))))",
+    "notes": "defrule defines a single-pattern macro. For multiple patterns, use defrules which is like syntax-rules with multiple clauses."
+  },
+  {
+    "id": "postgresql-sqlerror-irritants-structure",
+    "title": "PostgreSQL SQLError irritants contain char-keyed alist",
+    "tags": [
+      "postgresql",
+      "sqlerror",
+      "error",
+      "irritants",
+      "sqlstate",
+      "alist",
+      "char"
+    ],
+    "imports": [
+      ":std/db/dbi"
+    ],
+    "code": ";; PostgreSQL driver stores irritants as: (where-symbol alist)\n;; alist keys: #\\S=severity #\\C=SQLSTATE #\\M=message #\\D=detail\n;;             #\\H=hint #\\P=position #\\n=constraint #\\t=table #\\c=column\n(def (pg-error-sqlstate err)\n  (and (SQLError? err)\n       (let* ((irr (SQLError-irritants err))\n              (alist (and (pair? irr) (pair? (cdr irr)) (cadr irr))))\n         (and (list? alist)\n              (let (pair (assv #\\C alist))\n                (and pair (cdr pair)))))))",
+    "notes": "The alist is at (cadr (SQLError-irritants err)). Use assv for char keys. Comes from unmarshal-error-notice in postgresql-driver.ss."
+  },
+  {
+    "id": "pregexp-replace-no-function-replacement",
+    "title": "pregexp-replace* does NOT support function replacements",
+    "tags": [
+      "pregexp",
+      "replace",
+      "function",
+      "callback",
+      "gotcha",
+      "regex"
+    ],
+    "imports": [
+      ":std/pregexp"
+    ],
+    "code": ";; WRONG: pregexp-replace* only takes a string replacement, not a function\n;; (pregexp-replace* pattern str (lambda (m) ...))  ;; ERROR!\n\n;; RIGHT: write a manual scanner for function-based replacements\n(def (regex-replace-fn pattern str fn)\n  (let ((len (string-length str))\n        (out (open-output-string)))\n    (let lp ((pos 0))\n      (if (>= pos len)\n        (get-output-string out)\n        (let (m (pregexp-match-positions pattern str pos))\n          (if m\n            (let* ((start (caar m))\n                   (end (cdar m))\n                   (match-strs (map (lambda (p)\n                                      (and p (substring str (car p) (cdr p))))\n                                    m))\n                   (replacement (fn match-strs)))\n              (write-string (substring str pos start) out)\n              (write-string replacement out)\n              (lp end))\n            (begin\n              (write-string (substring str pos len) out)\n              (get-output-string out))))))))",
+    "notes": "pregexp-replace* signature is (pregexp-replace* pattern string replacement) where replacement must be a string. For function-based replacements, use pregexp-match-positions in a loop. Alternative: for simple patterns like :name, just write a char-by-char scanner instead of using regex.",
+    "related": [
+      "string-regex"
+    ]
+  },
+  {
+    "id": "build-ss-needs-shebang",
+    "title": "build.ss needs #!/usr/bin/env gxi shebang line",
+    "tags": [
+      "build.ss",
+      "shebang",
+      "gxi",
+      "gerbil-build",
+      "executable",
+      "import",
+      "imagemagick"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": "#!/usr/bin/env gxi\n;;; -*- Gerbil -*-\n\n(import :std/build-script)\n(defbuild-script\n  '(\"errors\"\n    \"types\"\n    \"main\"))\n\n;; Also needs: chmod +x build.ss",
+    "notes": "gerbil build executes build.ss as a subprocess. Without the shebang, the shell interprets it and may find ImageMagick's `import` command instead of Gerbil's import form. Always add #!/usr/bin/env gxi as the first line AND chmod +x build.ss."
+  },
+  {
+    "id": "defcatalog-extend-postgresql-types",
+    "title": "Extend PostgreSQL type catalog with defcatalog mixin",
+    "tags": [
+      "defcatalog",
+      "postgresql",
+      "type",
+      "catalog",
+      "json",
+      "uuid",
+      "bytea",
+      "array",
+      "codec"
+    ],
+    "imports": [
+      ":std/db/postgresql",
+      ":std/text/json"
+    ],
+    "code": ";; Extend default-catalog with JSON, UUID, etc.\n;; defcatalog creates a new catalog inheriting from a mixin\n(defcatalog (my-catalog default-catalog)\n  ;; JSON (OID 114) and JSONB (OID 3802)\n  ((114 3802) json-object->string string->json-object)\n  ;; UUID (OID 2950) — string passthrough\n  ((2950) identity identity)\n  ;; OID (OID 26)\n  ((26) number->string string->number))\n\n;; Use it via parameterize\n(parameterize ((current-catalog my-catalog))\n  (sql-eval-query conn \"SELECT data::jsonb FROM t\"))\n\n;; Or as a macro\n(defrule (using-my-catalog body ...)\n  (parameterize ((current-catalog my-catalog)) body ...))",
+    "notes": "catalog-s and catalog-d struct accessors are NOT exported from :std/db/postgresql, so you cannot do runtime type registration. Use defcatalog (which IS exported) to create extended catalogs at compile time. The mixin copies serializer/deserializer hash tables from the parent catalog.",
+    "related": [
+      "postgresql-database-queries"
+    ]
+  },
+  {
+    "id": "gerbil-package-module-path-mapping",
+    "title": "Package name + file path = module import path",
+    "tags": [
+      "package",
+      "gerbil.pkg",
+      "module",
+      "import",
+      "path",
+      "directory",
+      "structure"
+    ],
+    "imports": [],
+    "code": ";; With gerbil.pkg containing: (package: myuser/myproject)\n;;\n;; File at ./errors.ss     → :myuser/myproject/errors\n;; File at ./sub/utils.ss  → :myuser/myproject/sub/utils\n;;\n;; GOTCHA: files in a postgres/ subdir with package myuser/myproject:\n;; File at ./postgres/errors.ss → :myuser/myproject/postgres/errors\n;;                                  (NOT :myuser/myproject/errors!)\n;;\n;; If you want :myuser/myproject/errors, put errors.ss at the project root.\n;;\n;; build.ss lists relative paths without package prefix:\n;; (defbuild-script '(\"errors\" \"sub/utils\"))",
+    "notes": "The full module path is the package prefix + the relative file path (minus .ss). Putting source in a subdirectory adds that directory to the module path. This is a common mistake when setting up new projects."
+  },
+  {
+    "id": "exe-make-class-instance-unbound-fix",
+    "title": "Fix make-class-instance unbound in gxc -exe when using defpersistent/defclass macros",
+    "tags": [
+      "exe",
+      "gxc",
+      "make-class-instance",
+      "unbound",
+      "defpersistent",
+      "defclass",
+      "mop",
+      "runtime",
+      "macro-expansion"
+    ],
+    "imports": [
+      ":gerbil/runtime/mop"
+    ],
+    "code": ";; PROBLEM: gxc -exe fails with \"Reference to unbound identifier: make-class-instance\"\n;; when compiling a module that uses macros (like defpersistent/defclass) that\n;; expand into code containing make-class-instance.\n;;\n;; ROOT CAUSE: make-class-instance is a Gerbil core runtime symbol available\n;; implicitly in gxi (interpreter) but NOT automatically bound during gxc\n;; compilation. When a macro expands at the call site, the expanded code\n;; references make-class-instance in the consumer module's scope.\n;;\n;; FIX: The module defining the macro must import AND re-export :gerbil/runtime/mop\n;; so that consumer modules get the binding transitively.\n;;\n;; In the macro-defining module (e.g. metaclass.ss):\n(export #t\n        (import: :gerbil/runtime/mop))  ;; re-export make-class-instance etc.\n\n(import :gerbil/runtime/mop  ;; make-class-instance — needed at expansion site\n        ;; ... other imports\n        )\n\n;; NOTE: (export #t) alone does NOT re-export transitive imports.\n;; You MUST add (export (import: :gerbil/runtime/mop)) explicitly.\n;;\n;; Other symbols from :gerbil/runtime/mop that macros commonly emit:\n;; make-class-type, make-class-predicate, make-class-instance",
+    "notes": "This is a common gotcha when converting interpreted gxi scripts to compiled gxc -exe binaries. The interpreter has all runtime symbols in scope, but the compiler requires explicit module resolution. The fix must be in the macro-defining module, not the consumer. Same pattern applies to make-class-type and make-class-predicate if macros emit those.",
+    "related": [
+      "gxc-exe-in-makefile",
+      "exe-build-static-modules",
+      "gambit-unbound-silent-in-compiled-exe"
+    ]
+  },
+  {
+    "id": "exe-defpersistent-module-structure",
+    "title": "Structure a gxc -exe module that uses defpersistent (top-level types + main function)",
+    "tags": [
+      "exe",
+      "defpersistent",
+      "main",
+      "export",
+      "package",
+      "module-structure",
+      "gxc",
+      "compiled"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; For gxc -exe, a module using defpersistent must:\n;; 1. Have package: declaration\n;; 2. Export main\n;; 3. Keep defpersistent forms at TOP LEVEL (not inside main)\n;; 4. Wrap all test/runtime logic in (def (main . args) ...)\n\n;; ---- Correct structure: ----\n;; package: mypackage\n;;\n;; (export main)\n;;\n;; (import :std/sugar :mypackage/metaclass ...)\n;;\n;; ;; Type definitions MUST be top-level (macro expands to top-level defs)\n;; (defpersistent point\n;;   (x :type s64)\n;;   (y :type f64))\n;;\n;; (defpersistent counter\n;;   (val :type s64))\n;;\n;; ;; All runtime logic goes in main\n;; (def (main . args)\n;;   (let ((db (open-odb \"/tmp/test\")))\n;;     (store-register-type! db point::type-descriptor)\n;;     ...\n;;     (close-odb! db)))\n\n;; ---- Makefile target: ----\n;; LOADPATH := $(shell pwd)/.gerbil/lib\n;; load-test: build\n;; \tmkdir -p .gerbil/bin\n;; \tGERBIL_LOADPATH=$(LOADPATH) gxc -exe -o .gerbil/bin/load-test load-test.ss\n\n;; IMPORTANT: defpersistent expands to def forms for:\n;; - type-descriptor (point::type-descriptor)\n;; - class type (point::t)\n;; - predicate (point?)\n;; - accessors (point-x, point-y)\n;; - mutators (point-x-set!, point-y-set!)\n;; - constructor (make-point)\n;; These MUST be at module top-level, not inside a function body.",
+    "notes": "When converting an interpreted gxi script to a compiled exe, you cannot simply wrap everything in main — defpersistent and similar macros that expand to multiple top-level definitions must stay at module scope. The package: declaration is required for gxc -exe but breaks direct gxi file loading; use gxi -e '(import :pkg/module)' -e '(main)' for interpreted mode after building.",
+    "related": [
+      "gxc-exe-in-makefile",
+      "exe-build-static-modules",
+      "exe-make-class-instance-unbound-fix"
+    ]
   }
 ]

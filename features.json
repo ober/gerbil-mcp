@@ -33,5 +33,59 @@
     "example_scenario": "Adding (import :gsh/prompt) to a module that already imports :std/srfi/13 causes 'Bad binding; import conflict' for string-prefix? because :gsh/prompt uses (export #t) and re-exports string-prefix? from its own imports. The build error gives the two conflicting sources but doesn't suggest a fix. The developer must manually figure out to use (only-in :gsh/prompt expand-prompt).",
     "estimated_token_reduction": "~500-1000 tokens per incident — eliminates the build-fail-read-error-fix cycle and directly suggests the (only-in ...) fix",
     "votes": 0
+  },
+  {
+    "id": "run-tests-verbose-fix-std-format",
+    "title": "Fix gerbil_run_tests verbose mode importing nonexistent :std/format",
+    "description": "gerbil_run_tests verbose mode wraps the test file in a temporary file that adds `(import :std/format)`. This module does not exist in Gerbil v0.18.x, causing the verbose wrapper to fail with 'Bad syntax; no expander method' before any tests run. The instrumentation should either not import :std/format or use the correct module (printf-style formatting is already available via :std/logger or built-in format).",
+    "impact": "medium",
+    "tags": [
+      "run_tests",
+      "verbose",
+      "std/format",
+      "bug",
+      "test"
+    ],
+    "use_case": "When debugging failing tests, verbose mode is the natural tool to reach for. But it's currently broken for v0.18.x projects, forcing users to manually add displayln statements or run tests via gxi heredoc.",
+    "example_scenario": "Running `gerbil_run_tests` with `verbose: true` on any test file in a v0.18.x project fails with: *** ERROR IN gx#core-expand-import/export -- Syntax Error: Bad syntax; no expander method ... form: (import :std/format). The test never runs. Workaround: run via `gxi << 'EOF' (import :std/test :my/test) (run-tests! my-test) (test-report-summary!) EOF`",
+    "estimated_token_reduction": "~300 tokens per debugging session — eliminates the verbose mode failure investigation and workaround",
+    "votes": 0
+  },
+  {
+    "id": "build-and-report-better-error-extraction",
+    "title": "gerbil_build_and_report should extract rebind/syntax errors from build output",
+    "description": "When `gerbil build` fails with errors like 'Bad binding; rebind conflict' or 'cannot find library module', gerbil_build_and_report only reports the outer ProcessError from run-process, losing the actual diagnostic. The tool should capture and parse stderr from the build subprocess to extract the real error (module name, symbol, error type). Currently it takes 2 extra steps: running `gerbil build 2>&1` via bash, then reading the output manually.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "error",
+      "diagnostic",
+      "rebind",
+      "syntax",
+      "gerbil_build_and_report"
+    ],
+    "use_case": "Every time a build fails during iterative development. The current error output says 'process exited with non-zero status' which provides zero diagnostic value. The developer must then run the build manually via bash to see the real error.",
+    "example_scenario": "Building a project with a defstruct that conflicts with a def of the same name. gerbil_build_and_report returns: '[ERROR] /path — *** ERROR IN std/misc/process#run-process__% -- [ProcessError]'. Running `gerbil build 2>&1` via bash reveals the actual error: 'Bad binding; rebind conflict ... form: make-pg-pool'. The tool should have shown this directly.",
+    "estimated_token_reduction": "~500 tokens per build failure — eliminates the bash fallback + manual output reading cycle",
+    "votes": 0
+  },
+  {
+    "id": "exe-unbound-macro-expansion-diagnostic",
+    "title": "Detect unbound identifiers from macro expansion sites before gxc -exe build",
+    "description": "A tool (or enhancement to gerbil_verify/gerbil_compile_check) that detects when a macro expansion introduces identifiers that aren't available in the consumer module's scope. Common case: a module defines a macro with (export #t) that expands to code referencing runtime symbols (make-class-instance, make-class-type, etc.) from :gerbil/runtime/mop. Since (export #t) doesn't re-export transitive imports, consumer modules fail at gxc -exe time with \"Reference to unbound identifier\". The tool would: (1) expand macros in the target module, (2) check if all referenced identifiers are resolvable in the consumer's import scope, (3) suggest adding (export (import: :gerbil/runtime/mop)) to the macro-defining module.",
+    "impact": "medium",
+    "tags": [
+      "exe",
+      "macro",
+      "unbound",
+      "expansion",
+      "make-class-instance",
+      "mop",
+      "export"
+    ],
+    "use_case": "When converting an interpreted gxi script to a compiled gxc -exe binary. Macros that work fine under gxi fail under gxc because the interpreter has all runtime symbols in scope but the compiler requires explicit imports.",
+    "example_scenario": "A metaclass module defines (defpersistent ...) macro that expands to code containing make-class-instance. Works fine in gxi. When building with gxc -exe, the consumer module fails: 'Reference to unbound identifier: make-class-instance'. Required 5+ tool calls (apropos, find_definition, eval, compile_check) to diagnose that :gerbil/runtime/mop needed to be imported and re-exported from the macro module.",
+    "estimated_token_reduction": "~2000 tokens per incident — eliminates the diagnostic chain of apropos → find_definition → eval → compile_check → trial-and-error imports",
+    "votes": 0
   }
 ]
