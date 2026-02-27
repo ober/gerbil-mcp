@@ -14941,5 +14941,73 @@
       "exe-build-static-modules",
       "exe-make-class-instance-unbound-fix"
     ]
+  },
+  {
+    "id": "reader-error-line-column",
+    "title": "Extract line/column from reader (datum-parsing-exception) errors",
+    "tags": [
+      "error",
+      "reader",
+      "line",
+      "column",
+      "datum-parsing-exception",
+      "readenv",
+      "port",
+      "position",
+      "parse",
+      "location"
+    ],
+    "imports": [],
+    "code": ";; When read fails, the datum-parsing-exception contains a readenv\n;; with the port at the error position. Extract line/column:\n(with-catch\n  (lambda (e)\n    (let* ((re (if (RuntimeException? e) (RuntimeException-exception e) e)))\n      (when (datum-parsing-exception? re)\n        (let* ((renv (datum-parsing-exception-readenv re))\n               (port (##vector-ref renv 1))\n               (line (##input-port-line port))\n               (col  (##input-port-column port)))\n          (displayln (list 'line line 'col col))))))\n  (lambda ()\n    (read (open-input-string \"(def foo\\n  (+ 1 2)\"))))\n;; => (line 2 col 10)\n\n;; Also available:\n;; (datum-parsing-exception-kind re)       => e.g. 'incomplete-form-eof-reached\n;; (datum-parsing-exception-parameters re) => error-specific params",
+    "notes": "datum-parsing-exception? and datum-parsing-exception-readenv are Gambit primitives available without import. The readenv is a ##vector where index 1 is the port. Use ##input-port-line and ##input-port-column (double-hash Gambit internals) to get position. input-port-line (single-hash) also works. This is critical for tools that need to report WHERE a reader error occurred, not just WHAT the error was.",
+    "related": [
+      "error-handling",
+      "error-message-returns-false-for-non-error"
+    ]
+  },
+  {
+    "id": "string-append-vs-format-portability",
+    "title": "Use string-append instead of format for portable string building",
+    "tags": [
+      "string",
+      "format",
+      "string-append",
+      "portability",
+      "v0.18",
+      "v0.19",
+      "std/format",
+      "display"
+    ],
+    "imports": [],
+    "code": ";; AVOID: :std/format does not exist in v0.18.x\n;; (import :std/format)\n;; (format \"  [TRACE L~a] ~a~n\" line-num expr)\n\n;; USE: string-append is always available, no import needed\n(display\n  (string-append \"  [TRACE L\" (number->string 42) \"] \" \"some expression\" \"\\n\")\n  (current-error-port))\n\n;; For simple concatenation, string-append is more portable than format.\n;; format with ~a and ~n is available in some Gerbil versions but not all.",
+    "notes": ":std/format module does not exist in Gerbil v0.18.x. Using it causes 'Bad syntax; no expander method' at compile time. For simple string building, string-append + number->string is universally available without any imports. Only use format when you need complex formatting and can verify the module exists.",
+    "related": [
+      "string-operations"
+    ]
+  },
+  {
+    "id": "exe-build-macro-unbound-runtime-symbols",
+    "title": "Fix \"Reference to unbound identifier\" in gxc -exe from macro expansion",
+    "tags": [
+      "exe",
+      "macro",
+      "unbound",
+      "make-class-instance",
+      "make-struct-type",
+      "mop",
+      "runtime",
+      "gxc",
+      "export",
+      "re-export",
+      "compiled"
+    ],
+    "imports": [
+      ":gerbil/runtime/mop"
+    ],
+    "code": ";; PROBLEM: defstruct/defclass macros expand to code using runtime symbols\n;; like make-class-instance, make-struct-type, etc. from :gerbil/runtime/mop.\n;; These are available in gxi (interpreter has all runtime in scope) but\n;; NOT in gxc -exe (compiler requires explicit imports).\n;;\n;; If a module defines a macro with (export #t) that expands to such code,\n;; consumer modules fail at gxc -exe time:\n;;   \"Reference to unbound identifier: make-class-instance\"\n\n;; FIX for macro-defining module: re-export the runtime module\n(export #t (import: :gerbil/runtime/mop))\n\n;; Or in the consumer module, import directly:\n(import :gerbil/runtime/mop)\n\n;; Common runtime symbols that cause this:\n;; From :gerbil/runtime/mop:\n;;   make-class-instance make-class-type class-instance-init!\n;;   make-class-predicate make-class-slot-accessor make-class-slot-mutator\n;;   make-struct-instance make-struct-type struct-instance-init!\n;;   make-struct-predicate make-struct-field-accessor make-struct-field-mutator",
+    "notes": "This is one of the most common gxi-works-but-gxc-exe-fails issues. The interpreter has all :gerbil/runtime/* symbols in scope globally, but the compiler's linker requires explicit imports. Use gerbil_exe_macro_check to detect this before building. The fix is to add (export (import: :gerbil/runtime/mop)) to the macro-defining module so consumers get the symbols transitively.",
+    "related": [
+      "error-handling"
+    ]
   }
 ]
