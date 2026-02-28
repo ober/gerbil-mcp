@@ -1,1 +1,92 @@
-[]
+[
+  {
+    "id": "gambit-patch-persistence",
+    "title": "Tool to manage persistent patches to vendored Gambit in Gerbil projects",
+    "description": "When Gerbil vendors Gambit as a git submodule (src/gambit/), patches to C source files like lib/mem.c are silently reverted by `./configure` which runs `git checkout` on the submodule. A tool that detects pending patches, verifies they survive configure, or applies them post-checkout would prevent repeated loss of fixes. Could also check if a MANIFEST file exists (which skips the git checkout) and warn if it's missing.",
+    "impact": "low",
+    "tags": [
+      "gambit",
+      "patch",
+      "submodule",
+      "configure",
+      "build",
+      "vendored"
+    ],
+    "use_case": "When maintaining custom Gambit runtime patches (e.g. SMP GC fixes) in a Gerbil project fork",
+    "example_scenario": "Applied two SMP GC fixes to gerbil/src/gambit/lib/mem.c. Running ./configure reverted them via git checkout. Had to reapply patches three times before discovering the MANIFEST guard that prevents the checkout.",
+    "estimated_token_reduction": "~200 tokens per occurrence, but saves significant debugging time when patches silently disappear",
+    "votes": 0
+  },
+  {
+    "id": "gambit-signal-safety-check",
+    "title": "Detect async-signal-unsafe calls in Gambit signal handlers",
+    "description": "A tool that scans begin-ffi / c-declare blocks for signal handler functions (identified by sigaction/signal installation patterns) and flags any async-signal-unsafe function calls within them. Common dangerous calls: nanosleep, malloc, printf, mutex operations. Only clock_gettime, write, and a few others are safe. This would catch a class of subtle bugs where signal handlers corrupt Gambit runtime state.",
+    "impact": "medium",
+    "tags": [
+      "signal",
+      "handler",
+      "async-safe",
+      "ffi",
+      "c-shim",
+      "sigaction",
+      "nanosleep"
+    ],
+    "use_case": "When writing C signal handler wrappers in Gerbil FFI code, especially for SIGVTALRM/SIGALRM interception of Gambit's scheduler",
+    "example_scenario": "Wrote a SIGVTALRM wrapper that called nanosleep() to throttle Gambit's scheduler spin. The nanosleep corrupted Gambit internal state causing SIGSEGV (exit code -11). Took significant debugging to identify the root cause. A static check would have flagged nanosleep as async-signal-unsafe immediately.",
+    "estimated_token_reduction": "~300 tokens per invocation, but saves hours of debugging time for a rare but catastrophic bug class",
+    "votes": 0
+  },
+  {
+    "id": "port-type-mismatch-detection",
+    "title": "Detect byte I/O on character ports and vice versa",
+    "description": "A lint rule or compile-check enhancement that detects when byte-level I/O functions (read-u8, read-subu8vector, write-subu8vector, open-input-u8vector) are used with ports created by character-level constructors (open-input-string, open-output-string) and vice versa. Gambit throws \"Byte INPUT PORT expected\" at runtime but this could be caught statically by tracking port types through the code.",
+    "impact": "medium",
+    "tags": [
+      "port",
+      "byte",
+      "character",
+      "read-u8",
+      "open-input-string",
+      "type-mismatch"
+    ],
+    "use_case": "When refactoring code from character I/O (read-line) to byte I/O (read-u8) and tests still use open-input-string instead of open-input-u8vector",
+    "example_scenario": "Rewrote LSP transport from read-line to read-u8 for byte-level I/O. All tests failed with \"Byte INPUT PORT expected\" because test helpers still used open-input-string. The lint tool's existing port-type-mismatch check could be extended to cover this pattern in test files too.",
+    "estimated_token_reduction": "~200 tokens per occurrence, eliminates 1-2 debug cycles when switching I/O modes",
+    "votes": 0
+  },
+  {
+    "id": "defstruct-to-defclass-migration",
+    "title": "Detect defstruct with keyword-style constructor calls",
+    "description": "A lint or diagnostic tool that detects when `defstruct` types are being constructed with keyword-style arguments (e.g. `(make-foo field: value)`), which will fail at runtime because `defstruct` creates positional-only constructors. Should suggest changing to `defclass` or converting call sites to positional style. Could also detect the inverse: `defclass` types called with positional args when keywords are expected.",
+    "impact": "high",
+    "tags": [
+      "defstruct",
+      "defclass",
+      "keyword",
+      "constructor",
+      "arity",
+      "migration"
+    ],
+    "use_case": "When writing a new Gerbil project with many struct types and discovering at build time that all constructors fail because defstruct doesn't support keyword args",
+    "example_scenario": "Created 20+ defstruct types across a project, all with keyword-style constructors like (make-signal-address name: \"bob\" device-id: 1). Build succeeded but runtime failed with \"illegal struct constructor application; arity mismatch\". Had to bulk-replace all defstruct with defclass across 32 files. A lint check would have caught this immediately.",
+    "estimated_token_reduction": "~2000 tokens per occurrence — eliminates the debug cycle of build, run, discover arity error, investigate defstruct vs defclass difference, then bulk-replace across all files",
+    "votes": 0
+  },
+  {
+    "id": "export-t-reexport-warning",
+    "title": "Warn when (export #t) is used in a re-export aggregator module",
+    "description": "Detect modules that import many sub-modules and use `(export #t)` expecting to re-export all imported symbols. `(export #t)` only exports locally-defined symbols, not imported ones. The tool should suggest `(export (import: :mod1 :mod2 ...))` instead. Could be integrated into gerbil_lint or gerbil_verify.",
+    "impact": "medium",
+    "tags": [
+      "export",
+      "re-export",
+      "import",
+      "module",
+      "aggregator"
+    ],
+    "use_case": "When creating a top-level module that re-exports all sub-modules for convenience (like signal.ss that re-exports all protocol modules)",
+    "example_scenario": "Created src/signal.ss with imports of 15 sub-modules and (export #t), expecting users to just (import :signal/src/signal). At runtime, none of the sub-module symbols were available. Had to discover that (export #t) doesn't re-export and change to (export (import: :mod1 :mod2 ...)).",
+    "estimated_token_reduction": "~500 tokens — eliminates the debug cycle of testing imports, discovering they're missing, researching re-export syntax",
+    "votes": 0
+  }
+]

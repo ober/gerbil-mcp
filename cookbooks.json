@@ -15009,5 +15009,129 @@
     "related": [
       "error-handling"
     ]
+  },
+  {
+    "id": "gambit-sigvtalrm-spin-workaround",
+    "title": "Workaround for Gambit SIGVTALRM scheduler spin (100% CPU busy-loop)",
+    "tags": [
+      "gambit",
+      "sigvtalrm",
+      "spin",
+      "cpu",
+      "scheduler",
+      "race-condition",
+      "signal",
+      "workaround",
+      "busy-loop"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; Gambit's thread scheduler has a race condition where it enters a tight\n;; Scheme-level loop retrying I/O without calling select(). This burns 100%\n;; CPU. It triggers non-deterministically when spawned by editors (emacs/eglot).\n;;\n;; Fix: wrap SIGVTALRM to detect rapid firing (< 500us apart = spin).\n;; After 500 consecutive rapid firings, skip 90% of Gambit handler calls\n;; to starve the retry loop. NEVER use nanosleep() in the handler — it\n;; corrupts Gambit internal state and causes SIGSEGV.\n\n(begin-ffi (ffi-install-vtalrm-wrapper)\n  (c-declare #<<END-C\n#define _GNU_SOURCE\n#include <signal.h>\n#include <time.h>\n#include <string.h>\n\nstatic volatile int vtalrm_rapid_count = 0;\nstatic volatile int vtalrm_skip_count = 0;\nstatic volatile struct timespec vtalrm_last = {0, 0};\nstatic struct sigaction vtalrm_orig_action;\n\nstatic void vtalrm_wrapper(int sig, siginfo_t *info, void *ucontext) {\n    struct timespec now;\n    clock_gettime(CLOCK_MONOTONIC, &now);\n    long elapsed_ns = (now.tv_sec - vtalrm_last.tv_sec) * 1000000000L +\n                      (now.tv_nsec - vtalrm_last.tv_nsec);\n    vtalrm_last = now;\n\n    if (elapsed_ns > 0 && elapsed_ns < 500000) {\n        vtalrm_rapid_count++;\n    } else {\n        vtalrm_rapid_count = 0;\n        vtalrm_skip_count = 0;\n    }\n\n    /* After ~250ms sustained spin, skip 90% of handler calls */\n    if (vtalrm_rapid_count > 500) {\n        vtalrm_skip_count++;\n        if (vtalrm_skip_count > 5) {\n            if (vtalrm_skip_count > 55) vtalrm_skip_count = 0;\n            return; /* skip Gambit handler — breaks the spin */\n        }\n    }\n\n    if (vtalrm_orig_action.sa_flags & SA_SIGINFO) {\n        if (vtalrm_orig_action.sa_sigaction)\n            vtalrm_orig_action.sa_sigaction(sig, info, ucontext);\n    } else {\n        if (vtalrm_orig_action.sa_handler != SIG_DFL &&\n            vtalrm_orig_action.sa_handler != SIG_IGN)\n            vtalrm_orig_action.sa_handler(sig);\n    }\n}\n\nstatic void install_vtalrm_wrapper(void) {\n    struct sigaction sa;\n    memset(&sa, 0, sizeof(sa));\n    sigaction(SIGVTALRM, NULL, &vtalrm_orig_action);\n    sa.sa_sigaction = vtalrm_wrapper;\n    sa.sa_flags = SA_SIGINFO | SA_RESTART;\n    sigemptyset(&sa.sa_mask);\n    sigaction(SIGVTALRM, &sa, NULL);\n}\nEND-C\n  )\n  (define-c-lambda ffi-install-vtalrm-wrapper () void\n    \"install_vtalrm_wrapper();\"))\n\n;; Call AFTER Gambit init (top-level Scheme, not C constructor):\n(ffi-install-vtalrm-wrapper)",
+    "notes": "CRITICAL: Do NOT use nanosleep() inside the SIGVTALRM handler. It corrupts Gambit's internal state and causes SIGSEGV. The handler-skipping approach is safe because it only uses clock_gettime (async-signal-safe) and avoids blocking. The spin can trigger at startup OR after any I/O transition, not just once. Must call install from Scheme (not C __attribute__((constructor))) because Gambit installs its handler in main(), overwriting earlier installations. Diagnosis: spinning process has SigBlk=0 (SIGVTALRM unblocked), state=R, wchan=0, voluntary_ctxt_switches=1-2.",
+    "gerbil_version": "v0.18"
+  },
+  {
+    "id": "gambit-nanosleep-in-signal-handler-sigsegv",
+    "title": "DANGER: nanosleep() in Gambit signal handlers causes SIGSEGV",
+    "tags": [
+      "nanosleep",
+      "signal",
+      "handler",
+      "sigsegv",
+      "crash",
+      "gambit",
+      "async-signal-safe",
+      "sigvtalrm"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": ";; DO NOT DO THIS — causes SIGSEGV in Gambit-compiled programs:\n;;\n;; static void my_handler(int sig, siginfo_t *info, void *ucontext) {\n;;     struct timespec ts = {0, 5000000}; /* 5ms */\n;;     nanosleep(&ts, NULL);  /* CRASHES Gambit! */\n;;     orig_handler(sig, info, ucontext);\n;; }\n;;\n;; Although nanosleep() is async-signal-safe per POSIX, sleeping inside\n;; a Gambit signal handler corrupts the runtime's internal state. Gambit\n;; uses SIGVTALRM for its thread scheduler, and the scheduler expects\n;; signal handlers to return promptly. A 5ms+ delay causes the\n;; interrupted code's stack frame to become inconsistent, leading to\n;; SIGSEGV (signal 11) when the scheduler resumes.\n;;\n;; SAFE alternative: skip calling Gambit's handler to break spin loops:\n;;\n;; static void my_handler(int sig, siginfo_t *info, void *ucontext) {\n;;     if (should_throttle) return; /* safe: just skip the handler */\n;;     orig_handler(sig, info, ucontext);\n;; }\n(void) ;; placeholder — this is a documentation recipe",
+    "notes": "Discovered while fixing 100% CPU spin in gerbil-lsp. The nanosleep approach was initially promising (it detected and throttled spins correctly), but caused SIGSEGV after ~2 seconds. Exit code -11 confirmed signal 11. The process would transition to wchan=anon_pipe_write then crash. sched_yield() is also risky in signal handlers for similar reasons. The only safe approach is to skip calling Gambit's original handler entirely when throttling is needed.",
+    "related": [
+      "gambit-sigvtalrm-spin-workaround"
+    ]
+  },
+  {
+    "id": "gambit-read-u8-vs-read-line-port-types",
+    "title": "read-u8 requires byte ports — string ports cause 'Byte INPUT PORT expected' error",
+    "tags": [
+      "read-u8",
+      "port",
+      "byte",
+      "string",
+      "open-input-u8vector",
+      "open-input-string",
+      "binary",
+      "error"
+    ],
+    "imports": [],
+    "code": ";; read-u8 only works with BYTE ports, not string/character ports.\n;; Using open-input-string with read-u8 gives:\n;;   (Argument 1) Byte INPUT PORT expected\n\n;; WRONG — string port for byte I/O:\n;; (let ((port (open-input-string \"hello\")))\n;;   (read-u8 port))  ;; ERROR!\n\n;; CORRECT — byte port for byte I/O:\n(let ((port (open-input-u8vector (string->bytes \"hello\"))))\n  (read-u8 port))  ;; => 104 (ASCII 'h')\n\n;; For testing byte-level I/O functions, always use:\n;;   (open-input-u8vector (string->bytes \"...\"))\n;; instead of:\n;;   (open-input-string \"...\")\n\n;; Empty byte port (for EOF testing):\n(let ((port (open-input-u8vector (u8vector))))\n  (eof-object? (read-u8 port)))  ;; => #t",
+    "notes": "Common gotcha when refactoring from read-line (char I/O) to read-u8 (byte I/O). The tests must also change from open-input-string to open-input-u8vector. The error message 'Byte INPUT PORT expected' is clear but easy to miss in test code that was written for the old char-based API."
+  },
+  {
+    "id": "defclass-keyword-constructor",
+    "title": "Use defclass (not defstruct) for keyword constructors",
+    "tags": [
+      "defclass",
+      "defstruct",
+      "keyword",
+      "constructor",
+      "make",
+      "struct"
+    ],
+    "imports": [],
+    "code": ";; defstruct creates POSITIONAL-ONLY constructors:\n(defstruct foo (a b) transparent: #t)\n;; (make-foo 1 2) — OK\n;; (make-foo a: 1 b: 2) — ERROR: arguments don't match object size\n\n;; defclass creates keyword-accepting constructors:\n(defclass bar (a b) transparent: #t)\n;; (make-bar a: 1 b: 2) — OK\n;; (make-bar 1 2) — ERROR: not positional\n\n;; defclass also supports:\n;; - Accessors: (bar-a x), (bar-b x)\n;; - Predicate: (bar? x)\n;; - Mutable fields: (set! (bar-a x) 42)\n;; - transparent: #t for printable instances",
+    "notes": "This is a critical distinction. defstruct and defclass generate different constructor calling conventions. If you need keyword arguments (field-name: value), you MUST use defclass. defstruct only accepts positional arguments. Both generate identical accessor functions (type-field), predicates (type?), and support mutable fields via set!. The error message for wrong calling convention is: 'arguments don't match object size' (defstruct with keywords) or 'illegal struct constructor application; arity mismatch' (compile-time)."
+  },
+  {
+    "id": "ffi-scm-ssi-pattern",
+    "title": "FFI with separate .scm and .ssi files for external C libraries",
+    "tags": [
+      "ffi",
+      "gsc",
+      "ssi",
+      "scm",
+      "c-lambda",
+      "build",
+      "libcrypto",
+      "external-library"
+    ],
+    "imports": [],
+    "code": ";; When linking to external C libraries (libcrypto, libyaml, etc.),\n;; use the .scm + .ssi + gsc: pattern (NOT begin-ffi).\n;;\n;; === Step 1: Create the .scm file (Gambit syntax, NOT Gerbil) ===\n;; File: src/mymod-ffi.scm\n(declare (block) (standard-bindings) (extended-bindings) (not safe))\n;; CRITICAL: namespace must match the package path\n(namespace (\"mypackage/src/mymod-ffi#\"))\n;; Import Gambit primitives used in this file\n(##namespace (\"\" define c-lambda c-declare))\n\n(c-declare \"#include <openssl/evp.h>\")\n\n;; Use Gambit's (define name (c-lambda ...)) syntax\n;; NOT Gerbil's (define-c-lambda name ...)\n(define my-ffi-function\n  (c-lambda ((pointer \"EVP_PKEY_CTX\") (pointer \"EVP_PKEY\")) int\n    \"EVP_PKEY_derive_set_peer\"))\n\n;; === Step 2: Create the .ssi file (module interface) ===\n;; File: src/mymod-ffi.ssi\n;; package: mypackage/src\n;; (export #t)\n;; (extern my-ffi-function)\n;; (load-module \"mypackage/src/mymod-ffi\")\n\n;; === Step 3: Add to build.ss ===\n;; (gsc: \"src/mymod-ffi\" \"-ld-options\" \"-lcrypto\")\n;; (ssi: \"src/mymod-ffi\")\n\n;; === Step 4: Import from Gerbil code ===\n;; (import :mypackage/src/mymod-ffi)\n;; (my-ffi-function ctx peer)",
+    "notes": "CRITICAL gotchas: (1) The .scm file must use Gambit's (define name (c-lambda ...)) syntax, NOT Gerbil's (define-c-lambda name ...). Gambit's gsc doesn't understand define-c-lambda and will silently generate wrong C code treating it as an undefined variable. (2) The namespace in .scm MUST match the full package path (e.g. 'mypackage/src/mymod-ffi#'), otherwise you get 'unbound-global-exception' at runtime because the .ssi expects qualified names. (3) begin-ffi in .ss files does NOT propagate -ld-options to the FFI submodule (~0.o1), causing 'undefined symbol' errors at runtime. The .scm/.ssi pattern is the only reliable way to link external libraries. Pattern follows gerbil-libyaml."
+  },
+  {
+    "id": "re-export-imports",
+    "title": "Re-export all symbols from imported modules",
+    "tags": [
+      "export",
+      "import",
+      "re-export",
+      "module",
+      "umbrella",
+      "facade"
+    ],
+    "imports": [],
+    "code": ";; (export #t) only exports locally-defined symbols.\n;; To re-export symbols from imported modules, use (export (import: ...)):\n\n(export\n (import:\n  :mypackage/src/module-a\n  :mypackage/src/module-b\n  :mypackage/src/module-c))\n\n;; You must ALSO import the modules for the re-export to work:\n(import\n :mypackage/src/module-a\n :mypackage/src/module-b\n :mypackage/src/module-c)\n\n;; Now users can import just this umbrella module:\n;; (import :mypackage/src/all)\n;; and get all symbols from module-a, module-b, module-c",
+    "notes": "(export #t) is a common trap — it does NOT re-export imports, only locally-defined symbols (def, defclass, etc.). The (export (import: ...)) form is required for umbrella/facade modules. You need both the export declaration AND the import statement."
+  },
+  {
+    "id": "pipe-operator-requires-sugar",
+    "title": "Pipe operator |> requires :std/sugar import",
+    "tags": [
+      "pipe",
+      "operator",
+      "sugar",
+      "threading",
+      "reader",
+      "syntax-error"
+    ],
+    "imports": [
+      ":std/sugar"
+    ],
+    "code": ";; The |> pipe operator is NOT built into core Gerbil.\n;; Without :std/sugar, using |> causes \"Incomplete form, EOF reached\"\n;; because the reader doesn't recognize it.\n\n;; WRONG (without import):\n;; (filter pred lst) |> (lambda (xs) (map f xs))\n;; => Error: Incomplete form, EOF reached\n\n;; Option 1: Import :std/sugar\n(import :std/sugar)\n(def result\n  (iota 10)\n  |> (filter even?)\n  |> (map (lambda (x) (* x x))))\n\n;; Option 2: Just use normal function composition (no import needed)\n(def result\n  (map (lambda (x) (* x x))\n       (filter even? (iota 10))))",
+    "notes": "The |> operator causes a confusing 'Incomplete form, EOF reached' error rather than an 'unbound identifier' error because the Gerbil reader doesn't recognize the |> token without the sugar module loaded. This makes the error hard to diagnose. If you don't want to import :std/sugar, just use regular function nesting instead."
   }
 ]

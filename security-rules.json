@@ -626,5 +626,74 @@
       "except-in",
       "only-in"
     ]
+  },
+  {
+    "id": "nanosleep-in-signal-handler",
+    "title": "nanosleep() in signal handler corrupts Gambit runtime",
+    "severity": "critical",
+    "scope": "c-shim",
+    "pattern": "nanosleep\\s*\\(",
+    "message": "nanosleep() is NOT async-signal-safe (POSIX). Calling it inside a signal handler (especially SIGVTALRM which interrupts Gambit's scheduler) corrupts Gambit's internal state, causing SIGSEGV (exit code -11). The handler interrupts Gambit mid-instruction; nanosleep suspends the thread, and when it resumes Gambit's invariants are violated.",
+    "remediation": "Replace nanosleep with handler-skipping: count rapid signal firings and skip calling the original handler to starve the retry loop. Only clock_gettime, write, and signal-safe functions should be used in signal handlers. See cookbook recipe gambit-sigvtalrm-spin-workaround.",
+    "related_recipe": "gambit-nanosleep-in-signal-handler-sigsegv",
+    "tags": [
+      "signal",
+      "nanosleep",
+      "sigvtalrm",
+      "async-signal-safe",
+      "sigsegv",
+      "gambit"
+    ]
+  },
+  {
+    "id": "close-inherited-fds-missing",
+    "title": "Missing inherited fd sanitization in long-running server",
+    "severity": "medium",
+    "scope": "c-shim",
+    "pattern": "__attribute__\\(\\(constructor",
+    "message": "Long-running Gerbil servers launched by editors (Emacs, VS Code) inherit file descriptors that can interfere with Gambit's internal pipe-based heartbeat mechanism. Leaked fds may cause the scheduler to poll unexpected fds, contributing to CPU spin bugs. A constructor function should close fds > 2 before Gambit initializes its heartbeat pipe.",
+    "remediation": "Add an __attribute__((constructor(101))) function that iterates fds from 3 to sysconf(_SC_OPEN_MAX) and closes them. Use priority 101 to run before Gambit's own constructors. This is informational — the pattern detects the constructor exists (good), not that it's missing.",
+    "tags": [
+      "fd",
+      "file-descriptor",
+      "inherited",
+      "editor",
+      "constructor",
+      "heartbeat"
+    ]
+  },
+  {
+    "id": "crypto-key-in-session-struct",
+    "title": "Cryptographic key material stored in transparent struct",
+    "severity": "medium",
+    "scope": "scheme",
+    "pattern": "(defclass|defstruct)\\s+\\S*(key|secret|private|chain-key|root-key)\\S*\\s.*transparent:\\s*#t",
+    "message": "Struct containing cryptographic key material is marked transparent: #t, which means it will be printed in full by display/write and may leak key material to logs, error messages, or REPL output.",
+    "remediation": "Remove transparent: #t from structs containing key material, or implement a custom print method that redacts sensitive fields. Use opaque structs (the default) for types holding private keys, chain keys, or root keys.",
+    "tags": [
+      "crypto",
+      "key",
+      "transparent",
+      "struct",
+      "leak",
+      "logging"
+    ]
+  },
+  {
+    "id": "hmac-comparison-not-constant-time",
+    "title": "MAC/HMAC comparison using equal? instead of constant-time-equal?",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "\\(equal\\?\\s+\\S*(mac|hmac|tag|digest|signature|hash)\\S*",
+    "message": "Comparing MAC/HMAC/signature values using equal? is vulnerable to timing side-channel attacks. An attacker can determine the correct MAC byte-by-byte by measuring comparison time.",
+    "remediation": "Use constant-time-equal? from :signal/src/crypto/hmac or implement a constant-time comparison that always examines all bytes regardless of where differences occur.",
+    "tags": [
+      "crypto",
+      "hmac",
+      "mac",
+      "timing",
+      "side-channel",
+      "constant-time"
+    ]
   }
 ]
