@@ -13901,13 +13901,17 @@
       "setup",
       "module",
       "incompatibility",
-      "struct"
+      "struct",
+      "configure",
+      "ABI",
+      "trust-c-tco"
     ],
     "imports": [],
-    "code": "# Exit code 71 means ___setup() returned a negative error code.\n# Common causes:\n#   MODULE_VERSION_TOO_OLD_ERR  — .o compiled with older Gambit\n#   MODULE_VERSION_TOO_NEW_ERR  — .o compiled with newer Gambit\n#   MODULE_INCOMPATIBILITY_ERR  — struct size mismatch (most common)\n\n# Diagnosis: check Gambit version of ALL .o files match\n# The ___VERSION define must be identical across all modules and libgambit.a\n\n# Check what version your Gerbil uses:\ngsc -v\n# e.g. v4.9.7-6-g64f4d369 → ___VERSION 409007\n\n# Check .c files for version:\ngrep '___VERSION' some_module.c\n# Must match exactly\n\n# Fix: recompile ALL .c → .o with gsc -obj (NOT raw gcc)\n# gsc -obj adds -D___SINGLE_HOST and other struct-affecting flags\n# Raw gcc -c produces different struct layouts → exit code 71",
-    "notes": "Exit code 71 = ___EXIT_CODE_OSERR from Gambit's main.c. It means ___setup returned a negative error during module initialization. The most common cause is mixing .o files compiled with different Gambit versions or different compilation flags. Always use gsc -obj instead of raw gcc -c, and ensure all source files are from the same Gambit version. The -D___SINGLE_HOST flag in particular affects struct layout.",
+    "code": "# Exit code 71 means ___setup() returned a negative error code.\n# Common causes:\n#   MODULE_VERSION_TOO_OLD_ERR  — .o compiled with older Gambit\n#   MODULE_VERSION_TOO_NEW_ERR  — .o compiled with newer Gambit\n#   MODULE_INCOMPATIBILITY_ERR  — struct size mismatch (most common)\n\n# Diagnosis: check Gambit version of ALL .o files match\n# The ___VERSION define must be identical across all modules and libgambit.a\n\n# Check what version your Gerbil uses:\ngsc -v\n# e.g. v4.9.7-6-g64f4d369 → ___VERSION 409007\n\n# Check .c files for version:\ngrep '___VERSION' some_module.c\n# Must match exactly\n\n# Fix: recompile ALL .c → .o with gsc -obj (NOT raw gcc)\n# gsc -obj adds -D___SINGLE_HOST and other struct-affecting flags\n# Raw gcc -c produces different struct layouts → exit code 71\n\n# CRITICAL: ./configure options that affect struct sizes:\n#   --enable-trust-c-tco     — changes ___processor_state_struct\n#   --enable-dynamic-clib    — changes ___CAN_IMPORT_CLIB_DYNAMICALLY\n#   --disable-shared         — changes ___SHARED / ___CAN_IMPORT_DYNAMICALLY\n#   --enable-default-runtime-options=...  — changes ___DEFAULT_RUNTIME_OPTIONS\n#\n# When rebuilding libgambit.a for Gerbil, use EXACTLY the same\n# configure flags as Gerbil's embedded Gambit. Check with:\n#   /opt/gerbil/.../bin/gsc -v   # shows original configure line\n#\n# Struct sizes checked at module load (setup.c):\n#   sizeof(___module_struct)\n#   sizeof(___global_state_struct)\n#   sizeof(___virtual_machine_state_struct)\n#   sizeof(___processor_state_struct)\n#\n# Quick test to verify struct sizes match:\ncat > /tmp/test-struct-sizes.c << 'EOF'\n#include <stdio.h>\n#include \"gambit.h\"\nint main() {\n    printf(\"sizeof(___module_struct) = %zu\\n\", sizeof(___module_struct));\n    printf(\"sizeof(___global_state_struct) = %zu\\n\", sizeof(___global_state_struct));\n    printf(\"sizeof(___virtual_machine_state_struct) = %zu\\n\", sizeof(___virtual_machine_state_struct));\n    printf(\"sizeof(___processor_state_struct) = %zu\\n\", sizeof(___processor_state_struct));\n    return 0;\n}\nEOF\n# Compile with BOTH gambit.h versions and compare output",
+    "notes": "Exit code 71 = ___EXIT_CODE_OSERR from Gambit's main.c. It means ___setup returned a negative error during module initialization. The most common cause is mixing .o files compiled with different Gambit versions or different configure options. Always use gsc -obj instead of raw gcc -c, and ensure all source files use matching gambit.h. The --enable-trust-c-tco flag is especially dangerous: it changes whether ___unwind_c_stack_to_trampoline exists (without trust-c-tco) or computed gotos are used (with trust-c-tco). Pre-generated .c files from a non-trust-c-tco build will have unresolved symbols if linked against a trust-c-tco libgambit.a. When rebuilding libgambit.a separately from Gerbil's embedded Gambit, run `gsc -v` on the installed gsc to see the exact configure line used.",
     "related": [
-      "embed-gambitgsc-compile-file"
+      "embed-gambitgsc-compile-file",
+      "gambit-set-gambitdir-runtime"
     ]
   },
   {
@@ -15133,5 +15137,190 @@
     ],
     "code": ";; The |> pipe operator is NOT built into core Gerbil.\n;; Without :std/sugar, using |> causes \"Incomplete form, EOF reached\"\n;; because the reader doesn't recognize it.\n\n;; WRONG (without import):\n;; (filter pred lst) |> (lambda (xs) (map f xs))\n;; => Error: Incomplete form, EOF reached\n\n;; Option 1: Import :std/sugar\n(import :std/sugar)\n(def result\n  (iota 10)\n  |> (filter even?)\n  |> (map (lambda (x) (* x x))))\n\n;; Option 2: Just use normal function composition (no import needed)\n(def result\n  (map (lambda (x) (* x x))\n       (filter even? (iota 10))))",
     "notes": "The |> operator causes a confusing 'Incomplete form, EOF reached' error rather than an 'unbound identifier' error because the Gerbil reader doesn't recognize the |> token without the sugar module loaded. This makes the error hard to diagnose. If you don't want to import :std/sugar, just use regular function nesting instead."
+  },
+  {
+    "id": "vt100-charset-designation-3byte",
+    "title": "VT100 charset designation sequences are 3 bytes (ESC designator charset-id)",
+    "tags": [
+      "vt100",
+      "terminal",
+      "charset",
+      "escape-sequence",
+      "ansi",
+      "emulator"
+    ],
+    "imports": [],
+    "code": ";; VT100 charset designation: ESC ( B, ESC ) 0, ESC * A, ESC + B\\n;; These are 3-byte sequences: ESC + designator + charset-id\\n;; The designator selects which character set register (G0-G3):\\n;;   ( = G0, ) = G1, * = G2, + = G3\\n;; The charset-id selects the character set:\\n;;   B = US ASCII, 0 = DEC Special Graphics, A = UK\\n\\n;; In a VT100 parser state machine:\\n;; State 'escape: saw ESC\\n((memv ch '(#\\\\( #\\\\) #\\\\* #\\\\+))\\n (set! parse-state 'charset-skip))  ; need to eat one more byte\\n\\n;; State 'charset-skip: eat the charset-id byte\\n((eq? parse-state 'charset-skip)\\n (set! parse-state 'normal))  ; done, back to normal\\n\\n;; BUG if you only skip 2 bytes (ESC + designator):\\n;; The charset-id (e.g. 'B') is left as a printable character\\n;; and corrupts the terminal display with stray letters\"",
+    "notes": "Common source of display corruption in terminal emulators. Programs like top, htop, vim emit ESC(B frequently to reset to ASCII. If your parser only consumes ESC and the designator byte, the 'B' appears as a stray character in the output. Also applies to ANSI segment parsers that strip escape sequences."
+  },
+  {
+    "id": "vtscreen-render-preserve-trailing-spaces",
+    "title": "VT100 screen buffer must preserve trailing spaces for column-aligned programs",
+    "tags": [
+      "vt100",
+      "terminal",
+      "render",
+      "trailing-spaces",
+      "column-alignment",
+      "top"
+    ],
+    "imports": [],
+    "code": ";; When rendering a VT100 screen buffer to a string,\\n;; DO NOT trim trailing spaces from rows.\\n;; Programs like top, htop, and ps rely on fixed-width columns.\\n\\n;; WRONG: trimming trailing spaces breaks column alignment\\n(let ((row-str (string-trim-right (list->string (vector->list row-vec)))))\\n  (write-string row-str out))\\n\\n;; RIGHT: preserve full row width\\n(let col-loop ((c 0))\\n  (when (< c cols)\\n    (write-char (vector-ref row-vec c) out)\\n    (col-loop (+ c 1))))\"",
+    "notes": "Only trim trailing spaces if you know the output is line-oriented (like shell command output). For full-screen terminal emulation, always preserve the full grid width. Also: when displaying vtscreen output, scroll to TOP (not bottom) since full-screen programs start at row 0."
+  },
+  {
+    "id": "makefile-flock-build-locking",
+    "title": "Prevent concurrent Gerbil builds with flock in Makefile",
+    "tags": [
+      "makefile",
+      "flock",
+      "build",
+      "lock",
+      "concurrent",
+      "stale-artifacts"
+    ],
+    "imports": [],
+    "code": "# Makefile pattern: flock-based build locking + stale artifact cleanup\\nLOCKFILE := /tmp/myproject-build.lock\\n\\nbuild:\\n\\t@flock -n $(LOCKFILE) true 2>/dev/null || { echo \\\"ERROR: Another build is already running\\\"; exit 1; }\\n\\trm -f $(HOME)/.gerbil/lib/static/mypackage__*.scm\\n\\trm -f $(HOME)/.gerbil/lib/static/mypackage__*.c\\n\\trm -f $(HOME)/.gerbil/lib/static/mypackage__*.o\\n\\tflock $(LOCKFILE) sh -c 'gerbil build'\"",
+    "notes": "Two issues this solves: (1) Concurrent gerbil builds on the same project corrupt artifacts and hang. The first flock -n checks non-blocking; the second flock wraps the actual build. (2) Gambit exe linker prefers ~/.gerbil/lib/static/ over project-local .gerbil/lib/static/. Every gerbil build copies .scm there, so stale global copies silently shadow current builds, causing #!unbound segfaults. Cleaning before every build prevents this."
+  },
+  {
+    "id": "ui-queue-channel-pattern",
+    "title": "Buffered channel as UI action queue (background→UI thread)",
+    "tags": [
+      "channel",
+      "ui-queue",
+      "async",
+      "background",
+      "thread",
+      "qt",
+      "gui"
+    ],
+    "imports": [
+      ":std/misc/channel"
+    ],
+    "code": ";; Buffered channel for UI actions — background threads push, UI timer drains\n(def *ui-queue* (make-channel 4096))\n\n(def (ui-queue-push! thunk)\n  \"Push from any thread. Non-blocking (buffered).\"\n  (channel-try-put *ui-queue* thunk))\n\n(def (ui-queue-drain!)\n  \"Drain up to 64 pending actions. Call from UI timer on main thread.\"\n  (let loop ((n 0))\n    (when (< n 64)\n      (let ((action (channel-try-get *ui-queue*)))\n        (when action\n          (with-catch (lambda (e) (displayln \"UI error: \" e)) action)\n          (loop (+ n 1)))))))\n\n;; Usage from background thread:\n;; (spawn/name 'worker\n;;   (lambda ()\n;;     (let ((result (do-expensive-work)))\n;;       (ui-queue-push! (lambda () (update-widget! result))))))",
+    "notes": "channel-try-get has arity 1 (returns #f when empty, no default parameter). channel-try-put has arity 2. make-channel accepts a buffer size argument. Limit drain count to avoid starving the event loop.",
+    "related": [
+      "channel-pattern",
+      "spawn-thread"
+    ]
+  },
+  {
+    "id": "parameterize-collector-pattern",
+    "title": "Collector pattern: use make-parameter to switch between apply and collect modes",
+    "tags": [
+      "parameterize",
+      "collector",
+      "pattern",
+      "async",
+      "decouple",
+      "side-effect",
+      "background"
+    ],
+    "imports": [],
+    "code": ";; Collector pattern: decouple computation from side effects\n;; Useful for running computation in background thread, applying results on UI thread\n\n(def *style-collector* (make-parameter #f))\n\n(def (apply-style! widget pos len style)\n  \"When collector is set, collect instructions; otherwise apply directly.\"\n  (let ((collector (*style-collector*)))\n    (if collector\n      (set-box! collector (cons [pos len style] (unbox collector)))\n      (widget-set-style! widget pos len style))))\n\n;; Sync mode — apply directly:\n;; (apply-style! ed 0 10 'bold)\n\n;; Async mode — collect in background, apply on UI thread:\n;; (spawn/name 'highlight\n;;   (lambda ()\n;;     (let ((collector (box [])))\n;;       (parameterize ((*style-collector* collector))\n;;         (highlight-buffer! #f text))  ;; widget arg unused in collect mode\n;;       (let ((styles (reverse (unbox collector))))\n;;         (ui-queue-push!\n;;           (lambda ()\n;;             (for-each (lambda (s) (widget-set-style! ed (car s) (cadr s) (caddr s)))\n;;                       styles)))))))",
+    "notes": "The key insight: existing code that calls side-effecting functions can be made async without refactoring, by using a parameter to intercept the side effects. The widget/handle argument is passed through but never used in collect mode — pass #f. Use (box []) as collector and set-box! to accumulate, reverse at the end to preserve order.",
+    "related": [
+      "parameterize-dynamic-binding",
+      "ui-queue-channel-pattern"
+    ]
+  },
+  {
+    "id": "background-service-with-stop",
+    "title": "Background service pattern with start/stop and atom state",
+    "tags": [
+      "background",
+      "service",
+      "daemon",
+      "atom",
+      "spawn",
+      "thread-interrupt",
+      "stop"
+    ],
+    "imports": [
+      ":std/misc/atom",
+      ":std/misc/channel"
+    ],
+    "code": ";; Background service pattern: spawn loop + atom state + clean stop\n\n(def *cache* (atom (make-hash-table)))\n(def *service-thread* #f)\n\n(def (start-service! args)\n  \"Start background service. Stops any existing instance first.\"\n  (stop-service!)\n  (set! *service-thread*\n    (spawn/name 'my-service\n      (lambda ()\n        (let loop ()\n          (with-catch\n            (lambda (e) #f)  ;; swallow errors, keep running\n            (lambda ()\n              (let ((result (do-work args)))\n                (atom-reset! *cache* result))))\n          (thread-sleep! 5)  ;; poll interval\n          (loop))))))\n\n(def (stop-service!)\n  \"Stop the background service thread.\"\n  (when *service-thread*\n    (with-catch (lambda (e) #f)\n      (lambda () (thread-interrupt! *service-thread*\n                   (lambda () (raise 'stop)))))\n    (set! *service-thread* #f)))\n\n;; Read cached state from any thread (thread-safe):\n;; (atom-deref *cache*)",
+    "notes": "thread-interrupt! with a thunk that raises an exception is the standard way to stop a sleeping/blocked thread in Gerbil. Always call stop before start to prevent zombie threads. atom-deref is lock-free read. Use atom-reset! for full replacement, atom-swap! for read-modify-write.",
+    "related": [
+      "atom-atomic-reference",
+      "spawn-thread",
+      "ui-queue-channel-pattern"
+    ]
+  },
+  {
+    "id": "channel-triggered-worker",
+    "title": "Channel-triggered background worker (event-driven service)",
+    "tags": [
+      "channel",
+      "worker",
+      "event",
+      "trigger",
+      "background",
+      "flycheck",
+      "on-save"
+    ],
+    "imports": [
+      ":std/misc/channel"
+    ],
+    "code": ";; Event-driven worker: blocks on channel-get, processes on arrival\n\n(def *trigger* (make-channel 64))\n(def *worker-thread* #f)\n\n(def (trigger! item)\n  \"Send work item to background worker. Non-blocking.\"\n  (channel-try-put *trigger* item))\n\n(def (start-worker! process-fn on-result)\n  \"Start worker that processes items from trigger channel.\n   process-fn: (item) -> result (runs in background)\n   on-result: (item result) called on UI thread\"\n  (set! *worker-thread*\n    (spawn/name 'worker\n      (lambda ()\n        (let loop ()\n          (let ((item (channel-get *trigger*)))  ;; blocks until item arrives\n            (when item\n              (with-catch\n                (lambda (e) (displayln \"worker error: \" e))\n                (lambda ()\n                  (let ((result (process-fn item)))\n                    (ui-queue-push!\n                      (lambda () (on-result item result))))))))\n          (loop))))))\n\n;; Usage:\n;; (start-worker! run-linter\n;;   (lambda (path errors) (show-errors! path errors)))\n;; (trigger! \"/path/to/file.ss\")  ;; non-blocking, worker picks it up",
+    "notes": "channel-get blocks the calling thread until an item is available — perfect for event-driven workers. Use a buffered channel (make-channel 64) to avoid blocking the trigger caller. channel-try-put returns #f if buffer is full (non-blocking). This pattern is ideal for on-save hooks, file watchers, and deferred processing.",
+    "related": [
+      "channel-pattern",
+      "ui-queue-channel-pattern",
+      "background-service-with-stop"
+    ]
+  },
+  {
+    "id": "smp-parallelism-level-check",
+    "title": "Check and control Gambit SMP parallelism level",
+    "tags": [
+      "smp",
+      "parallelism",
+      "processor",
+      "cpu-count",
+      "vm-resize",
+      "thread",
+      "gambit"
+    ],
+    "imports": [],
+    "code": ";; Check current SMP state\n(println (##get-parallelism-level))  ;; => 8 (default on SMP-enabled builds)\n(println (##cpu-count))              ;; => 16 (physical CPUs)\n(println (##current-processor-id))   ;; => 0 (which processor this thread runs on)\n(println (##current-vm))             ;; => #<vm #2>\n\n;; Resize VM to N processors (enables multi-core)\n(##current-vm-resize (lambda () (void)) 4)\n\n;; IMPORTANT: On SMP-enabled Gambit, the default parallelism is NOT 1.\n;; It defaults to (/ (##cpu-count) 2) or similar.\n;; This means ALL compiled binaries run with SMP by default.\n;; Use -:p1 flag to force single processor: ./my-program -:p1",
+    "notes": "On Gambit compiled with --enable-smp, the default parallelism level is typically half of ##cpu-count. This means compiled binaries automatically use multiple OS threads even without ##current-vm-resize. The -:p1 runtime flag forces single-processor mode. ##current-vm-resize's first arg is a thunk called on new processors for initialization."
+  },
+  {
+    "id": "smp-ssl-deadlock-warning",
+    "title": "SMP + SSL I/O deadlock under sustained load (known issue)",
+    "tags": [
+      "smp",
+      "ssl",
+      "deadlock",
+      "http-get",
+      "request",
+      "futex",
+      "thread",
+      "concurrent"
+    ],
+    "imports": [
+      ":std/net/request",
+      ":std/net/ssl"
+    ],
+    "code": ";; WARNING: Concurrent HTTPS requests deadlock under Gambit SMP\n;; in compiled binaries. This affects :std/net/request (http-get etc)\n;; and :std/net/ssl (ssl-connect + read/write).\n;;\n;; The deadlock is intermittent and probabilistic:\n;; - Low volume (20 requests): sometimes passes\n;; - High volume (400 requests): consistently deadlocks at ~394/400\n;; - Threads get stuck on internal Gambit futex locks (FUTEX_WAIT)\n;;\n;; Workaround: use -:p1 to disable SMP if multi-core isn't needed,\n;; or use green threads (concurrent I/O overlapping on single core).\n;;\n;; Reproducer: 8 threads x 50 sequential http-get to example.com\n;; See ~/mine/gerbil-smp-ssl-issue.md for full details and test binary.\n\n;; This WILL deadlock in a compiled SMP binary:\n(let ((threads\n        (map (lambda (i)\n               (thread-start!\n                 (make-thread\n                   (lambda ()\n                     (let loop ((r 0))\n                       (when (< r 50)\n                         (let ((resp (http-get \"https://example.com/\")))\n                           (request-close resp))\n                         (loop (+ r 1))))))))\n             (iota 8))))\n  (for-each thread-join! threads))",
+    "notes": "The deadlock is in Gambit's internal SMP scheduler (futex-based lock contention), NOT in OpenSSL or application code. strace shows 7+ threads stuck on FUTEX_WAIT_BITSET_PRIVATE while only the main heartbeat thread remains alive. CPU-bound SMP works perfectly. The issue is specific to I/O operations under SMP. Only manifests in compiled binaries, not the interpreter. Reported against Gambit v4.9.7-47-g090ae227 with Gerbil 2ffad2bb5."
+  },
+  {
+    "id": "defstruct-constructor-name-conflict",
+    "title": "Avoid defstruct constructor name conflicts (rebind error)",
+    "tags": [
+      "defstruct",
+      "constructor",
+      "rebind",
+      "conflict",
+      "make",
+      "naming"
+    ],
+    "imports": [],
+    "code": ";; defstruct auto-generates make-<name>, so defining your own causes\n;; \"Bad binding; rebind conflict\"\n\n;; WRONG — causes rebind conflict:\n;; (defstruct work-queue (keys mutex) final: #t)\n;; (def (make-work-queue keys)           ;; conflicts with auto-generated make-work-queue\n;;   (make-work-queue (list->vector keys) (make-mutex)))\n\n;; RIGHT — use a different name for your custom constructor:\n(defstruct work-queue (keys mutex) final: #t)\n(def (create-work-queue keys)\n  (make-work-queue (list->vector keys) (make-mutex)))",
+    "notes": "defstruct generates: make-<name>, <name>?, <name>-<field> accessors, and <name>-<field>-set! mutators. If you need a custom constructor with different arguments, name it create-<name> or new-<name> to avoid the rebind conflict."
   }
 ]

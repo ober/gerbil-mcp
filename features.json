@@ -15,7 +15,7 @@
     "use_case": "When maintaining custom Gambit runtime patches (e.g. SMP GC fixes) in a Gerbil project fork",
     "example_scenario": "Applied two SMP GC fixes to gerbil/src/gambit/lib/mem.c. Running ./configure reverted them via git checkout. Had to reapply patches three times before discovering the MANIFEST guard that prevents the checkout.",
     "estimated_token_reduction": "~200 tokens per occurrence, but saves significant debugging time when patches silently disappear",
-    "votes": 0
+    "votes": 2
   },
   {
     "id": "gambit-signal-safety-check",
@@ -87,6 +87,100 @@
     "use_case": "When creating a top-level module that re-exports all sub-modules for convenience (like signal.ss that re-exports all protocol modules)",
     "example_scenario": "Created src/signal.ss with imports of 15 sub-modules and (export #t), expecting users to just (import :signal/src/signal). At runtime, none of the sub-module symbols were available. Had to discover that (export #t) doesn't re-export and change to (export (import: :mod1 :mod2 ...)).",
     "estimated_token_reduction": "~500 tokens — eliminates the debug cycle of testing imports, discovering they're missing, researching re-export syntax",
+    "votes": 0
+  },
+  {
+    "id": "gambit-abi-compatibility-check",
+    "title": "Check Gambit libgambit.a ABI compatibility with compiled modules",
+    "description": "A tool that compares the struct sizes embedded in compiled Gerbil/Gambit .o modules against the struct sizes in a given libgambit.a or gambit.h. Gambit checks sizeof(___module_struct), sizeof(___global_state_struct), sizeof(___virtual_machine_state_struct), and sizeof(___processor_state_struct) at module load time — mismatches cause ___MODULE_INCOMPATIBILITY_ERR (silent exit code 71). The tool would extract these sizes from both sides and report mismatches before attempting to link, saving hours of debugging.",
+    "impact": "medium",
+    "tags": [
+      "gambit",
+      "ABI",
+      "compatibility",
+      "struct-size",
+      "libgambit",
+      "module-incompatibility",
+      "link",
+      "build"
+    ],
+    "use_case": "When rebuilding libgambit.a with different configure options and relinking into a Gerbil binary. Different --enable-trust-c-tco, --enable-dynamic-clib, --disable-shared, etc. produce different struct layouts.",
+    "example_scenario": "Rebuilt libgambit.a with --enable-smp but without --enable-trust-c-tco and --enable-dynamic-clib. Copied to Gerbil build dir, ran stage1, binary linked successfully but silently exited with code 71. Took 2+ hours of gdb debugging to discover setup_modules was returning MODULE_INCOMPATIBILITY_ERR due to struct size mismatches between the new libgambit.a and the .o files compiled by the old gsc.",
+    "estimated_token_reduction": "~2000 tokens per occurrence, eliminates hours of gdb debugging for a rare but devastating build issue",
+    "votes": 1
+  },
+  {
+    "id": "dual-layer-parity-check",
+    "title": "Detect missing function calls between parallel code layers (Qt vs TUI parity)",
+    "description": "A tool that compares two parallel modules (e.g. Qt app-init! vs TUI app-init!) and detects function calls present in one but missing from the other. In projects with dual rendering layers (like gemacs with Qt and TUI), critical initialization calls like init-gemacs-log! can be present in one layer but accidentally omitted from the other, causing silent failures (no logging, no error messages, features silently broken). The tool would parse both entry points, extract function calls, and report asymmetries.",
+    "impact": "medium",
+    "tags": [
+      "parity",
+      "tui",
+      "qt",
+      "dual-layer",
+      "missing-call",
+      "init"
+    ],
+    "use_case": "When maintaining parallel code paths (Qt GUI + TUI terminal) that must call the same initialization and lifecycle functions",
+    "example_scenario": "gemacs Qt layer called init-gemacs-log! in qt/app.ss but the TUI layer in app.ss did not. All gemacs-log! calls in the TUI were silently dropped because *gemacs-log-port* was never initialized. Spent 30+ minutes adding debug logging that never appeared, before discovering the missing init call. A parity check tool would have flagged this instantly.",
+    "estimated_token_reduction": "~3000 tokens per occurrence — eliminates entire debug cycles where logging appears broken but the real issue is missing initialization",
+    "votes": 1
+  },
+  {
+    "id": "paren-depth-tracker-on-edit",
+    "title": "Track paren depth at edit boundaries to catch imbalance early",
+    "description": "When gerbil_balanced_replace or gerbil_check_balance reports \"Balance OK\", but the file actually has mismatched parens due to multi-function edits (e.g., converting 3 functions from sync to async in one session), errors cascade through the rest of the file. A tool that reports the paren depth at each top-level form boundary would instantly pinpoint which function has the imbalance, rather than requiring manual binary search or python scripts to trace depth changes line by line.",
+    "impact": "medium",
+    "tags": [
+      "paren",
+      "balance",
+      "depth",
+      "edit",
+      "debug",
+      "cascade"
+    ],
+    "use_case": "When making multiple function-level edits (e.g., wrapping bodies in spawn/lambda) and one edit has a missing paren that cascades through the rest of the file",
+    "example_scenario": "Converted 3 dired functions from sync to async (adding spawn/name + ui-queue-push! wrappers). Each needed 13 closing parens but one had only 12. The balance checker said 'unclosed at line 1270' but couldn't pinpoint which of the 3 functions was wrong. Had to write a python script to trace depth changes per line. A depth-at-boundaries tool would have shown 'depth 1 at line 1269 (should be 0)' immediately.",
+    "estimated_token_reduction": "~800 tokens per occurrence — eliminates the need for python depth-tracing scripts and manual binary search",
+    "votes": 0
+  },
+  {
+    "id": "auto-clean-stale-deps-before-build",
+    "title": "Auto-clean stale upstream static artifacts before building",
+    "description": "Enhance gerbil_build_and_report to automatically detect and remove stale static artifacts from upstream linked packages (gerbil.pkg depend: entries) before starting a build. When a dependency like gerbil-aws is rebuilt with new modules or changed struct definitions, the downstream project (e.g. kunabi) retains old .scm files in .gerbil/lib/static/ that the exe linker uses, causing hangs, broken binaries, or silent use of outdated code. The tool should: (1) check each depend: package's build timestamp vs the project's cached static/ files, (2) auto-remove stale ones, (3) log what was cleaned. This should be the DEFAULT behavior of gerbil_build_and_report, not a separate manual step. The existing gerbil_stale_static and gerbil_stale_linked_pkg tools detect the problem but require the user (or Claude) to remember to run them — which repeatedly fails in practice.",
+    "impact": "high",
+    "tags": [
+      "build",
+      "stale",
+      "static",
+      "artifacts",
+      "clean",
+      "dependency",
+      "linked-pkg",
+      "exe"
+    ],
+    "use_case": "Every time an upstream dependency is rebuilt and the downstream project is then built, stale artifacts cause the build to hang or produce broken binaries. This happens multiple times per session when iterating on library + consumer projects.",
+    "example_scenario": "Rebuilt gerbil-aws (added s3/connection.ss, changed s3-client struct). Then ran gerbil_build_and_report on kunabi. The exe linker used stale gerbil-aws__s3__api.scm from kunabi's .gerbil/lib/static/ which referenced the old 5-field s3-client, not the new 6-field version. Build hung indefinitely. Had to manually kill, rm stale files, rebuild. This exact pattern has happened 3+ times in this session alone.",
+    "estimated_token_reduction": "~2000-5000 tokens per occurrence (kill stuck build, diagnose, clean, retry). Occurs multiple times per cross-project session.",
+    "votes": 0
+  },
+  {
+    "id": "smp-deadlock-detector",
+    "title": "Detect SMP deadlock risk in concurrent I/O code",
+    "description": "Static analysis tool that scans Gerbil source files for patterns known to deadlock under Gambit SMP: concurrent threads doing SSL I/O via :std/net/request or :std/net/ssl, thread-start! combined with http-get/ssl-connect in loops, and missing -:p1 workarounds. Reports risk level and suggests mitigations (green thread concurrency, -:p1 flag, or restructuring I/O to single thread).",
+    "impact": "medium",
+    "tags": [
+      "smp",
+      "deadlock",
+      "ssl",
+      "thread",
+      "concurrent",
+      "static-analysis"
+    ],
+    "use_case": "When writing concurrent network code that will be compiled with SMP-enabled Gambit. Prevents shipping binaries that deadlock under load.",
+    "example_scenario": "User writes 8 worker threads each calling http-get in a loop. Code compiles fine and passes low-volume tests but deadlocks in production with 1000+ requests. This tool would flag the pattern at development time.",
+    "estimated_token_reduction": "~2000 tokens per debugging session (eliminates hours of strace investigation)",
     "votes": 0
   }
 ]
