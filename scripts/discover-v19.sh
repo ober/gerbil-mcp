@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 GERBIL_DIR="${GERBIL_DIR:-$HOME/mine/gerbil}"
-BRANCH="v0.19-dev-test-basis"
+BRANCH="v0.19-staging"
 BASE_BRANCH="master"
 NUM_COMMITS=""
 MODULE_FOCUS=""
