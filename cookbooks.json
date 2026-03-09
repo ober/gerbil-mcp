@@ -2440,19 +2440,21 @@
       "SIGCHLD",
       "SIGTERM",
       "trap",
-      "os"
+      "os",
+      "add-signal-handler!",
+      "remove-signal-handler!"
     ],
     "imports": [
       ":std/os/signal",
       ":std/os/signal-handler"
     ],
-    "code": ";; Register signal handlers using :std/os/signal-handler\n;; Signal constants are in :std/os/signal\n(import :std/os/signal :std/os/signal-handler)\n\n;; Available signal constants (partial list):\n;; SIGINT SIGTERM SIGHUP SIGQUIT SIGCHLD SIGPIPE\n;; SIGTSTP SIGCONT SIGSTOP SIGUSR1 SIGUSR2 SIGWINCH\n;; SIGALRM SIGURG SIGPROF SIGVTALRM\n\n;; Register a handler — returns a handler-id for later removal\n(def handler-id\n  (add-signal-handler! SIGINT\n    (lambda (sig)\n      (displayln \"\\nCaught SIGINT (Ctrl+C)\")\n      ;; Handle the signal — e.g., set a flag, cleanup, etc.\n      )))\n\n;; Remove the handler when done\n(remove-signal-handler! handler-id)\n\n;; Multiple handlers can be registered for the same signal:\n(def h1 (add-signal-handler! SIGTERM\n          (lambda (sig) (displayln \"Handler 1: cleanup\"))))\n(def h2 (add-signal-handler! SIGTERM\n          (lambda (sig) (displayln \"Handler 2: save state\"))))\n\n;; Remove individually:\n(remove-signal-handler! h1)\n(remove-signal-handler! h2)\n\n;; Send signals to processes using kill:\n(import :std/os/signal)\n(kill pid SIGTERM)    ;; send SIGTERM to process\n(kill pid SIGINT)     ;; send SIGINT\n(kill pid SIGCONT)    ;; resume a stopped process\n(kill pid SIGSTOP)    ;; stop (pause) a process\n\n;; Block/unblock signals with sigprocmask:\n(let ((mask (make_sigset)))\n  (sigemptyset mask)\n  (sigaddset mask SIGCHLD)\n  (sigprocmask SIG_BLOCK mask #f))  ;; block SIGCHLD",
-    "notes": "add-signal-handler! returns a handler ID (not void) — save it for removal with remove-signal-handler!. The handler receives the signal number as its argument. Multiple handlers can be registered for the same signal; they all fire. kill from :std/os/signal sends signals to processes by PID. For signal masking, use sigprocmask with make_sigset, sigemptyset, sigaddset, sigfillset, sigdelset, and sigismember. Constants SIG_BLOCK, SIG_UNBLOCK, SIG_SETMASK control the masking operation.",
+    "code": "(import :std/os/signal :std/os/signal-handler)\n\n;; add-signal-handler!: register a zero-argument thunk for a signal number\n;; Signature: (add-signal-handler! signo thunk) => void\n;; - signo: signal number (from :std/os/signal constants)\n;; - thunk: zero-argument procedure (lambda () ...)\n;; Only ONE handler per signal — installing a second REPLACES the first.\n(add-signal-handler! SIGINT (lambda () (displayln \"caught SIGINT\")))\n(add-signal-handler! SIGTERM (lambda () (displayln \"caught SIGTERM\")))\n\n;; remove-signal-handler!: remove the handler for a signal number\n;; Signature: (remove-signal-handler! signo) => void\n;; Takes the SIGNAL NUMBER, not a handler-id\n(remove-signal-handler! SIGINT)\n(remove-signal-handler! SIGTERM)\n\n;; Available signal constants (from :std/os/signal):\n;; SIGHUP SIGINT SIGQUIT SIGILL SIGTRAP SIGABRT SIGBUS SIGFPE\n;; SIGKILL SIGUSR1 SIGSEGV SIGUSR2 SIGPIPE SIGALRM SIGTERM\n;; SIGCHLD SIGCONT SIGSTOP SIGTSTP SIGTTIN SIGTTOU SIGURG\n;; SIGXCPU SIGXFSZ SIGVTALRM SIGPROF SIGWINCH SIGIO SIGSYS SIGMAX\n;; Linux only: SIGIOT SIGSTKFLT SIGPOLL SIGPWR SIGRTMIN SIGRTMAX\n;; BSD only:   SIGEMT SIGINFO\n\n;; Pattern: graceful shutdown\n(def (setup-shutdown! shutdown-fn)\n  (add-signal-handler! SIGINT  shutdown-fn)\n  (add-signal-handler! SIGTERM shutdown-fn))\n\n(def (teardown-shutdown!)\n  (remove-signal-handler! SIGINT)\n  (remove-signal-handler! SIGTERM))\n\n;; Send signals to processes using kill:\n(kill pid SIGTERM)    ;; send SIGTERM to process\n(kill pid SIGCONT)    ;; resume a stopped process\n\n;; Block/unblock signals with sigprocmask:\n(let ((mask (make_sigset)))\n  (sigemptyset mask)\n  (sigaddset mask SIGCHLD)\n  (sigprocmask SIG_BLOCK mask #f))  ;; block SIGCHLD\n\n;; GOTCHA: The thunk takes ZERO arguments.\n;; (lambda (sig) ...) will cause \"Wrong number of arguments\" at dispatch time.",
+    "notes": "add-signal-handler!(signo thunk): installs a zero-arg thunk for the signal. remove-signal-handler!(signo): removes by signal number — there is NO handler-id returned. Linux implementation uses signalfd; BSD uses kqueue. system-signal-handler is a lazy singleton (delay/force), created on first call. The signal-handler-wait loop runs in a spawned thread named 'signal-handler. Multiple add-signal-handler! calls for the same signal replace the previous handler (single slot per signal). SIGCHLD conflicts with signalfd — see recipe gerbil-signalfd-low-fd-conflict for the fd 3 issue.",
     "related": [
-      "run-external-process",
-      "os-pipe-create-fd-pair"
-    ],
-    "gerbil_version": "v0.18.1-173"
+      "signal-handler-zero-arity-callback",
+      "gerbil-signalfd-low-fd-conflict",
+      "signal-handler-remove-takes-signo"
+    ]
   },
   {
     "id": "terminal-raw-mode-stty",
@@ -6789,7 +6791,9 @@
     "imports": [],
     "code": ";; In v0.18.x, list utilities were in :std/misc/*\n;; (import :std/misc/alist)\n;; (import :std/misc/plist)\n;; (import :std/misc/list-builder)\n;; (import :std/misc/walist)\n;; (import :std/misc/list)\n\n;; In v0.19+, they moved to :std/list/*\n(import :std/list/alist)\n(import :std/list/plist)\n(import :std/list/list-builder)\n(import :std/list/walist)\n(import :std/list/list)\n\n;; The APIs remained the same — only the module paths changed:\n;; alist:        asetq, aremq, acons, plist->alist, alist?, etc.\n;; plist:        pgetq, pputq, premq, etc.\n;; list-builder: with-list-builder, call-with-list-builder\n;; walist:       wasetq, waremq, wacollect, etc.\n;; list:         flatten, take, drop, split-at, etc.\n\n;; MIGRATION: Update all imports from :std/misc/* to :std/list/*\n;; No code changes needed — only import statements.",
     "notes": "This is a BREAKING CHANGE in v0.19. Code using :std/misc/alist etc. will fail with \"cannot find library module\" errors. The function APIs (asetq, aremq, plist->alist, etc.) are unchanged — only module paths changed. This reorganization groups all list-related utilities under :std/list/*, leaving :std/misc for other utilities. walist.ss was rewritten but the API is compatible.",
-    "gerbil_version": "v0.19"
+    "gerbil_version": "v0.19",
+    "deprecated": true,
+    "superseded_by": "v019-staging-module-reorg-reverted"
   },
   {
     "id": "list-builder-v019",
@@ -6994,8 +6998,16 @@
       "new-modules"
     ],
     "imports": [],
-    "code": ";; ============================================================================\n;; GERBIL v0.19 MIGRATION GUIDE\n;; ============================================================================\n\n;; BREAKING CHANGES — Code that MUST be updated:\n\n;; 1. List modules moved from :std/misc to :std/list\n;;    OLD: (import :std/misc/alist)\n;;    NEW: (import :std/list/alist)\n;;    Affected: alist, plist, list, list-builder, walist\n\n;; 2. Deprecated JSON aliases removed (in progress, not enforced yet)\n;;    Deprecated: json-symbolic-keys, json-sort-keys, json-list-wrapper\n;;    Use: read-json-key-as-symbol?, write-json-sort-keys? instead\n\n;; 3. JSON module relocation (deferred to later in v0.19 cycle)\n;;    FUTURE: :std/text/json → :std/encoding/json\n;;    CURRENT: Still use :std/text/json (compatibility shim exists)\n\n;; ============================================================================\n;; NEW MODULES — Features added in v0.19:\n\n;; :std/log               — Structured logging framework\n;;   Levels: CRITICAL/ERROR/WARN/INFO/DEBUG/VERBOSE\n;;   Features: timestamped records, metadata, sinks, log rotation\n;;   Config: GERBIL_LOG_LEVEL environment variable\n\n;; :std/time              — Time abstractions and timeout handling\n;;   Types: Time, ExactTime, InexactTime\n;;   Timeout: IOTimeout, AbsTimeout interface\n;;   NOTE: ExactTime (timeval/timespec FFI) is TODO\n\n;; :std/format            — Generic object formatting and serialization\n;;   Interfaces: ObjectWriter, ObjectReader, Stringer\n;;   Features: cycle detection, #N= anchors, display/debug styles\n;;   Integration: Used by :std/log and future :std/encoding/json\n\n;; :std/serde             — Serialization framework with cycle detection\n;;   Features: @serialize macro, scanner, interned/opaque objects\n;;   Purpose: Safe object graph traversal without infinite loops\n\n;; :std/test              — Enhanced unit testing framework\n;;   Structure: TestHarness → TestModule → TestSuite → TestCase\n;;   Features: configurable verbosity (0-7), output capture, structured results\n;;   NOTE: API changed from v0.18 (simpler check/test-suite model)\n\n;; :std/net/address       — Network address abstractions\n;;   Modules: types, inet, format, resolver\n;;   Purpose: Higher-level API over raw sockaddr\n\n;; :std/os/sockaddr       — OS-level socket address FFI\n;; :std/os/sockopt        — Socket options FFI\n;; :std/os/device         — Device/interface info\n;; :std/os/file           — File operations\n;; :std/os/time           — OS time FFI\n\n;; ============================================================================\n;; REFACTORED MODULES — Internal changes, API mostly compatible:\n\n;; :std/iter              — Split into submodules\n;;   Old: monolithic 926-line file\n;;   New: iter/api, iter/interface, iter/iterators, iter/macros\n;;   NEW iterators: in-range-inclusive, in-number-series, in-integers\n\n;; :std/io/bio            — Buffered I/O refactor\n;;   Split: reader.ss (563 lines), writer.ss (312 lines)\n;;   Added: buffer, cache, memory, message, srcsnk modules\n;;   Removed: chunked, inline modules\n;;   Deleted: entire :std/io/strio package (1223 lines)\n\n;; :std/io/socket         — Socket modules refactored\n;;   NEW: socket/client module\n;;   Refactored: types, basic, stream, datagram, server\n\n;; ============================================================================\n;; MODULES MOVED TO v0.19-TODO (deferred, may return later):\n\n;; Most of :std/os, :std/net/websocket, :std/parser, :std/protobuf,\n;; :std/pregexp, :std/text/*, :std/values, :std/source, :std/stxutil\n\n;; These modules exist in src/std/v0.19-TODO/ and are not yet compiled.\n;; They will be reintegrated after core refactoring is complete.",
-    "notes": "Gerbil v0.19 is a MAJOR refactoring release with breaking changes and significant new features. The most critical breaking change is the list module migration (:std/misc/* → :std/list/*). New capabilities include structured logging (:std/log), time abstractions (:std/time), generic formatting (:std/format), serialization framework (:std/serde), enhanced testing (:std/test), and network address abstractions (:std/net/address). Many modules were refactored internally (iter, io/bio, io/socket) with mostly compatible public APIs. A large number of modules were temporarily moved to v0.19-TODO/ to focus on core infrastructure — they will be reintegrated in later v0.19 commits. The JSON refactor to :std/encoding/json is incomplete — continue using :std/text/json for now.",
+    "code": ";; ============================================================================\n;; GERBIL v0.19 MIGRATION GUIDE  (updated for staging commit 18034aca)\n;; ============================================================================\n\n;; === MODULE REORGANIZATION STATUS ===\n;;\n;; NOTE: The v0.19 development staging commit REVERTED a previously planned\n;; module reorganization. As of v0.19-staging:\n;;\n;;   :std/misc/* modules remain at :std/misc/* (same as v0.18)\n;;   :std/cli/getopt moved to v0.19-TODO (not compiled yet)\n;;   :std/getopt (old) moved to v0.19-TODIE (being removed)\n;;   :std/net/address/* removed (moved to v0.19-TODO)\n;;\n;; Planned reorganization (DEFERRED, not yet active):\n;;   :std/misc/barrier    → :std/sync/barrier     (future)\n;;   :std/misc/channel    → :std/sync/channel      (future)\n;;   :std/misc/completion → :std/sync/completion   (future)\n;;   :std/misc/rwlock     → :std/sync/rwlock       (future)\n;;   :std/misc/queue      → :std/struct/queue      (future)\n;;   :std/misc/path       → :std/string/path       (future)\n\n;; === BREAKING CHANGES — Must update code ===\n\n;; 1. raise-unsupported-method: signature changed\n;;    OLD: (raise-unsupported-method where method irritants ...)\n;;    NEW: (raise-unsupported-method where)  ; no method/irritants args\n\n;; 2. raise-bad-argument: irritants no longer keyword-tagged\n;;    OLD: irritants: [expectation: expectation irritants ...]\n;;    NEW: irritants: [expectation irritants ...]\n\n;; 3. raise-contract-violation: irritants no longer keyword-tagged\n;;    OLD: irritants: [contract: 'contract irritants ...]\n;;    NEW: irritants: ['contract irritants ...]\n\n;; 4. Interface method naming changed:\n;;    OLD: ::Interface-method (checked), __Interface-method (unchecked macro)\n;;    NEW: Interface-method (checked), &Interface-method (unchecked proc)\n;;    REMOVED: implementation-macros, unchecked-implementation-macros fields\n;;    REMOVED: @implement macro from :std/interface\n\n;; 5. :std/os/error macros changed:\n;;    REMOVED: do-syscall, do-try-syscall, raise-os-errno, with-error\n;;    NEW: check-os-error expr (prim arg ...)\n;;    NEW: do-retry-nonblock expr (prim arg ...) ERRNO ...\n;;    NEW: check-ptr (make arg ...)\n\n;; 6. :std/ffi macros changed:\n;;    REMOVED: C-ffi-macrology, def-C-syscall, def-C-struct, def-C-union, def-C-const\n;;    CHANGED: C-include now takes ONE path (not multiple)\n;;    CHANGED: def-C now works (was XXX stub)\n\n;; 7. :gerbil/base removed; 'gerbil lang now loads :gerbil/core directly\n;;    REMOVED: except-from-out export form\n;;    REMOVED: eval-syntax+1, biding-properties, binding-properties-set!\n;;    REMOVED: runtime-binding-type, runtime-binding-macro and setters\n\n;; 8. :std/time/timeout REMOVED\n;;    Keep using :std/misc/timeout for make-timeout\n\n;; === NEW MODULES — Now active in v0.19 ===\n\n;; :std/os/flock        — Advisory file locking (LOCK_SH, LOCK_EX, LOCK_UN)\n;; :std/os/signal       — OS signal primitives (kill, sigprocmask, signal sets)\n;; :std/os/signal-handler — Signal handler API (add-signal-handler!, remove-signal-handler!)\n;; :std/os/inotify      — Linux filesystem event monitoring (linux only)\n;; :std/os/hostname     — hostname() function\n;; :std/os/pid          — getpid(), getppid()\n;; :std/os/temporaries  — make-temporary-file-name, call-with-temporary-file-name\n;; :std/os/epoll        — Linux epoll (linux only)\n;; :std/os/kqueue       — BSD kqueue (bsd only)\n;; :std/os/signalfd     — Linux signalfd (linux only)\n;; :std/os/fd           — Raw file descriptor abstraction\n;; :std/os/fdio         — FD I/O primitives\n;; :std/os/pipe         — OS pipe primitives\n\n;; :std/time/time       — Now with live CoarseTime, PreciseTime via FFI\n;;                        (current-time-coarse, current-time-precise)\n\n;; === REFACTORED (mostly compatible) ===\n;; :std/format          — defwriter-ext (println → print rename)\n;; :std/test            — Now uses fprintf instead of printf for port output\n;; :std/make            — Uses with-lock instead of do-with-lock",
+    "notes": "This guide reflects the v0.19 development staging commit (18034aca, \"v0.19 development staging\"). This is a MAJOR kickstart of v0.19 that reverted some earlier reorganization work and introduced new breaking changes. The staging branch is not yet stable — many modules are in v0.19-TODO/. Key theme: consolidating core infrastructure (expander, compiler, contract system) before adding new features. The planned :std/sync, :std/list, :std/struct, :std/string reorganization is deferred. Interface dispatch was completely rewritten to use direct ##unchecked-structure-ref calls with precomputed offsets instead of macro-based dispatch. OS infrastructure is mostly complete (os/flock, os/signal, os/inotify, etc.).",
+    "related": [
+      "v019-staging-module-reorg-reverted",
+      "os-error-check-os-error-v019",
+      "interface-direct-dispatch-v019-staging",
+      "std-ffi-macros-v019",
+      "raise-unsupported-method-v019-arity",
+      "gerbil-lang-default-v019"
+    ],
     "gerbil_version": "v0.19"
   },
   {
@@ -8721,7 +8733,9 @@
     "imports": [],
     "code": ";; CHANGED in v0.19: Interface method invocations are now macros by default\n;; This is a breaking change with significant performance implications\n\n;; In v0.18: Interface methods were runtime procedures\n(interface Logger\n  (log (msg : :string)) => :void)\n\n;; Usage was a runtime method call:\n(logger.log \"message\")  ; runtime dispatch\n\n;; In v0.19: Interface methods are macros by default\n;; Mechanically:\n;;  - Contracts are pushed to call site\n;;  - Interfaces are unpacked at call site\n;;  - Avoids cross-module calls to unpack\n\n;; Benefits:\n;;  1. Compiler can hoist interface unpacking out of loops\n;;  2. Compiler can peval (partially evaluate) contracts\n;;  3. More aggressive optimization opportunities\n\n;; Example: loop performance improvement\n(def (log-many (logger : Logger) messages)\n  (for (msg messages)\n    (logger.log msg)))  ; v0.19: interface unpacked ONCE before loop\n                        ; v0.18: interface unpacked on EVERY iteration\n\n;; This change is transparent to user code in most cases,\n;; but may affect:\n;;  - Macros that manipulate method calls\n;;  - Code that relies on method call timing\n;;  - Dynamic method resolution patterns",
     "notes": "In v0.19, interface method invocations became macros by default instead of runtime procedures. This is a MAJOR performance optimization: contracts are checked at call site (where they can be pevaled), and interface unpacking happens at call site (can be hoisted out of loops). This change is mostly transparent but has implications for: (1) macro expansion order, (2) cross-module optimization, (3) compiler ability to optimize away contract checks in monomorphic code. Future work may extend this to regular procedures with contracts. This is part of a broader effort to make Gerbil's contract system zero-cost in the common case.",
-    "gerbil_version": "v0.19"
+    "gerbil_version": "v0.19",
+    "deprecated": true,
+    "superseded_by": "interface-direct-dispatch-v019-staging"
   },
   {
     "id": "gerbil-base-prelude-v019",
@@ -15407,5 +15421,264 @@
     "related": [
       "qscintilla-suppress-scn-modified-during-text-mutation"
     ]
+  },
+  {
+    "id": "v019-staging-module-reorg-reverted",
+    "title": "v0.19 staging reverted module reorganization — misc/* still at :std/misc",
+    "tags": [
+      "v0.19",
+      "migration",
+      "module",
+      "reorganization",
+      "misc",
+      "sync",
+      "list",
+      "staging",
+      "breaking-change"
+    ],
+    "imports": [],
+    "code": ";; The v0.19 development staging commit (18034aca, \"v0.19 development staging\")\n;; REVERTED the previously planned module reorganization.\n;;\n;; EARLIER PLAN (in pre-staging commits, now GONE):\n;;   :std/misc/barrier    → :std/sync/barrier\n;;   :std/misc/channel    → :std/sync/channel\n;;   :std/misc/completion → :std/sync/completion\n;;   :std/misc/rwlock     → :std/sync/rwlock\n;;   :std/misc/queue      → :std/struct/queue\n;;   :std/misc/path       → :std/string/path\n;;   :std/misc/list       → :std/list/list\n;;   :std/misc/alist      → :std/list/alist\n;;   :std/misc/plist      → :std/list/plist\n;;   :std/misc/walist     → :std/list/walist\n;;   :std/misc/list-builder → :std/list/list-builder\n;;\n;; CURRENT STATE (v0.19-staging HEAD):\n;; ALL :std/misc/* modules remain at their original paths.\n;; Files are in src/std/v0.19-TODO/misc/ (pending reintegration).\n;; The sync/, list/, struct/, string/ subdirs do NOT exist yet.\n;;\n;; THIS MEANS: v0.18 code using :std/misc/* still works on v0.19-staging.\n;; The reorganization WILL happen eventually in v0.19 but is deferred.\n\n;; CURRENT working imports (v0.19-staging):\n(import :std/misc/barrier)    ;; still works — same path as v0.18\n(import :std/misc/channel)    ;; still works\n(import :std/misc/completion) ;; still works\n(import :std/misc/rwlock)     ;; still works\n(import :std/misc/queue)      ;; still works\n(import :std/misc/path)       ;; still works\n(import :std/misc/list)       ;; still works\n(import :std/misc/alist)      ;; still works\n(import :std/misc/plist)      ;; still works\n(import :std/misc/walist)     ;; still works\n(import :std/misc/list-builder) ;; still works",
+    "notes": "CRITICAL: If you see cookbook recipes saying :std/misc/barrier → :std/sync/barrier etc., those describe a PLANNED reorganization that was REVERTED in the v0.19 development staging commit. As of the v0.19-staging branch, all :std/misc/* imports still work unchanged. The reorganization will be reapplied later in the v0.19 cycle. Do NOT update import paths based on the earlier (now-reverted) plan. The staging commit moved these files back into src/std/v0.19-TODO/ to restructure development approach.",
+    "related": [
+      "v0-19-module-reorganization",
+      "v019-migration-overview",
+      "list-module-migration-v019"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "os-error-check-os-error-v019",
+    "title": "New check-os-error and do-retry-nonblock macros in :std/os/error (v0.19)",
+    "tags": [
+      "os",
+      "error",
+      "check-os-error",
+      "do-retry-nonblock",
+      "ffi",
+      "syscall",
+      "errno",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/os/error"
+    ],
+    "code": "(import :std/os/error)\n\n;; check-os-error: wrap a negative-result expression with error raising\n;; NEW in v0.19: takes two args — the expression AND the call form for the error message\n;;\n;; Signature: (check-os-error expr (prim arg ...))\n;; - expr: the FFI call that returns a negative int on error\n;; - (prim arg ...): the call form used in the error message\n;;\n;; Returns the result of expr if non-negative, raises OSError otherwise.\n(def (my-open path flags mode)\n  (check-os-error (_open path flags mode)\n    (my-open path flags mode)))\n\n;; CHANGED from v0.18: the old API was:\n;;   (check-os-error (prim arg ...) errno: get-errno)\n;; NEW v0.19 API is:\n;;   (check-os-error expr (prim arg ...))\n;; The errno is computed as (fx- result) from the negative return value.\n\n;; do-retry-nonblock: retry on EINTR, return #f on specific error codes\n;; Signature: (do-retry-nonblock expr (prim arg ...) ERRNO ...)\n;; - Retries on EINTR\n;; - Returns #f on any listed ERRNO\n;; - Raises OSError on any other negative result\n(def (my-flock fd op)\n  (do-retry-nonblock (_flock fd op)\n    (my-flock fd op)\n    EAGAIN EWOULDBLOCK))\n\n;; check-ptr: verify an allocation returned non-null\n;; Raises AllocationError if the make function returned #f\n(def (make-my-obj arg)\n  (check-ptr (alloc_my_obj arg)))\n\n;; OSError fields:\n;; - message: strerror(errno) string\n;; - errno: the error number (accessible via os-error-errno)\n;; - where: the function that raised the error\n(with-catch\n  (lambda (e)\n    (when (os-error? e)\n      (display (error-message e))    ;; e.g. \"No such file or directory\"\n      (display (os-error-errno e)))) ;; e.g. 2 (ENOENT)\n  (lambda ()\n    (check-os-error (_open \"/no/such/file\" 0 0)\n      (_open \"/no/such/file\" 0 0))))",
+    "notes": "In v0.19, :std/os/error was rewritten. The check-os-error macro changed its calling convention: old version took (prim arg ...) + errno: keyword; new version takes the full expression + the call form separately. do-retry-nonblock replaces do-try-syscall and do-syscall. The do-syscall/do-try-syscall macros are REMOVED. The errno is now computed as (##fx- result) from the negative return value rather than calling a get-errno procedure. Also removed: raise-os-errno (alias for raise-os-error), with-error cleanup macro. New: check-ptr for null-check allocation.",
+    "related": [
+      "os-error-handling",
+      "ffi-null-safety"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "signal-handler-remove-takes-signo",
+    "title": "remove-signal-handler! takes signal number, not handler-id",
+    "tags": [
+      "signal",
+      "handler",
+      "remove-signal-handler!",
+      "signo",
+      "arity",
+      "gotcha",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/os/signal",
+      ":std/os/signal-handler"
+    ],
+    "code": "(import :std/os/signal :std/os/signal-handler)\n\n;; GOTCHA: remove-signal-handler! takes a signal NUMBER, not a handler-id.\n;; Some documentation shows it returning a handler-id from add-signal-handler! —\n;; that is WRONG. The actual API is:\n\n;; add-signal-handler! installs a thunk (zero-arg callback) for a signal:\n(add-signal-handler! SIGINT (lambda () (displayln \"caught SIGINT\")))\n(add-signal-handler! SIGTERM (lambda () (displayln \"caught SIGTERM\")))\n\n;; remove-signal-handler! removes the handler by signal number:\n(remove-signal-handler! SIGINT)   ;; removes the SIGINT handler\n(remove-signal-handler! SIGTERM)  ;; removes the SIGTERM handler\n\n;; There is only ONE handler slot per signal number.\n;; Installing a second handler for the same signal REPLACES the first.\n\n;; WRONG (causes error — no return value from add-signal-handler! to use):\n;; (def h (add-signal-handler! SIGINT (lambda () ...)))\n;; (remove-signal-handler! h)  ;; h is #!void, not a handler-id\n\n;; CORRECT pattern: remove by signal number\n(def (install-shutdown-handler! cleanup-thunk)\n  (add-signal-handler! SIGINT cleanup-thunk)\n  (add-signal-handler! SIGTERM cleanup-thunk))\n\n(def (remove-shutdown-handlers!)\n  (remove-signal-handler! SIGINT)\n  (remove-signal-handler! SIGTERM))",
+    "notes": "The :std/os/signal-handler module has add-signal-handler!(signo thunk) and remove-signal-handler!(signo). There is no handler-id concept — each signal has exactly one handler slot. The callback is a zero-argument thunk (not (lambda (sig) ...)). This was verified by reading src/std/os/signal-handler.ss directly. Note that on Linux the implementation uses signalfd; on BSD it uses kqueue. The system-signal-handler is a lazy singleton created on first use via delay/force.",
+    "related": [
+      "signal-handler-zero-arity-callback",
+      "signal-handler-add-remove"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "os-inotify-file-watch-linux",
+    "title": "Watch filesystem events with inotify on Linux (v0.19)",
+    "tags": [
+      "inotify",
+      "linux",
+      "file",
+      "watch",
+      "events",
+      "os",
+      "filesystem",
+      "v0.19"
+    ],
+    "imports": [
+      ":std/os/inotify"
+    ],
+    "code": "(require linux)\n(import :std/os/inotify)\n\n;; inotify: Linux filesystem event monitoring\n;; Create an inotify instance:\n(def in (inotify-init))\n\n;; Add a watch for a path with event mask:\n(def wd (inotify-add-watch in \"/tmp/mydir\" IN_ALL_EVENTS))\n\n;; Event mask constants:\n;; IN_ACCESS        — file accessed (read)\n;; IN_ATTRIB        — metadata changed (chmod, chown, etc.)\n;; IN_CLOSE_WRITE   — file closed after write\n;; IN_CLOSE_NOWRITE — file closed without write\n;; IN_CREATE        — file/dir created in watched directory\n;; IN_DELETE        — file/dir deleted from watched directory\n;; IN_DELETE_SELF   — watched file/dir itself was deleted\n;; IN_MODIFY        — file was modified\n;; IN_MOVE_SELF     — watched file/dir was renamed\n;; IN_MOVED_FROM    — file moved out of watched directory\n;; IN_MOVED_TO      — file moved into watched directory\n;; IN_OPEN          — file was opened\n;; IN_ALL_EVENTS    — all of the above\n;; IN_MOVE          — IN_MOVED_FROM | IN_MOVED_TO\n;; IN_CLOSE         — IN_CLOSE_WRITE | IN_CLOSE_NOWRITE\n\n;; Read events (blocking, returns list of inotify-event structs):\n(def events (inotify in))            ;; blocks indefinitely\n(def events (inotify in 2.0))        ;; block up to 2 seconds\n\n;; inotify-event struct fields:\n(for (ev events)\n  (let ((wd   (inotify-event-wd ev))     ;; watch descriptor\n        (mask (inotify-event-mask ev))   ;; event bitmask\n        (cookie (inotify-event-cookie ev)) ;; for move pairs\n        (name (inotify-event-name ev)))  ;; filename (or #f)\n    (when (fxbit-set? mask IN_CREATE)\n      (displayln \"created: \" name))\n    (when (fxbit-set? mask IN_DELETE)\n      (displayln \"deleted: \" name))\n    (when (fxbit-set? mask IN_ISDIR)\n      (displayln \"  (is a directory)\"))))\n\n;; Remove a watch:\n(inotify-rm-watch in wd)\n\n;; Close inotify instance:\n(inotify-close in)\n\n;; Pattern: watch loop in a thread\n(def (watch-dir dir handler)\n  (let ((in (inotify-init))\n        (wd (inotify-add-watch in dir (fxior IN_CREATE IN_DELETE IN_MODIFY))))\n    (spawn\n      (lambda ()\n        (let loop ()\n          (for (ev (inotify in))\n            (handler ev))\n          (loop))))))",
+    "notes": ":std/os/inotify requires linux (use (require linux) or cond-expand). inotify-init returns a port (not a raw fd) — it uses fdopen internally. inotify returns a list of inotify-event structs (may be multiple events per read). IN_ISDIR flag in the mask indicates the event was for a directory entry. The cookie field is used to correlate IN_MOVED_FROM + IN_MOVED_TO pairs for atomic renames. Use fxbit-set? or fxand to test event mask flags. Closing the port releases the inotify fd.",
+    "related": [
+      "os-signal-handler",
+      "recursive-file-walk"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "os-temporary-file-name",
+    "title": "Create temporary file names with :std/os/temporaries (v0.19)",
+    "tags": [
+      "temporary",
+      "file",
+      "temp",
+      "mktemp",
+      "os",
+      "v0.19",
+      "cleanup"
+    ],
+    "imports": [
+      ":std/os/temporaries"
+    ],
+    "code": "(import :std/os/temporaries)\n\n;; make-temporary-file-name: generate a unique /tmp path\n;; Uses random suffix + timestamp to avoid collisions\n;; Does NOT create the file — just returns the path string\n(def tmp-path (make-temporary-file-name \"myapp\"))\n;; => \"/tmp/myapp.AbCdEfGh.1234567890.123456\"\n\n;; call-with-temporary-file-name: generate path, run thunk, auto-delete\n;; Deletes the file after the thunk returns (even on exception)\n(call-with-temporary-file-name \"myapp\"\n  (lambda (path)\n    (with-output-to-file path\n      (lambda () (display \"temp content\")))\n    ;; file is available here\n    (read-line (open-input-file path))))\n;; file is deleted after this returns\n\n;; Pattern: temp file for atomic write (write-then-rename)\n(def (atomic-write-file target content)\n  (call-with-temporary-file-name \"atomic\"\n    (lambda (tmp)\n      (with-output-to-file tmp\n        (lambda () (display content)))\n      (rename-file tmp target))))",
+    "notes": "make-temporary-file-name generates a path of the form /tmp/NAME.RANDOM.TIMESTAMP where RANDOM is 8 random alphanumeric chars and TIMESTAMP is a float seconds value. It checks if the path exists and retries if so. call-with-temporary-file-name wraps make-temporary-file-name with a try/finally that deletes the file if it exists. Module added in v0.19 staging commit (src/std/os/temporaries.ss promoted from v0.19-TODO). Does not use mkstemp — just generates a unique name.",
+    "related": [
+      "file-locking-flock",
+      "os-hostname-pid"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "raise-unsupported-method-v019-arity",
+    "title": "raise-unsupported-method changed to zero irritants in v0.19",
+    "tags": [
+      "raise-unsupported-method",
+      "interface",
+      "error",
+      "v0.19",
+      "breaking-change",
+      "arity",
+      "migration"
+    ],
+    "imports": [
+      ":std/error"
+    ],
+    "code": "(import :std/error)\n\n;; BREAKING CHANGE in v0.19: raise-unsupported-method changed signature.\n;;\n;; v0.18 signature:\n;;   (raise-unsupported-method where method irritants ...)\n;;   ;; raised UnsupportedMethod with irritants: [method: 'method irritants ...]\n;;\n;; v0.19 signature:\n;;   (raise-unsupported-method where)\n;;   ;; raises UnsupportedMethod \"unsupported method\" with empty irritants\n\n;; v0.18 usage (REMOVED):\n;; (raise-unsupported-method my-fn 'draw \"no draw support\")  ;; WRONG in v0.19\n\n;; v0.19 usage (CORRECT):\n(def (draw obj)\n  (raise-unsupported-method draw))   ;; just the where context, no method name\n\n;; If you need to include the method name in the error message, use raise-bad-argument:\n(def (draw-v2 obj method-name)\n  (raise-bad-argument draw-v2 \"drawable object\" obj))\n\n;; raise-bad-argument also changed in v0.19:\n;; v0.18: irritants: [expectation: expectation irritants ...]\n;; v0.19: irritants: [expectation irritants ...]   (no expectation: keyword)\n(raise-bad-argument my-fn \"non-negative integer\" -1)\n;; In v0.19 the irritants are positional, not keyword-tagged.\n\n;; raise-contract-violation also changed:\n;; v0.18: irritants: [contract: 'contract irritants ...]\n;; v0.19: irritants: ['contract irritants ...]  (no contract: keyword)",
+    "notes": "Three error-raising functions changed in v0.19 (src/std/error.ss). All changed from keyword-tagged irritants to positional. raise-unsupported-method went from 3+ args to 1 arg (just where). raise-bad-argument lost the expectation: keyword tag. raise-contract-violation lost the contract: keyword tag. These are breaking changes for any code that catches UnsupportedMethod/ContractViolation and accesses specific irritant keys. The error messages are the same (\"unsupported method\", \"contract violation\") but the irritants structure changed.",
+    "related": [
+      "deferror-class-defraise",
+      "interface-method-dispatch"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "time-types-current-time-v019",
+    "title": "New time types and current-time functions in :std/time (v0.19)",
+    "tags": [
+      "time",
+      "current-time",
+      "CoarseTime",
+      "PreciseTime",
+      "InexactTime",
+      "ExactTime",
+      "v0.19",
+      "os"
+    ],
+    "imports": [
+      ":std/time/time"
+    ],
+    "code": "(import :std/time/time)\n\n;; v0.19 adds FFI-backed time types and current-time functions.\n;; (Requires C compilation target — not available in interpreted mode)\n\n;; Type hierarchy:\n;; Time\n;;   ExactTime (holds a pair: (seconds . nanoseconds) from OS)\n;;     CoarseTime  — fast, lower-precision (CLOCK_REALTIME_COARSE on Linux)\n;;     PreciseTime — full precision (CLOCK_REALTIME or clock_gettime)\n;;   InexactTime   — Gambit ##current-time-point (flonum seconds)\n\n;; Get current time as CoarseTime (fast, seconds/nanoseconds pair):\n(def t (current-time-coarse))\n;; => #<CoarseTime>\n;; t is a CoarseTime with ExactTime slot containing (seconds . nanos) pair\n\n;; Get current time as PreciseTime (full precision):\n(def t2 (current-time-precise))\n;; => #<PreciseTime>\n\n;; Get current time as InexactTime (Gambit flonum, always available):\n(def t3 (current-time-inexact))\n;; => #<InexactTime time: 1709123456.789>\n;; InexactTime-time => flonum (seconds since epoch)\n\n;; Type predicates:\n(Time? t)          ;; #t for all time types\n(ExactTime? t)     ;; #t for CoarseTime and PreciseTime\n(CoarseTime? t)    ;; #t for CoarseTime only\n(PreciseTime? t2)  ;; #t for PreciseTime only\n(InexactTime? t3)  ;; #t for InexactTime only\n\n;; NOTE: :std/time/timeout was REMOVED in v0.19.\n;; The AbsTimeout interface and make-timeout are now in :std/misc/timeout\n;; (still at the same :std/misc/timeout path as v0.18)",
+    "notes": "The :std/time/time module was significantly changed in v0.19. ExactTime now has a (time :- :pair) slot holding (seconds . nanoseconds). CoarseTime and PreciseTime are concrete final structs. current-time-coarse and current-time-precise are now live (previously TODO/commented out) via the :std/os/time FFI module (prefix-in'd as system.). REMOVED: :std/time/timeout (the Timeout struct and AbsTimeout interface) — use :std/misc/timeout for make-timeout. InexactTime wraps Gambit's ##current-time-point as before.",
+    "related": [
+      "misc-timeout",
+      "current-time"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "std-ffi-macros-v019",
+    "title": ":std/ffi macros simplified in v0.19 — C-ffi-macrology removed, def-C updated",
+    "tags": [
+      "ffi",
+      "C-include",
+      "C-declare",
+      "def-C",
+      "C-ffi-macrology",
+      "v0.19",
+      "breaking-change"
+    ],
+    "imports": [
+      ":std/ffi"
+    ],
+    "code": "(import :std/ffi)\n\n;; :std/ffi provides macros for FFI code. Changed in v0.19.\n\n;; C-include: include a C header (now single path only)\n;; v0.18: (C-include \"<path1>\" \"<path2>\" ...)  -- multiple headers\n;; v0.19: (C-include \"<path>\")                 -- single header only\n(C-include \"<unistd.h>\")\n;; For multiple headers, use multiple C-include calls:\n(C-include \"<sys/types.h>\")\n(C-include \"<sys/stat.h>\")\n\n;; C-declare: declare C code string(s)\n;; Still works with multiple args (concatenated):\n(C-declare \"#include <unistd.h>\")\n(C-declare \"static int my_helper(int x) { return x + 1; }\")\n;; Multiple args are concatenated (no separator):\n(C-declare \"#define FOO 1\" \"#define BAR 2\")\n\n;; def-C: define a C-lambda backed procedure with contracts and return type\n;; v0.19 signature: (def-C (proc contract ...) => return c-code-string)\n;; The c-code is a C expression; ___RESULT = <c-code>; is generated.\n(def-C (my-getpid) => :fixnum \"getpid()\")\n(def-C (my-open (path :- :string) (flags :- :fixnum) (mode :- :fixnum))\n  => :fixnum\n  \"open(___arg1, ___arg2, ___arg3)\")\n\n;; REMOVED in v0.19:\n;; (C-ffi-macrology)     -- defined ___U8VECTOR_AS and ___TRAP_ERRNO macros\n;; (def-C-syscall ...)   -- no longer exists\n;; (def-C-struct ...)    -- no longer exists (was XXX stub)\n;; (def-C-union ...)     -- no longer exists (was XXX stub)\n;; (def-C-const ...)     -- no longer exists (was XXX stub)\n;;\n;; REPLACEMENT for C-ffi-macrology: inline your C macros with C-declare\n(C-declare \"\n#define ___U8VECTOR_AS(t, arg) ___CAST(t, ___BODY_AS(arg, ___tSUBTYPED))\n#define ___TRAP_ERRNO(expr) ({ int __r = expr; (__r<0) ? (-errno) : __r; })\n\")",
+    "notes": ":std/ffi was rewritten in v0.19. The main change: C-ffi-macrology is gone (removed entirely). C-include no longer accepts multiple path args — use one call per header. def-C is now functional (was XXX stub in v0.18-era code). def-C-syscall, def-C-struct, def-C-union, def-C-const are all removed. def-C generates ___RESULT = expr; and wraps with __DEBUG-conditional type checking. Use begin-ffi from :std/foreign for full-featured FFI including define-const and define-c-lambda.",
+    "related": [
+      "ffi-scaffold",
+      "ffi-null-safety",
+      "os-error-check-os-error-v019"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "gerbil-lang-default-v019",
+    "title": "Default language is now :gerbil/core (gerbil lang) not gerbil/core in v0.19",
+    "tags": [
+      "gerbil",
+      "lang",
+      "prelude",
+      "gerbil/core",
+      "module",
+      "default",
+      "v0.19",
+      "set-lang!"
+    ],
+    "imports": [],
+    "code": ";; In v0.19, the default language was consolidated.\n;;\n;; v0.18 had two distinct langs:\n;;   'gerbil/core — based on :gerbil/core directly\n;;   'gerbil      — based on :gerbil/base (a thin wrapper over :gerbil/core)\n;;\n;; v0.19 CHANGE:\n;;   :gerbil/base was REMOVED (file deleted)\n;;   The 'gerbil lang now maps to :gerbil/core directly\n;;   +current-lang+ default changed from 'gerbil/core to 'gerbil\n;;   init! no longer calls (set-lang! 'gerbil) explicitly\n\n;; What this means for module authors:\n;; - prelude: gerbil  -- still works, now uses :gerbil/core\n;; - prelude: :<root> -- still works for bare Gambit\n;; - No need to change existing modules — the merge is transparent\n\n;; The defsyntax-case macro moved location (transparent to users):\n;; v0.18: defined in src/gerbil/core/sugar.ss\n;; v0.19: defined in src/gerbil/core/more-syntax-sugar.ss\n;; Both are re-exported from :gerbil/core — no import change needed.\n\n;; except-from-out macro was REMOVED from module-sugar.ss:\n;; v0.18: (export (except-from-out (import: \"mymod\") foo bar))\n;; v0.19: Use (only-in ...) or explicit (export x y z) instead.\n;; Also removed: interface-info-method-offset procedure\n\n;; Readtable change:\n;; v0.18: used ##main-readtable-set! to set readtable\n;; v0.19: uses direct assignment (set! ##main-readtable ...)\n;; This is an internal change, transparent to user code.",
+    "notes": ":gerbil/base was a thin re-export of :gerbil/core plus the runtime, with except-from-out to exclude GerbilRuntime. In v0.19 this was simplified: :gerbil/base was deleted and the 'gerbil lang directly loads :gerbil/core. The except-from-out macro was also removed (it was in module-sugar.ss). If your module used except-from-out as a pattern in export forms, replace with explicit (export (only-in ...)) or list the symbols directly. The defsyntax-case macro moved from sugar.ss to more-syntax-sugar.ss — transparent since both are in :gerbil/core.",
+    "related": [
+      "syntax-case-macro-writing",
+      "v019-migration-overview"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "interface-direct-dispatch-v019-staging",
+    "title": "Interface method dispatch uses direct structure field access in v0.19 staging",
+    "tags": [
+      "interface",
+      "method",
+      "dispatch",
+      "structure-ref",
+      "offset",
+      "v0.19",
+      "performance",
+      "breaking-change"
+    ],
+    "imports": [],
+    "code": ";; In v0.19 staging, interface method dispatch was REFACTORED again.\n;;\n;; REMOVED in this commit:\n;; - implementation-macros and unchecked-implementation-macros fields from interface-info\n;; - defdispatch-rule macro wrappers for interface methods\n;; - The :: prefix naming convention (e.g. MyInterface::MyInterface-draw)\n;; - The __ prefix for unchecked macros (e.g. MyInterface__MyInterface-draw)\n;;\n;; NEW approach: methods are now plain procedures using direct structure access\n;; The method name is still: Interface-method (e.g. MyInterface-draw)\n;; The unchecked method name is: &Interface-method (e.g. &MyInterface-draw)\n;;\n;; Key implementation change:\n;; - Method implementations use ##unchecked-structure-ref with a PRECOMPUTED offset\n;; - The offset is computed at macro-expansion time via iota (starting at 2)\n;; - Methods access prototype struct at: slot 1 = wrapped object, slots 2+ = methods\n;;\n;; Example interface defined with:\n(definterface MyInterface\n  (draw (x : :fixnum) (y : :fixnum)) => :void\n  (resize (w : :fixnum) (h : :fixnum)) => :void)\n;; Generates:\n;;   (def (MyInterface-draw self . in) ...) ; checked, slot 2\n;;   (def (&MyInterface-draw self . in) ...) ; unchecked, slot 2\n;;   (def (MyInterface-resize self . in) ...) ; checked, slot 3\n;;   (def (&MyInterface-resize self . in) ...) ; unchecked, slot 3\n;;\n;; Usage is unchanged:\n(def (render (canvas : MyInterface) x y)\n  (MyInterface-draw canvas x y))   ;; checked call\n  ;; OR:\n  ;; (&MyInterface-draw canvas x y)  ;; unchecked call (skip predicate)\n\n;; IMPORTANT: If you used :: or __ prefixed method names directly,\n;; those names NO LONGER EXIST. Use Interface-method instead of ::Interface-method.",
+    "notes": "The v0.19 staging commit (18034aca) significantly refactored interface method generation in src/gerbil/core/contract.ss. The macro-backed dispatch (defdispatch-rule, define-values with macro: keyword) was replaced with plain def procedures that use ##unchecked-structure-ref at precomputed offsets. The interface-info struct lost two fields: implementation-macros and unchecked-implementation-macros. The naming conventions changed: :: prefix (checked method) and __ prefix (unchecked macro) are gone; methods are now just Interface-method and &Interface-method. Also removed: interface-info-method-offset procedure (was used to find slot index at runtime; now computed at macro-expansion time). Also: @implement macro was removed from :std/interface, and @interface-method-offset renamed to @interface-method-index.",
+    "related": [
+      "interface-method-macros-v019",
+      "interface-method-dispatch",
+      "interface-contracts"
+    ],
+    "gerbil_version": "v0.19"
+  },
+  {
+    "id": "bio-struct-flatten-v019",
+    "title": ":std/io/bio buffer struct hierarchy flattened in v0.19 staging",
+    "tags": [
+      "bio",
+      "buffered-io",
+      "struct",
+      "input-buffer",
+      "output-buffer",
+      "v0.19",
+      "breaking-change",
+      "io"
+    ],
+    "imports": [
+      ":std/io/bio"
+    ],
+    "code": ";; BREAKING CHANGE in v0.19 staging: bio buffer type hierarchy flattened.\n;;\n;; OLD struct hierarchy (v0.18-era):\n;;   basic-buffer\n;;     basic-input-buffer\n;;       memory-input-buffer  (final)\n;;       reader-input-buffer\n;;         source-input-buffer  (final)\n;;         message-input-buffer (final)\n;;     basic-output-buffer\n;;       memory-output-buffer (final)\n;;       writer-output-buffer\n;;         sink-output-buffer   (final)\n;;         message-output-buffer (final)\n;;   delimited-input-buffer\n;;     (had: input, remaining, limit, closed? fields)\n;;\n;; NEW flat structs (v0.19 staging):\n;;   input-buffer (reader buf rlo rhi closed?)   -- final\n;;   output-buffer (writer buf whi closed?)       -- final\n;;   chunked-output-buffer (chunks output)        -- final\n;;   delimited-input-buffer (in remaining limit)  -- final\n;;\n;; Field access changes:\n;; OLD:  bio.rlo (dot notation via using/defstruct)\n;; NEW:  (&input-buffer-rlo bio) for unchecked, or bio.rlo with contract\n\n;; If your code directly instantiates or pattern-matches bio structs,\n;; update to the new flat struct names.\n\n;; The reader field changed:\n;; OLD: source-input-buffer has reader field of type Reader (interface)\n;; NEW: input-buffer has reader field — same type\n\n;; delimited-input-buffer field 'input' renamed to 'in':\n;; OLD: (delimited-input-buffer-input dbio)\n;; NEW: (delimited-input-buffer-in dbio)\n\n;; HIGH-LEVEL API (:std/io/bio/api) is unchanged:\n;; open-buffered-reader, open-buffered-writer, etc. — no change needed\n;; Only code that directly manipulates bio struct internals is affected.",
+    "notes": "The v0.19 staging commit flattened the bio buffer type hierarchy from 8+ struct types to just 4. The main driver was simplification — the intermediate abstract types (basic-buffer, reader-input-buffer, etc.) were removed since they didn't add value. The new structs are all final. The 'in' field of delimited-input-buffer was previously named 'input'. The chunked-output-buffer is a NEW type (for collecting output in chunks without a writer). Most users who only use the high-level :std/io/bio/api or :std/io interfaces are not affected.",
+    "related": [
+      "io-bio-refactor-v019",
+      "buffered-io-performance"
+    ],
+    "gerbil_version": "v0.19"
   }
 ]
