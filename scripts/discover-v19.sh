@@ -22,7 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-GERBIL_DIR="${GERBIL_DIR:-$HOME/mine/gerbil-origi}"
+GERBIL_DIR="${GERBIL_DIR:-$HOME/mine/gerbil-origin}"
 BRANCH="v0.19-staging"
 BASE_BRANCH="master"
 NUM_COMMITS=""
