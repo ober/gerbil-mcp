@@ -695,5 +695,22 @@
       "side-channel",
       "constant-time"
     ]
+  },
+  {
+    "id": "scintilla-gettextrange-via-send-string",
+    "title": "SCI_GETTEXTRANGE called via sci-send/string (expects C struct, not string)",
+    "severity": "critical",
+    "scope": "scheme",
+    "pattern": "sci-send/string\\s+\\S+\\s+(2162|SCI_GETTEXTRANGE)",
+    "message": "SCI_GETTEXTRANGE (2162) expects a Sci_TextRange C struct pointer as lparam, not a Scheme string. Calling it via sci-send/string passes a string pointer which Scintilla interprets as a struct, causing PLATFORM_ASSERT crash (cpMax <= pdoc->Length()) or memory corruption.",
+    "remediation": "Use qt-plain-text-edit-text-range (which fetches full text and substrings in Scheme) or sci-recv-string with a message designed for string output. Never pass SCI_GETTEXTRANGE through sci-send/string.",
+    "related_recipe": "scintilla-constant-gotchas",
+    "tags": [
+      "scintilla",
+      "ffi",
+      "crash",
+      "assertion",
+      "struct-mismatch"
+    ]
   }
 ]

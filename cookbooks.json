@@ -15322,5 +15322,90 @@
     "imports": [],
     "code": ";; defstruct auto-generates make-<name>, so defining your own causes\n;; \"Bad binding; rebind conflict\"\n\n;; WRONG — causes rebind conflict:\n;; (defstruct work-queue (keys mutex) final: #t)\n;; (def (make-work-queue keys)           ;; conflicts with auto-generated make-work-queue\n;;   (make-work-queue (list->vector keys) (make-mutex)))\n\n;; RIGHT — use a different name for your custom constructor:\n(defstruct work-queue (keys mutex) final: #t)\n(def (create-work-queue keys)\n  (make-work-queue (list->vector keys) (make-mutex)))",
     "notes": "defstruct generates: make-<name>, <name>?, <name>-<field> accessors, and <name>-<field>-set! mutators. If you need a custom constructor with different arguments, name it create-<name> or new-<name> to avoid the rebind conflict."
+  },
+  {
+    "id": "gambit-room-gc-heap-diagnostic",
+    "title": "Room-style GC/heap/runtime diagnostic display (like Common Lisp ROOM)",
+    "tags": [
+      "room",
+      "gc",
+      "heap",
+      "diagnostic",
+      "process-statistics",
+      "memory",
+      "runtime",
+      "gambit"
+    ],
+    "imports": [],
+    "code": ";; Complete room-style diagnostic using only Gambit primitives (no imports needed).\n;; Forces GC first so live heap reflects actual live data.\n\n(def (fmt-bytes b)\n  (cond\n    ((>= b (* 1024 1024 1024))\n     (string-append (number->string (/ (floor (* (/ b (* 1024 1024 1024)) 100)) 100.0)) \" GB\"))\n    ((>= b (* 1024 1024))\n     (string-append (number->string (/ (floor (* (/ b (* 1024 1024)) 100)) 100.0)) \" MB\"))\n    ((>= b 1024)\n     (string-append (number->string (/ (floor (* (/ b 1024) 100)) 100.0)) \" KB\"))\n    (else\n     (string-append (number->string (inexact->exact (floor b))) \" B\"))))\n\n(def (room)\n  (##gc)\n  (let* ((ps (##process-statistics))\n         (user-cpu (f64vector-ref ps 0))\n         (sys-cpu (f64vector-ref ps 1))\n         (real-time (f64vector-ref ps 2))\n         (gc-real (f64vector-ref ps 5))\n         (gc-user (f64vector-ref ps 3))\n         (num-gcs (inexact->exact (floor (f64vector-ref ps 6))))\n         (heap-size (f64vector-ref ps 7))\n         (nb-minor-faults (inexact->exact (floor (f64vector-ref ps 8))))\n         (nb-major-faults (inexact->exact (floor (f64vector-ref ps 9))))\n         (alloc-total (f64vector-ref ps 15))\n         (reclaimed (f64vector-ref ps 16))\n         (live-heap (f64vector-ref ps 17))   ;; correct metric for leak detection\n         (movable (f64vector-ref ps 18))\n         (still (f64vector-ref ps 19)))\n    (displayln \"--- GC & Heap ---\")\n    (displayln \"  Heap size:       \" (fmt-bytes heap-size))\n    (displayln \"  Live after GC:   \" (fmt-bytes live-heap))\n    (displayln \"    Movable:       \" (fmt-bytes movable))\n    (displayln \"    Still:         \" (fmt-bytes still))\n    (displayln \"  Total allocated: \" (fmt-bytes alloc-total))\n    (displayln \"  Total reclaimed: \" (fmt-bytes reclaimed))\n    (displayln \"  GC runs:         \" num-gcs)\n    (displayln \"  GC time:         \" (/ (floor (* gc-real 1000)) 1.0) \" ms real, \"\n                                      (/ (floor (* gc-user 1000)) 1.0) \" ms cpu\")\n    (displayln \"  Live percent:    \" (##get-live-percent) \"%\")\n    (displayln)\n    (displayln \"--- Process ---\")\n    (displayln \"  CPU time:        \" (/ (floor (* user-cpu 1000)) 1.0) \" ms user, \"\n                                      (/ (floor (* sys-cpu 1000)) 1.0) \" ms sys\")\n    (displayln \"  Real time:       \" (/ (floor (* real-time 1000)) 1.0) \" ms\")\n    (displayln \"  Page faults:     \" nb-minor-faults \" minor, \" nb-major-faults \" major\")\n    (displayln \"  CPU cache:       \" (fmt-bytes (##cpu-cache-size)))\n    (displayln)\n    (displayln \"--- Runtime ---\")\n    (displayln \"  Gambit:          \" (##system-version-string))\n    (displayln \"  Platform:        \" (##system-type-string))))",
+    "notes": "All functions used are Gambit ## primitives — no imports needed, works even in minimal builds. Key primitives: ##gc (force GC), ##process-statistics (f64vector with 20 fields), ##get-live-percent (GC threshold), ##cpu-cache-size (bytes), ##system-version-string, ##system-type-string. Use field 17 (live heap after GC) not field 7 (managed heap capacity) for accurate memory reporting — see process-statistics-field-layout recipe. ##get-bytes-allocated! also exists but requires (f64vector, offset) args.",
+    "related": [
+      "process-statistics-field-layout",
+      "gc-memory-profiling",
+      "force-gc-gambit",
+      "process-statistics-elapsed-timing"
+    ]
+  },
+  {
+    "id": "gambit-runtime-info-primitives",
+    "title": "Gambit runtime info primitives (version, platform, cache, GC settings)",
+    "tags": [
+      "gambit",
+      "runtime",
+      "version",
+      "platform",
+      "system-type",
+      "cpu-cache",
+      "live-percent",
+      "primitives"
+    ],
+    "imports": [],
+    "code": ";; Gambit ## primitives for runtime/system information (no imports needed)\n\n;; Version and platform\n(##system-version-string)   ;; => \"v4.9.7-47-g090ae227\"\n(##system-version)          ;; => 409007  (numeric)\n(##system-type-string)      ;; => \"x86_64-pc-linux-gnu\"\n(##system-type)             ;; => 6  (numeric)\n\n;; Hardware\n(##cpu-cache-size)          ;; => 25165824  (bytes, e.g. 24 MB L3 cache)\n\n;; GC settings\n(##get-live-percent)        ;; => 50  (% live objects that triggers heap expansion)\n\n;; Build configuration\n(##configure-command-string) ;; => full ./configure command used to build Gambit\n\n;; Bytes allocated (requires f64vector buffer)\n(let ((buf (make-f64vector 3 0.0)))\n  (##get-bytes-allocated! buf 0)\n  (f64vector-ref buf 0))    ;; => total bytes allocated (float)",
+    "notes": "All ## primitives — no imports needed. ##get-bytes-allocated! is unusual: it takes an f64vector and an offset index, writing the result into the vector rather than returning it. ##system-version returns a packed integer (major*100000 + minor*1000 + patch). ##configure-command-string can leak build paths in binaries — consider for security audits.",
+    "related": [
+      "gambit-room-gc-heap-diagnostic",
+      "force-gc-gambit",
+      "process-statistics-field-layout"
+    ]
+  },
+  {
+    "id": "qscintilla-suppress-scn-modified-during-text-mutation",
+    "title": "Suppress SCN_MODIFIED during Scintilla text mutations to prevent assertion crash",
+    "tags": [
+      "scintilla",
+      "qscintilla",
+      "SCN_MODIFIED",
+      "SCI_SETMODEVENTMASK",
+      "assertion",
+      "crash",
+      "text-mutation",
+      "SCI_GETTEXTRANGE"
+    ],
+    "imports": [],
+    "code": "// C++ shim pattern: wrap text-modifying SendScintilla calls with event mask suppression.\n// Without this, SCN_MODIFIED fires mid-operation (e.g. SCI_SETTEXT does DeleteChars\n// then InsertString — document is transiently empty between the two). Handlers\n// (accessibility, input method, lexer) call SCI_GETTEXTRANGE with stale cached\n// positions, causing: PLATFORM_ASSERT(cpMax <= pdoc->Length()) at Editor.cpp:6096\n\nstatic bool is_text_modifying_msg(unsigned int msg) {\n    switch (msg) {\n        case QsciScintillaBase::SCI_SETTEXT:\n        case QsciScintillaBase::SCI_REPLACESEL:\n        case QsciScintillaBase::SCI_APPENDTEXT:\n        case QsciScintillaBase::SCI_INSERTTEXT:\n        case QsciScintillaBase::SCI_CLEARALL:\n        case QsciScintillaBase::SCI_DELETERANGE:\n        case QsciScintillaBase::SCI_ADDTEXT:\n        case QsciScintillaBase::SCI_REPLACETARGET:\n        case QsciScintillaBase::SCI_REPLACETARGETRE:\n            return true;\n        default:\n            return false;\n    }\n}\n\nextern \"C\" long qt_scintilla_send_message_string(qt_scintilla_t sci, unsigned int msg,\n                                                 unsigned long wparam, const char* str) {\n    auto* s = static_cast<QsciScintilla*>(sci);\n    if (is_text_modifying_msg(msg)) {\n        long old_mask = s->SendScintilla(QsciScintillaBase::SCI_GETMODEVENTMASK);\n        s->SendScintilla(QsciScintillaBase::SCI_SETMODEVENTMASK, 0L);\n        long result = s->SendScintilla(msg, wparam, reinterpret_cast<long>(str));\n        s->SendScintilla(QsciScintillaBase::SCI_SETMODEVENTMASK, old_mask);\n        return result;\n    }\n    return s->SendScintilla(msg, wparam, reinterpret_cast<long>(str));\n}",
+    "notes": "The crash reproduces reliably with terminal programs like `top` that replace document text every 1-2 seconds. QAccessible::setActive(false) and WA_InputMethodEnabled=false are NOT sufficient — the notification comes from QScintilla's own internal handlers. SCI_SETMODEVENTMASK=0 is the only reliable fix. Also disable accessibility and input method as defense-in-depth. Applies to both send_message and send_message_string C shim functions.",
+    "related": [
+      "scintilla-font-before-styleclearall",
+      "exe-stale-global-static-scm-shadow"
+    ]
+  },
+  {
+    "id": "scintilla-constant-gotchas",
+    "title": "Scintilla message constant gotchas: commonly confused constants",
+    "tags": [
+      "scintilla",
+      "constants",
+      "SCI_GETTEXTRANGE",
+      "SCI_TEXTWIDTH",
+      "SCI_LINESONSCREEN",
+      "gotcha",
+      "qscintilla"
+    ],
+    "imports": [],
+    "code": ";; Commonly confused Scintilla constants:\n;;   2162 = SCI_GETTEXTRANGE  — takes Sci_TextRange struct, NOT a string!\n;;   2276 = SCI_TEXTWIDTH     — measures text pixel width (segfaults if font uninitialized)\n;;   2370 = SCI_LINESONSCREEN — returns visible line count (safe, no args needed)\n;;   2170 = SCI_REPLACESEL    — replace selection with string\n;;   2001 = SCI_ADDTEXT       — add text at current position\n;;   4033 = SCI_SETILEXER     — Scintilla 5.x (old SCI_SETLEXER=4001 removed)\n;;   4030 = SCI_NAMEOFSTYLE   — NOT SCI_SETILEXER!\n\n;; SAFE way to get terminal dimensions:\n(rows (max 2 (sci-send ed 2370 0)))        ; SCI_LINESONSCREEN\n(cols (max 20 (quotient (qt-widget-width ed) 8)))  ; widget pixels / 8\n\n;; DANGEROUS — do NOT use for terminal dimensions:\n;; (sci-send/string ed 2162 \"M\" 0)  ; WRONG: 2162=SCI_GETTEXTRANGE, crashes!\n;; (sci-send/string ed 2276 \"M\" 0)  ; RISKY: segfaults with uninitialized fonts",
+    "notes": "SCI_TEXTWIDTH (2276) segfaults inside QScintilla's TextWidth() when called before font metrics are initialized. Use widget-width/8 as a safe approximation for monospace character width. Never use SCI_GETTEXTRANGE (2162) via sci-send/string — it expects a Sci_TextRange C struct pointer, not a Scheme string. Always double-check constants against the Scintilla documentation header.",
+    "related": [
+      "qscintilla-suppress-scn-modified-during-text-mutation"
+    ]
   }
 ]

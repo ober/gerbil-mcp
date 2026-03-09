@@ -163,7 +163,7 @@
     "use_case": "Every time an upstream dependency is rebuilt and the downstream project is then built, stale artifacts cause the build to hang or produce broken binaries. This happens multiple times per session when iterating on library + consumer projects.",
     "example_scenario": "Rebuilt gerbil-aws (added s3/connection.ss, changed s3-client struct). Then ran gerbil_build_and_report on kunabi. The exe linker used stale gerbil-aws__s3__api.scm from kunabi's .gerbil/lib/static/ which referenced the old 5-field s3-client, not the new 6-field version. Build hung indefinitely. Had to manually kill, rm stale files, rebuild. This exact pattern has happened 3+ times in this session alone.",
     "estimated_token_reduction": "~2000-5000 tokens per occurrence (kill stuck build, diagnose, clean, retry). Occurs multiple times per cross-project session.",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "smp-deadlock-detector",
@@ -181,6 +181,24 @@
     "use_case": "When writing concurrent network code that will be compiled with SMP-enabled Gambit. Prevents shipping binaries that deadlock under load.",
     "example_scenario": "User writes 8 worker threads each calling http-get in a loop. Code compiles fine and passes low-volume tests but deadlocks in production with 1000+ requests. This tool would flag the pattern at development time.",
     "estimated_token_reduction": "~2000 tokens per debugging session (eliminates hours of strace investigation)",
+    "votes": 0
+  },
+  {
+    "id": "gambit-primitive-lookup-coverage-gc-system",
+    "title": "Expand gambit_primitive_lookup to cover GC and system info primitives",
+    "description": "The gambit_primitive_lookup tool returns no results for common ## primitives like ##gc, ##process-statistics, ##get-live-percent, ##cpu-cache-size, ##system-version-string, ##system-type-string, ##get-bytes-allocated!, ##configure-command-string. These are widely used for diagnostics and profiling but the tool's search doesn't find them, forcing fallback to gerbil_eval to probe which primitives exist and their calling conventions (e.g. ##get-bytes-allocated! requires f64vector+offset args, not obvious).",
+    "impact": "medium",
+    "tags": [
+      "gambit",
+      "primitive",
+      "gc",
+      "system",
+      "lookup",
+      "coverage"
+    ],
+    "use_case": "When building diagnostic/profiling features that need Gambit runtime introspection primitives",
+    "example_scenario": "Needed to find all available GC/heap/system primitives for a ,room command. Searched gambit_primitive_lookup for 'gc', 'heap', 'memory' — all returned empty. Had to use gerbil_eval to probe (with-catch ...) each primitive name individually, then figure out calling conventions by trial and error (##get-bytes-allocated! takes 2 args not 0).",
+    "estimated_token_reduction": "~500 tokens per diagnostic task — eliminates 3-4 gerbil_eval probe calls",
     "votes": 0
   }
 ]
