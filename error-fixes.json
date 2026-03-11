@@ -18,5 +18,20 @@
       "macro-identifier-synthesis-all-techniques",
       "defsyntax-stx-identifier-generation"
     ]
+  },
+  {
+    "id": "hash-table-for-each-unbound",
+    "pattern": "hash-table-for-each",
+    "type": "Unbound Identifier",
+    "fix": "Replace with (for ((k v) (in-hash ht)) ...) from :std/iter for iteration, or (hash-clear! ht) to remove all entries. hash-table-for-each does not exist in Gerbil — it is an R7RS/Racket name.",
+    "code_example": "(import :std/iter)\n;; Iterate:\n(for ((k v) (in-hash ht)) (process k v))\n;; Clear all:\n(hash-clear! ht)",
+    "wrong_example": "(hash-table-for-each ht (lambda (k v) (process k v)))",
+    "imports": [
+      ":std/iter"
+    ],
+    "related_recipes": [
+      "hash-clear-all-entries",
+      "iterate-hash"
+    ]
   }
 ]

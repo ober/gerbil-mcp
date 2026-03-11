@@ -70,7 +70,7 @@
     "use_case": "When writing a new Gerbil project with many struct types and discovering at build time that all constructors fail because defstruct doesn't support keyword args",
     "example_scenario": "Created 20+ defstruct types across a project, all with keyword-style constructors like (make-signal-address name: \"bob\" device-id: 1). Build succeeded but runtime failed with \"illegal struct constructor application; arity mismatch\". Had to bulk-replace all defstruct with defclass across 32 files. A lint check would have caught this immediately.",
     "estimated_token_reduction": "~2000 tokens per occurrence — eliminates the debug cycle of build, run, discover arity error, investigate defstruct vs defclass difference, then bulk-replace across all files",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "export-t-reexport-warning",
@@ -87,7 +87,7 @@
     "use_case": "When creating a top-level module that re-exports all sub-modules for convenience (like signal.ss that re-exports all protocol modules)",
     "example_scenario": "Created src/signal.ss with imports of 15 sub-modules and (export #t), expecting users to just (import :signal/src/signal). At runtime, none of the sub-module symbols were available. Had to discover that (export #t) doesn't re-export and change to (export (import: :mod1 :mod2 ...)).",
     "estimated_token_reduction": "~500 tokens — eliminates the debug cycle of testing imports, discovering they're missing, researching re-export syntax",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "gambit-abi-compatibility-check",
@@ -125,7 +125,7 @@
     "use_case": "When maintaining parallel code paths (Qt GUI + TUI terminal) that must call the same initialization and lifecycle functions",
     "example_scenario": "gemacs Qt layer called init-gemacs-log! in qt/app.ss but the TUI layer in app.ss did not. All gemacs-log! calls in the TUI were silently dropped because *gemacs-log-port* was never initialized. Spent 30+ minutes adding debug logging that never appeared, before discovering the missing init call. A parity check tool would have flagged this instantly.",
     "estimated_token_reduction": "~3000 tokens per occurrence — eliminates entire debug cycles where logging appears broken but the real issue is missing initialization",
-    "votes": 1
+    "votes": 2
   },
   {
     "id": "paren-depth-tracker-on-edit",
@@ -143,7 +143,7 @@
     "use_case": "When making multiple function-level edits (e.g., wrapping bodies in spawn/lambda) and one edit has a missing paren that cascades through the rest of the file",
     "example_scenario": "Converted 3 dired functions from sync to async (adding spawn/name + ui-queue-push! wrappers). Each needed 13 closing parens but one had only 12. The balance checker said 'unclosed at line 1270' but couldn't pinpoint which of the 3 functions was wrong. Had to write a python script to trace depth changes per line. A depth-at-boundaries tool would have shown 'depth 1 at line 1269 (should be 0)' immediately.",
     "estimated_token_reduction": "~800 tokens per occurrence — eliminates the need for python depth-tracing scripts and manual binary search",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "auto-clean-stale-deps-before-build",
@@ -199,6 +199,41 @@
     "use_case": "When building diagnostic/profiling features that need Gambit runtime introspection primitives",
     "example_scenario": "Needed to find all available GC/heap/system primitives for a ,room command. Searched gambit_primitive_lookup for 'gc', 'heap', 'memory' — all returned empty. Had to use gerbil_eval to probe (with-catch ...) each primitive name individually, then figure out calling conventions by trial and error (##get-bytes-allocated! takes 2 args not 0).",
     "estimated_token_reduction": "~500 tokens per diagnostic task — eliminates 3-4 gerbil_eval probe calls",
+    "votes": 0
+  },
+  {
+    "id": "explicit-export-new-symbol-warn",
+    "title": "Warn when a module defines a symbol referenced externally but missing from its explicit export list",
+    "description": "When a module uses an explicit `(export sym1 sym2 ...)` list (not `(export #t)`), newly added function definitions are not automatically exported. Consumers that reference the new symbol get a compile-time \"Reference to unbound identifier\" error. `gerbil_verify` or `gerbil_lint` should detect this by cross-referencing the module's export list against its definitions and flagging any definition that is called from other modules in the project but not listed in the export. This is the inverse of \"exported but not defined\" (already checked) — it's \"defined but not exported yet referenced externally.\"",
+    "impact": "medium",
+    "tags": [
+      "export",
+      "explicit",
+      "unbound",
+      "missing-export",
+      "lint",
+      "verify"
+    ],
+    "use_case": "When adding new functions to a module with an explicit export list and forgetting to add them to the export declaration. The error only surfaces at build time in the consuming module, not at the defining module, making the root cause non-obvious.",
+    "example_scenario": "Added `notification-push!` and `notification-get-recent` to core.ss (which has a 70-line explicit export list, not `(export #t)`). Build succeeded for core.ss itself but failed in `editor-extra-media2.ss` with \"Reference to unbound identifier: notification-get-recent\". Had to grep through core.ss's export list, find the echo-message! section, and manually add the 3 new symbols. The error message pointed to the consumer, not the source of the omission.",
+    "estimated_token_reduction": "~300 tokens per occurrence — eliminates one build cycle and the grep-through-export-list investigation",
+    "votes": 0
+  },
+  {
+    "id": "check-balance-suggest-read-forms-on-error",
+    "title": "gerbil_check_balance should suggest gerbil_read_forms when reporting unclosed form",
+    "description": "When gerbil_check_balance reports an unclosed form at a line number, it should also suggest running gerbil_read_forms for more precise diagnosis. gerbil_read_forms uses the actual Gerbil reader and reports exactly which top-level form number is incomplete and at what line range it started — making it trivial to find the exact function with the paren error. gerbil_check_balance only reports the line where balance goes negative, not which function definition is the culprit.",
+    "impact": "medium",
+    "tags": [
+      "balance",
+      "paren",
+      "read-forms",
+      "check-balance",
+      "debug"
+    ],
+    "use_case": "When a build fails with 'Incomplete form, EOF reached' and gerbil_check_balance reports the unclosed position but you need to know which function definition is broken.",
+    "example_scenario": "Build fails on qt/commands-edit2.ss with 'Incomplete form, EOF reached'. gerbil_check_balance says unclosed at line 1615. gerbil_read_forms shows 'Forms [0]-[65] read OK, error at line 1615' — making clear that forms [66] and [67] (cmd-wdired-finish-edit and cmd-wdired-abort) are the broken ones. Without read_forms, you need to manually search near line 1615 for the unclosed function.",
+    "estimated_token_reduction": "~300 tokens per balance-debugging session — eliminates the need to call gerbil_read_forms as a separate follow-up step",
     "votes": 0
   }
 ]

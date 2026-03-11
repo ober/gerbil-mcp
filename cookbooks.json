@@ -6289,15 +6289,17 @@
       "listen",
       "accept",
       "network",
-      "port"
+      "port",
+      "open-tcp-server",
+      "open-tcp-client"
     ],
     "imports": [],
-    "code": ";; Gambit builtins — no import needed\n\n;; === TCP Client ===\n;; open-tcp-client returns a bidirectional port\n(let ((sock (open-tcp-client\n              (list server-address: \"example.com\"\n                    port-number: 80))))\n  ;; Write a request\n  (display \"GET / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n\" sock)\n  (force-output sock)\n  ;; Read the response\n  (let ((first-line (read-line sock)))\n    (close-port sock)\n    first-line))\n;; => \"HTTP/1.1 200 OK\\r\"\n\n;; Shorter form: address:port string\n(let ((sock (open-tcp-client \"example.com:80\")))\n  (display \"HEAD / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n\" sock)\n  (force-output sock)\n  (let ((line (read-line sock)))\n    (close-port sock)\n    line))\n\n;; === TCP Server ===\n;; open-tcp-server listens and calls handler for each connection\n(def (start-echo-server port-num)\n  (open-tcp-server\n    (list server-address: \"*\"     ;; bind all interfaces\n          port-number: port-num\n          reuse-address: #t\n          backlog: 128\n          coalesce: #t)\n    (lambda (client)\n      ;; Each connection runs in its own thread automatically\n      (let loop ()\n        (let ((line (read-line client)))\n          (unless (eof-object? line)\n            (display line client)\n            (newline client)\n            (force-output client)\n            (loop))))\n      (close-port client))))\n\n;; === Client with timeout ===\n(with-exception-catcher\n  (lambda (e) (displayln \"connection failed: \" e) #f)\n  (lambda ()\n    (let ((sock (open-tcp-client\n                  (list server-address: \"localhost\"\n                        port-number: 8080\n                        keep-alive: #t))))\n      sock)))",
-    "notes": "open-tcp-client and open-tcp-server are Gambit builtins — no import needed. open-tcp-client takes a settings list with server-address:, port-number:, and optionally keep-alive:, coalesce:. It returns a bidirectional port (both input and output). open-tcp-server spawns a new thread for each connection, calling the handler with the client port. The server runs in the background — use thread-join! to keep the main thread alive. For TLS/SSL connections, use :std/net/ssl instead. For higher-level HTTP, use :std/net/request. Always force-output after writing and close-port when done.",
+    "code": ";; Gambit builtins — no import needed\n\n;; === TCP Client ===\n;; open-tcp-client returns a bidirectional port\n(let ((sock (open-tcp-client\n              (list server-address: \"example.com\"\n                    port-number: 80))))\n  (display \"GET / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n\" sock)\n  (force-output sock)\n  (let ((first-line (read-line sock)))\n    (close-port sock)\n    first-line))\n;; => \"HTTP/1.1 200 OK\\r\"\n\n;; Shorter form: address:port string\n(let ((sock (open-tcp-client \"example.com:80\")))\n  (display \"HEAD / HTTP/1.0\\r\\nHost: example.com\\r\\n\\r\\n\" sock)\n  (force-output sock)\n  (let ((line (read-line sock)))\n    (close-port sock)\n    line))\n\n;; === TCP Server ===\n;; IMPORTANT: open-tcp-server takes ONE argument (settings list).\n;; Accept connections with (read srv) — it blocks until a client connects,\n;; returns a bidirectional port for that client.\n(def (start-echo-server port-num)\n  (let ((srv (open-tcp-server\n               (list server-address: \"127.0.0.1\"\n                     port-number: port-num\n                     reuse-address: #t\n                     backlog: 128))))\n    ;; Accept loop — each (read srv) returns the next client port\n    (let loop ()\n      (let ((client (with-exception-catcher\n                      (lambda (e) #f)  ;; close-port on srv causes read to error\n                      (lambda () (read srv)))))\n        (when (and client (not (eof-object? client)))\n          ;; Handle client in separate thread\n          (thread-start!\n            (make-thread\n              (lambda ()\n                (let lp ()\n                  (let ((line (read-line client)))\n                    (unless (eof-object? line)\n                      (display line client)\n                      (newline client)\n                      (force-output client)\n                      (lp))))\n                (close-port client))))\n          (loop))))\n    ;; To shut down: (close-port srv)\n    srv))\n\n;; === Client with timeout ===\n(with-exception-catcher\n  (lambda (e) (displayln \"connection failed: \" e) #f)\n  (lambda ()\n    (open-tcp-client\n      (list server-address: \"localhost\"\n            port-number: 8080\n            keep-alive: #t))))",
+    "notes": "open-tcp-client and open-tcp-server are Gambit builtins — no import needed. GOTCHA: open-tcp-server takes ONE argument (a settings list), NOT two. The old two-argument form (settings + handler callback) does NOT work — you get \"Wrong number of arguments\". Accept connections by calling (read srv) which blocks until a client connects and returns a bidirectional client port. Always force-output after writing and close-port when done. To stop the server, call (close-port srv) — this causes (read srv) in the accept loop to raise an exception, which the with-exception-catcher handles gracefully. For TLS/SSL, use :std/net/ssl. For HTTP, use :std/net/request.",
     "related": [
-      "run-subprocess-custom-env"
-    ],
-    "gerbil_version": "v0.18.1-173"
+      "tcp-server-auto-port-discovery",
+      "tcp-repl-server-debug"
+    ]
   },
   {
     "id": "string-ports-io",
@@ -9578,7 +9580,9 @@
     "related": [
       "srfi-1-list-operations",
       "sort-filter-not-builtin"
-    ]
+    ],
+    "deprecated": true,
+    "superseded_by": "list-head-gambit-is-available"
   },
   {
     "id": "reexport-convenience-module",
@@ -15680,5 +15684,253 @@
       "buffered-io-performance"
     ],
     "gerbil_version": "v0.19"
+  },
+  {
+    "id": "export-t-no-transitive-reexport",
+    "title": "(export #t) does NOT transitively re-export imported symbols",
+    "tags": [
+      "export",
+      "import",
+      "transitive",
+      "re-export",
+      "unbound",
+      "module",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; Module A exports foo\n;; (export foo)\n;; (def (foo) \"hello\")\n\n;; Module B imports A and uses (export #t)\n;; (export #t)\n;; (import :pkg/module-a)\n;; (def (bar) (foo))  ; works — foo is in scope\n;; BUT: foo is NOT re-exported by B!\n\n;; Module C imports B — foo is NOT available:\n;; (import :pkg/module-b)\n;; (foo)  ; ERROR: Reference to unbound identifier\n\n;; FIX: Module C must import A directly:\n;; (import :pkg/module-b :pkg/module-a)\n\n;; OR: Module B must explicitly re-export:\n;; (export #t (import: :pkg/module-a))",
+    "notes": "(export #t) only exports symbols DEFINED in the current module. It does NOT propagate symbols imported from other modules. This is a common gotcha in module chains where you expect transitive visibility. Use (export #t (import: :pkg/module)) or add direct imports in the consuming module. The error manifests as 'Reference to unbound identifier' at compile time.",
+    "related": [
+      "re-export-imports",
+      "reexport-convenience-module"
+    ]
+  },
+  {
+    "id": "file-completion-path-commands",
+    "title": "Complete filenames in a directory and commands in PATH",
+    "tags": [
+      "completion",
+      "directory-files",
+      "path",
+      "command",
+      "filename",
+      "tab-complete",
+      "eshell"
+    ],
+    "imports": [
+      ":std/srfi/1",
+      ":std/srfi/13",
+      ":std/sort"
+    ],
+    "code": ";; Complete partial filename against entries in a directory\n(def (complete-files partial dir)\n  (with-catch (lambda (e) '())\n    (lambda ()\n      (let* ((entries (directory-files dir))  ; Gambit builtin, no import\n             (matches (filter (lambda (f)\n                                (and (string-prefix? partial f)\n                                     (not (member f '(\".\" \"..\")))))\n                              entries)))\n        (map (lambda (f)\n               (let* ((full (path-expand f dir))  ; Gambit builtin\n                      (info (with-catch (lambda (e) #f)\n                              (lambda () (file-info full))))\n                      (suffix (if (and info (eq? (file-info-type info) 'directory))\n                                \"/\" \"\")))\n                 (string-append f suffix)))\n             matches)))))\n\n;; Complete partial command name against executables in PATH\n(def (complete-commands partial)\n  (with-catch (lambda (e) '())\n    (lambda ()\n      (let* ((path-str (or (getenv \"PATH\" #f) \"/usr/bin:/bin\"))\n             (path-dirs (string-split path-str #\\:))  ; :std/misc/string\n             (results '()))\n        (for-each\n          (lambda (dir)\n            (with-catch (lambda (e) (void))\n              (lambda ()\n                (for-each\n                  (lambda (f)\n                    (when (string-prefix? partial f)\n                      (set! results (cons f results))))\n                  (directory-files dir)))))\n          path-dirs)\n        (delete-duplicates results string=?)))))  ; :std/srfi/1\n\n;; Longest common prefix for multiple-match display\n(def (longest-common-prefix strings)\n  (if (null? strings) \"\"\n    (let* ((first (car strings))\n           (len (string-length first)))\n      (let loop ((i 0))\n        (if (>= i len) first\n          (let ((ch (string-ref first i)))\n            (if (let check ((rest (cdr strings)))\n                  (or (null? rest)\n                      (and (> (string-length (car rest)) i)\n                           (char=? (string-ref (car rest) i) ch)\n                           (check (cdr rest)))))\n              (loop (+ i 1))\n              (substring first 0 i))))))))",
+    "notes": "directory-files and path-expand are Gambit builtins — no import needed. string-split requires (only-in :std/misc/string string-split). delete-duplicates requires :std/srfi/1. getenv with #f default returns #f instead of raising on missing var. Always wrap directory-files in with-catch since dirs may not exist or be readable.",
+    "related": [
+      "directory-files-list-entries",
+      "file-info-directory-check"
+    ]
+  },
+  {
+    "id": "list-head-gambit-is-available",
+    "title": "list-head IS available in Gambit/Gerbil — returns first N elements",
+    "tags": [
+      "list-head",
+      "take",
+      "gambit",
+      "builtin",
+      "list",
+      "first-n",
+      "srfi-1"
+    ],
+    "imports": [],
+    "code": ";; list-head IS a Gambit builtin — no import needed in Gerbil!\n;; Contrary to some docs, this compiles and runs correctly.\n\n(list-head '(a b c d e) 3)   ;; => (a b c)\n(list-head '(a b c d e) 0)   ;; => ()\n(list-head '(a b c d e) 5)   ;; => (a b c d e)\n\n;; Amortized ring-buffer cap (newest-first list, capped at 100):\n(def *log* '())\n(def *log-count* 0)\n\n(def (log-push! msg)\n  (set! *log* (cons msg *log*))\n  (set! *log-count* (+ *log-count* 1))\n  ;; Amortize: trim every 50 extras so list-head cost is paid infrequently\n  (when (> *log-count* 150)\n    (set! *log* (list-head *log* 100))\n    (set! *log-count* 100)))\n\n;; list-tail (drop first N) is also a Gambit builtin:\n(list-tail '(a b c d e) 2)   ;; => (c d e)",
+    "notes": "Gambit (and therefore Gerbil) provides list-head as an extension to R5RS/R7RS. SRFI-1 `take` is the portable alternative if you need cross-implementation compatibility, but in Gerbil projects targeting Gambit, list-head works without any import. The amortized trim pattern shown is useful for message logs and notification queues — trimming at 150 to cap at 100 means list-head is called at most once every 50 pushes, making push! O(1) amortized."
+  },
+  {
+    "id": "qt-gemacs-show-text-buffer",
+    "title": "Qt/gemacs: display text in a named output buffer (find-or-create pattern)",
+    "tags": [
+      "qt",
+      "buffer",
+      "display",
+      "output",
+      "find-or-create",
+      "gemacs",
+      "read-only",
+      "text"
+    ],
+    "imports": [
+      ":gemacs/qt/buffer",
+      ":gemacs/qt/window",
+      ":gemacs/core"
+    ],
+    "code": ";; Standard gemacs Qt pattern: display text in a named buffer.\n;; Finds existing buffer by name or creates a new one, then\n;; attaches it to the current editor and sets content.\n\n(def (show-output-buffer! app name text)\n  \"Display TEXT in a named buffer NAME, creating it if needed.\"\n  (let* ((fr (app-state-frame app))\n         (ed (qt-current-editor fr))\n         (existing (buffer-by-name name))\n         (buf (or existing (qt-buffer-create! name ed #f))))\n    ;; Switch to this buffer\n    (qt-buffer-attach! ed buf)\n    (set! (qt-edit-window-buffer (qt-current-window fr)) buf)\n    ;; Set content and reset cursor\n    (qt-plain-text-edit-set-text! ed text)\n    (qt-plain-text-edit-set-cursor-position! ed 0)\n    ;; Mark as unmodified (no save prompt on kill)\n    (qt-text-document-set-modified! (buffer-doc-pointer buf) #f)))\n\n;; Usage examples:\n(show-output-buffer! app \"*Notifications*\"\n  \"Recent Notifications\\n====================\\n\\n  1. File saved\\n  2. Build complete\\n\")\n\n(show-output-buffer! app \"*Ediff Registry*\"\n  \"Active diff sessions:\\n  *Ediff* [file-a vs file-b]\\n\")",
+    "notes": "This is the standard Qt gemacs idiom for *Help*, *Notifications*, *Ediff Registry*, *Profiler*, etc. The key steps are: (1) find or create the buffer, (2) qt-buffer-attach! to connect buffer to editor widget, (3) set (qt-edit-window-buffer ...) so the window tracks the buffer, (4) set-text!, (5) set-modified! to #f so killing the buffer doesn't prompt to save. The `buffer-doc-pointer` call gets the QTextDocument from the buffer struct for the modified flag. If you want read-only: use `sci-send ed SCI_SETREADONLY 1 0` after setting text."
+  },
+  {
+    "id": "hash-clear-all-entries",
+    "title": "Clear all entries from a hash table with hash-clear!",
+    "tags": [
+      "hash",
+      "clear",
+      "reset",
+      "empty",
+      "mutate"
+    ],
+    "imports": [],
+    "code": "(def ht (make-hash-table))\n(hash-put! ht \"a\" 1)\n(hash-put! ht \"b\" 2)\n\n;; Clear all entries in place:\n(hash-clear! ht)\n(displayln (hash-length ht))  ;; => 0\n\n;; Alternatively, replace with a new table:\n(set! ht (make-hash-table))",
+    "notes": "Use hash-clear! to reset a hash table in place. Do NOT use hash-table-for-each — that function does not exist in Gerbil (it is R7RS/Racket). Also hash-table-walk does not exist. For iteration use (for ((k v) (in-hash ht)) ...) from :std/iter instead.",
+    "related": [
+      "iterate-hash"
+    ]
+  },
+  {
+    "id": "zlib-uncompress-ffi-u8vector",
+    "title": "Decompress zlib data using FFI uncompress()",
+    "tags": [
+      "zlib",
+      "uncompress",
+      "decompress",
+      "ffi",
+      "u8vector",
+      "c-lambda",
+      "begin-ffi"
+    ],
+    "imports": [
+      ":std/foreign"
+    ],
+    "code": "(begin-ffi (%%zlib-uncompress!)\n  (c-declare \"#include <zlib.h>\\n\")\n  (define-c-lambda %%zlib-uncompress!\n    (scheme-object unsigned-long scheme-object unsigned-long) int\n    \"unsigned long dl = ___arg2;\n     ___return(uncompress(\n       ___CAST(Bytef*, ___BODY_AS(___arg1, ___tSUBTYPED)), &dl,\n       ___CAST(const Bytef*, ___BODY_AS(___arg3, ___tSUBTYPED)), ___arg4));\"))\n\n;; (zlib-uncompress src dest-size) -> u8vector\n;; src: compressed u8vector, dest-size: exact expected decompressed size\n(def (zlib-uncompress src dest-size)\n  (let* ((dest (make-u8vector dest-size 0))\n         (rv   (%%zlib-uncompress! dest dest-size src (u8vector-length src))))\n    (if (= rv 0)\n      dest\n      (error \"zlib-uncompress failed\" rv))))",
+    "notes": "Pass u8vectors directly to C using ___BODY_AS(obj, ___tSUBTYPED) — this gives a raw pointer to the vector's body without copying. dest-size must be the exact (or larger) expected decompressed size; zlib will error (rv=-5 Z_BUF_ERROR) if too small. Link with -lz in build.ss: (gxc: \"module\" \"-ld-options\" \"-lz\"). The ___CAST to Bytef* is required because Gambit's u8vector body is typed as char* internally."
+  },
+  {
+    "id": "package-declaration-only-in-gerbil-pkg",
+    "title": "Package declaration belongs only in gerbil.pkg, not in .ss files",
+    "tags": [
+      "package",
+      "gerbil.pkg",
+      "module",
+      "declaration",
+      "unbound",
+      "import"
+    ],
+    "imports": [],
+    "code": ";; gerbil.pkg — only place for package declaration\n(package: mypackage)\n\n;; WRONG: Do NOT put (package: mypackage) inside .ss source files\n;; It causes \"Reference to unbound identifier: mypackage\" at compile time\n\n;; CORRECT: .ss source files have NO package declaration\n;; Example: atop/rawlog.ss\n(export rawheader? open-atop-file ...)\n(import :std/misc/ports ./bytes)\n;; ... rest of module",
+    "notes": "The (package: name) form is only valid in gerbil.pkg. Placing it at the top of .ss files looks harmless but causes a compile error: \"Reference to unbound identifier: name\". If you see this error and your .ss files contain (package: ...) lines, remove them with: sed -i '/^(package: mypackage)$/d' atop/*.ss. The module import path is then :package/subdir/module — e.g. with package: atop and file atop/rawlog.ss, import as :atop/atop/rawlog.",
+    "related": [
+      "gerbil-package-module-path-mapping"
+    ]
+  },
+  {
+    "id": "std-test-check-boolean-use-arrow-not-predicate",
+    "title": "Use => for boolean equality in check, not ? with #t",
+    "tags": [
+      "std/test",
+      "check",
+      "assertion",
+      "boolean",
+      "predicate",
+      "arrow",
+      "test"
+    ],
+    "imports": [
+      ":std/test"
+    ],
+    "code": ";; WRONG: ? expects a callable procedure, not a value\n;; (check (> x 0) ? #t)   ; ERROR: #t is not a procedure\n\n;; CORRECT: use => for equality assertions\n(check (> x 0) => #t)\n(check (string? s) => #t)\n(check (atop-sample? obj) => #t)\n\n;; Use ? only with actual predicates:\n(check some-string ? string?)\n(check some-list   ? list?)\n\n;; Numeric equality:\n(check (rawheader-magic rh) => #xFEEDBEEF)\n(check (rawheader-hertz rh) => 100)",
+    "notes": "The check macro's ? form applies the argument as a function to the tested value. Passing #t causes a runtime error (\"wrong number of arguments\" or \"not a procedure\"). Use => for direct value equality. The => form uses equal? comparison. This is a frequent gotcha when converting from assert-style tests.",
+    "related": [
+      "test-unit-macros-added-v019"
+    ]
+  },
+  {
+    "id": "binary-file-streaming-read-subu8vector",
+    "title": "Stream binary data from a file with open-file and read-subu8vector",
+    "tags": [
+      "binary",
+      "file",
+      "streaming",
+      "read-subu8vector",
+      "open-file",
+      "bytes",
+      "port",
+      "device"
+    ],
+    "imports": [
+      ":std/misc/ports"
+    ],
+    "code": ";; Open a binary file for sequential reading\n(def (open-binary-file path)\n  (open-file (list path: path direction: 'input)))\n\n;; Read exactly n bytes — errors on short read (EOF before n bytes)\n(def (read-exact-bytes! port n)\n  (let* ((buf (make-u8vector n 0))\n         (got (read-subu8vector buf 0 n port)))\n    (cond\n      ((= got n) buf)\n      ((= got 0) (error \"unexpected EOF\"))\n      (else      (error \"short read\" got n)))))\n\n;; Example: streaming parse of structured binary file\n(def (parse-records path)\n  (let* ((port (open-binary-file path))\n         (header-buf (read-exact-bytes! port 480))  ; fixed header size\n         (record-size 96))\n    (let loop ((acc '()))\n      (let* ((rbuf (make-u8vector record-size 0))\n             (got  (read-subu8vector rbuf 0 record-size port)))\n        (cond\n          ((= got 0)          ; clean EOF between records\n           (close-port port)\n           (reverse acc))\n          ((= got record-size)\n           (loop (cons (parse-record rbuf) acc)))\n          (else\n           (error \"truncated record\" got record-size)))))))",
+    "notes": "Use (open-file (list path: path direction: 'input)) to open a Gambit device port for raw byte I/O. Do NOT use open-input-file for binary — it may interpret bytes as characters. read-subu8vector returns 0 at EOF (clean end between records) or < requested bytes on truncation. For zlib-compressed sections following the record, read compressed length from the record header first, then read-exact-bytes! that many bytes, then decompress. The :std/misc/ports import is needed for read-exact-bytes if using the stdlib version, but the pattern above is self-contained."
+  },
+  {
+    "id": "thread-state-introspection",
+    "title": "Inspect thread state: running, waiting, terminated",
+    "tags": [
+      "thread",
+      "state",
+      "introspect",
+      "running",
+      "waiting",
+      "terminated",
+      "thread-state",
+      "debug"
+    ],
+    "imports": [
+      ":std/misc/threads"
+    ],
+    "code": ";; List all threads and classify their state\n(import :std/misc/threads)\n\n(for-each\n  (lambda (t)\n    (let ((name (or (thread-name t) \"(unnamed)\"))\n          (st (thread-state t)))\n      (displayln \"  \" name \": \"\n        (cond\n          ((thread-state-running? st) \"running\")\n          ((thread-state-waiting? st) \"waiting\")\n          ((thread-state-normally-terminated? st)\n           (string-append \"terminated → \"\n             (object->string (thread-state-normally-terminated-result st))))\n          ((thread-state-abnormally-terminated? st)\n           (string-append \"aborted → \"\n             (object->string (thread-state-abnormally-terminated-reason st))))\n          ((thread-state-uninitialized? st) \"uninitialized\")\n          ((thread-state-initialized? st) \"initialized\")\n          (else \"unknown\")))))\n  (all-threads))\n\n;; Example output:\n;;   primordial: running\n;;   master-timer: waiting\n;;   lsp-reader: waiting\n;;   worker-2: aborted → #<error \"timeout\">",
+    "notes": "thread-state returns a state object — do NOT compare it directly, use the predicate functions. all-threads is from :std/misc/threads. The predicates (thread-state-running?, thread-state-waiting?, etc.) are Gambit builtins — no import needed for them. thread-state-normally-terminated-result and thread-state-abnormally-terminated-reason extract the result/exception from terminated threads.",
+    "related": [
+      "misc-threads-utilities",
+      "spawn-thread"
+    ]
+  },
+  {
+    "id": "thread-continuation-backtrace",
+    "title": "Get backtrace from a thread via ##display-continuation-backtrace",
+    "tags": [
+      "thread",
+      "backtrace",
+      "continuation",
+      "debug",
+      "stack-trace",
+      "display-continuation-backtrace",
+      "hung"
+    ],
+    "imports": [
+      ":std/misc/threads"
+    ],
+    "code": ";; Show backtrace for a specific thread (useful for debugging hangs)\n(import :std/misc/threads)\n\n(def (show-thread-backtrace thread-name-str (port (current-output-port)))\n  \"Find a thread by name and print its continuation backtrace.\"\n  (let ((t (find (lambda (t) (equal? (thread-name t) thread-name-str))\n                 (all-threads))))\n    (if t\n      (let ((st (##thread-state t)))\n        ;; Args: state, port, display-dynamic-env?, all-frames?, max-depth, max-head\n        (##display-continuation-backtrace st port #t #t 50 0))\n      (displayln \"No thread named: \" thread-name-str))))\n\n;; Show backtraces for ALL threads\n(def (show-all-backtraces (port (current-output-port)))\n  (for-each\n    (lambda (t)\n      (displayln \"=== \" (or (thread-name t) t) \" ===\")\n      (with-exception-catcher\n        (lambda (e) (displayln \"  (backtrace unavailable)\"))\n        (lambda ()\n          (##display-continuation-backtrace (##thread-state t) port #t #t 20 0)))\n      (newline))\n    (all-threads)))\n\n;; Usage:\n(show-thread-backtrace \"master-timer\")\n(show-all-backtraces)",
+    "notes": "##display-continuation-backtrace is a Gambit internal (## prefix). It takes (state port display-dynamic-env? all-frames? max-depth max-head). The state is obtained via ##thread-state (NOT thread-state which returns the high-level state object). Works on waiting/sleeping threads — perfect for diagnosing hangs. May throw on running threads or threads with no continuation — always wrap in with-exception-catcher. The `find` function needs no import (Gerbil builtin).",
+    "related": [
+      "thread-state-introspection",
+      "misc-threads-utilities"
+    ]
+  },
+  {
+    "id": "tcp-repl-server-debug",
+    "title": "TCP REPL server for remote debugging of a running Gerbil process",
+    "tags": [
+      "tcp",
+      "repl",
+      "debug",
+      "server",
+      "remote",
+      "eval",
+      "introspect",
+      "hung",
+      "connect"
+    ],
+    "imports": [
+      ":std/misc/threads",
+      ":std/sugar",
+      ":std/srfi/13"
+    ],
+    "code": ";; TCP REPL server — runs in its own green thread, stays alive even when\n;; the main thread is hung. Connect with: nc 127.0.0.1 <port>\n(import :std/misc/threads :std/sugar :std/srfi/13)\n\n(def *repl-server* #f)\n(def *repl-port-file* (path-expand \"~/.my-app-repl-port\"))\n\n(def (repl-handle-client! client)\n  (display \"debug-repl> \" client)\n  (force-output client)\n  (let loop ()\n    (let ((line (read-line client)))\n      (unless (eof-object? line)\n        (let ((line (string-trim-both line)))\n          (cond\n            ((string=? line \",quit\")\n             (display \"Bye.\\n\" client)\n             (force-output client))\n            ((string=? line \",threads\")\n             (for-each\n               (lambda (t)\n                 (display (string-append\n                            \"  \" (object->string (or (thread-name t) t))\n                            \" state=\" (object->string (thread-state t)) \"\\n\")\n                          client))\n               (all-threads))\n             (force-output client)\n             (display \"debug-repl> \" client)\n             (force-output client)\n             (loop))\n            ((string-prefix? \",bt \" line)\n             (let ((name (string-trim (substring line 4 (string-length line)))))\n               (let ((t (find (lambda (t) (equal? (object->string (thread-name t)) name))\n                              (all-threads))))\n                 (if t\n                   (with-exception-catcher\n                     (lambda (e) (display \"  (backtrace unavailable)\\n\" client))\n                     (lambda () (##display-continuation-backtrace\n                                  (##thread-state t) client #t #t 30 0)))\n                   (display (string-append \"No thread: \" name \"\\n\") client))))\n             (force-output client)\n             (display \"debug-repl> \" client)\n             (force-output client)\n             (loop))\n            (else\n             ;; Eval arbitrary expression\n             (with-exception-catcher\n               (lambda (e)\n                 (display \"ERROR: \" client)\n                 (display-exception e client)\n                 (newline client))\n               (lambda ()\n                 (let ((result (eval (read (open-input-string line)))))\n                   (write result client)\n                   (newline client))))\n             (force-output client)\n             (display \"debug-repl> \" client)\n             (force-output client)\n             (loop))))))))\n\n(def (start-debug-repl! port-num)\n  (let ((srv (open-tcp-server\n               (list server-address: \"127.0.0.1\"\n                     port-number: port-num\n                     reuse-address: #t\n                     backlog: 4))))\n    (set! *repl-server* srv)\n    (let ((actual-port (socket-info-port-number (tcp-server-socket-info srv))))\n      ;; Write port file for discovery\n      (call-with-output-file *repl-port-file*\n        (lambda (p) (displayln \"PORT=\" actual-port p)\n                    (displayln \"PID=\" (##os-getpid) p)))\n      ;; Accept loop in background thread\n      (spawn/name 'debug-repl-accept\n        (lambda ()\n          (let loop ()\n            (let ((client (with-exception-catcher\n                            (lambda (e) #f)\n                            (lambda () (read srv)))))\n              (when (and client (not (eof-object? client)))\n                (spawn/name 'debug-repl-client\n                  (lambda ()\n                    (display \"Connected to debug REPL. Commands: ,threads ,bt <name> ,quit\\n\" client)\n                    (force-output client)\n                    (repl-handle-client! client)\n                    (close-port client)))\n                (loop))))))\n      (displayln \"Debug REPL on 127.0.0.1:\" actual-port)\n      actual-port)))\n\n(def (stop-debug-repl!)\n  (when *repl-server*\n    (close-port *repl-server*)\n    (set! *repl-server* #f)\n    (when (file-exists? *repl-port-file*)\n      (delete-file *repl-port-file*))))",
+    "notes": "Key design: the REPL runs in its own Gambit green thread. When the main app thread is hung (infinite loop, blocked mutex, stalled Qt event loop), the Gambit scheduler still services the REPL thread — so you can connect and inspect. Binds to 127.0.0.1 only for security. Use port 0 for OS-assigned ephemeral port. The port file allows tools to discover the port automatically. open-tcp-server accept is via (read srv), NOT a callback. Each client gets its own handler thread. Comma commands (,threads, ,bt, ,quit) provide structured introspection; bare expressions are eval'd. Always wrap eval in with-exception-catcher so errors don't kill the session. For production use, add token auth (read first line, compare, close on mismatch).",
+    "related": [
+      "tcp-server-auto-port-discovery",
+      "tcp-client-server-sockets",
+      "thread-state-introspection",
+      "thread-continuation-backtrace",
+      "misc-threads-utilities"
+    ]
   }
 ]
