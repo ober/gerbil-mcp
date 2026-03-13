@@ -15932,5 +15932,238 @@
       "thread-continuation-backtrace",
       "misc-threads-utilities"
     ]
+  },
+  {
+    "id": "exe-stale-all-three-artifact-types",
+    "title": "Stale exe artifacts: must delete .scm AND .c AND .o from global static dir",
+    "tags": [
+      "exe",
+      "stale",
+      "static",
+      "scm",
+      "c-file",
+      "o-file",
+      "linker",
+      "segfault",
+      "JUMPGLONOTSAFE",
+      "cleanup"
+    ],
+    "imports": [],
+    "code": "; When adding a new module to a Gerbil exe project, the exe linker\n; checks ~/.gerbil/lib/static/ for EACH of three file types.\n; Deleting only the .scm is NOT enough — stale .c and .o will still be used.\n;\n; Symptom: SIGSEGV at ___JUMPGLONOTSAFE(... ___G_module__function_name ...)\n; even after deleting the stale .scm and rebuilding.\n;\n; Root cause: exe linker prefers precompiled .o/.c in global static dir.\n; Old .o was compiled from the old .scm which lacked the new export.\n;\n; FIX — delete all three artifact types:\n; rm -f ~/.gerbil/lib/static/myproject__newmodule.scm\n; rm -f ~/.gerbil/lib/static/myproject__newmodule.c\n; rm -f ~/.gerbil/lib/static/myproject__newmodule.o\n; gerbil build   # or make build\n;\n; BEST PRACTICE: use make clean (which deletes all three) before rebuilding\n; when adding new modules, rather than targeted file deletion.\n;\n; Makefile pattern that covers all three types:\n; clean:\n;     rm -f $(HOME)/.gerbil/lib/static/myproject__*.scm\n;     rm -f $(HOME)/.gerbil/lib/static/myproject__*.c\n;     rm -f $(HOME)/.gerbil/lib/static/myproject__*.o",
+    "notes": "This is the exe-linking variant of the stale artifact problem. The .scm-only case is documented in exe-stale-global-static-scm-shadow. The critical insight here is that the exe linker can use stale .o (compiled C object) OR stale .c (C source it recompiles) from the global dir — so all three must be cleaned. The symptom is a SIGSEGV at ___JUMPGLONOTSAFE in GDB, often on an SMP processor thread. gerbil_stale_static with exe_check:true detects the .scm mismatch but you must also manually verify .c/.o are gone.",
+    "related": [
+      "exe-stale-global-static-scm-shadow",
+      "gerbil-clean-does-not-remove-c-o-files",
+      "orphaned-c-without-o-exe-linker-crash"
+    ]
+  },
+  {
+    "id": "gambit-internal-pid-and-primordial-thread",
+    "title": "Gambit internals: get PID (##os-getpid) and primordial thread (##primordial-thread)",
+    "tags": [
+      "gambit",
+      "internal",
+      "pid",
+      "primordial-thread",
+      "os-getpid",
+      "##",
+      "process",
+      "shutdown"
+    ],
+    "imports": [],
+    "code": "; Get the current OS process ID (no import needed — Gambit internal):\n(##os-getpid)  ; => e.g. 12345\n\n; Get the primordial (main) Gambit thread:\n;;primordial-thread  ; => #<thread #1 primordial>\n\n; Emergency shutdown: terminate the primordial thread to kill the whole process:\n(##thread-terminate! ##primordial-thread)\n\n; Write a port file with PID (common debug server pattern):\n(def (write-port-file! path port-num)\n  (call-with-output-file path\n    (lambda (p)\n      (display \"PORT=\" p) (display port-num p) (newline p)\n      (display \"PID=\"  p) (display (##os-getpid) p) (newline p))))\n\n; Note: ##primordial-thread is spelled with ## prefix (not primordial-thread).\n; Calling (##thread-terminate! ##primordial-thread) from any green thread\n; causes the entire Gambit process to exit. Use as a last-resort emergency exit.",
+    "notes": "Both `##os-getpid` and `##primordial-thread` are Gambit internal (## namespace). No imports required. `primordial-thread` (without ##) is unbound — always use the ## prefix. `##thread-terminate!` on the primordial thread exits the whole Gambit process, useful for emergency ,shutdown in a debug REPL server. For normal shutdown, prefer raising a signal or using a coordinated shutdown channel."
+  },
+  {
+    "id": "thread-state-valid-predicates",
+    "title": "Valid thread-state predicates — which ones exist vs common wrong guesses",
+    "tags": [
+      "thread",
+      "state",
+      "predicate",
+      "running",
+      "waiting",
+      "terminated",
+      "thread-state",
+      "debug",
+      "introspect"
+    ],
+    "imports": [
+      ":std/misc/threads"
+    ],
+    "code": "; VALID thread-state predicates (from :std/misc/threads):\n(import :std/misc/threads)\n\n(def (describe-thread t)\n  (let ((st (thread-state t)))\n    (cond\n      ((thread-state-running? st)\n       \"running\")\n      ((thread-state-waiting? st)\n       \"waiting\")\n      ((thread-state-normally-terminated? st)\n       (string-append \"terminated-ok:\" (object->string\n         (thread-state-normally-terminated-result st))))\n      ((thread-state-abnormally-terminated? st)\n       (string-append \"terminated-err:\" (object->string\n         (thread-state-abnormally-terminated-reason st))))\n      (else\n       (object->string st)))))\n\n; Print all threads:\n(for-each (lambda (t)\n            (displayln (thread-name t) \" -> \" (describe-thread t)))\n          (all-threads))\n\n; WRONG — these do NOT exist and will throw unbound-identifier:\n; (thread-state-waiting-for-condvar? st)   ; NO\n; (thread-state-waiting-for-timeout? st)   ; NO\n; (thread-state-sleeping? st)              ; NO\n; (thread-state-blocked? st)               ; NO",
+    "notes": "Only four predicates exist: `thread-state-running?`, `thread-state-waiting?`, `thread-state-normally-terminated?`, `thread-state-abnormally-terminated?`. The more specific variants like `thread-state-waiting-for-condvar?` and `thread-state-waiting-for-timeout?` do NOT exist in Gerbil's :std/misc/threads — attempting to use them throws unbound identifier errors. `thread-state-normally-terminated-result` and `thread-state-abnormally-terminated-reason` extract the result/reason from terminal states.",
+    "related": [
+      "thread-state-introspection",
+      "misc-threads-utilities"
+    ]
+  },
+  {
+    "id": "gambit-smp-open-output-file-devfd-deadlock",
+    "title": "Avoid open-output-file \"/dev/fd/N\" on pipes in Gambit SMP (deadlocks device manager)",
+    "tags": [
+      "gambit",
+      "smp",
+      "device-manager",
+      "deadlock",
+      "pipe",
+      "open-output-file",
+      "dev-fd",
+      "qt",
+      "thread-sleep"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: In Gambit SMP (multiple virtual processors), the device manager\n;; thread holds its mutex while blocked in poll(-1). Any VP that tries to\n;; open a Gambit port to a pipe fd will deadlock waiting for that mutex.\n;;\n;; TRIGGERS: open-output-file \"/dev/fd/N\" where fd N is a pipe write-end.\n;; This registers the pipe as a Gambit device, requiring the device manager\n;; mutex. Example crash context:\n;;   - Qt event loop runs in a separate C thread (correct SMP design)\n;;   - gsh command-substitute runs $(tput setaf 33) from ~/.gshrc\n;;   - command-substitute calls (open-output-file \"/dev/fd/1\") → DEADLOCK\n;;\n;; DIAGNOSIS (strace):\n;;   VP 0:  futex(addr, FUTEX_WAIT_BITSET, val=TID_device_manager, timeout=∞)\n;;   devmgr: poll(fds, 3, -1)  ← holds mutex, blocked in poll\n;;\n;; SOLUTION: Use open-output-string for capturing output, write result to\n;; the raw fd using a raw write() FFI call that bypasses the device manager.\n\n;; BAD — deadlocks in Gambit SMP when fd 1 is a pipe write-end:\n(let ((port (open-output-file \"/dev/fd/1\")))\n  (current-output-port port)\n  (exec-command! env)\n  (force-output port)\n  (close-port port))   ; also deadlocks (deregisters device)\n\n;; GOOD — use string port for builtins, raw write for output:\n;; (Requires ffi-write-string-to-fd from raw FFI — see notes)\n(let ((str-port (open-output-string)))\n  (current-output-port str-port)\n  (exec-command! env)\n  (force-output str-port)\n  (let ((output (get-output-string str-port)))\n    (unless (string=? output \"\")\n      ;; string->c-safe encodes as Latin-1/UTF-8 bytes correctly\n      (ffi-write-string-to-fd (string->c-safe output) 1))))\n\n;; ffi-write-string-to-fd C implementation (add to your FFI shim):\n;; static int ffi_write_string_to_fd(const char* s, int fd) {\n;;     size_t len = strlen(s), written = 0;\n;;     while (written < len) {\n;;         ssize_t n = write(fd, s + written, len - written);\n;;         if (n < 0) { if (errno == EINTR) continue; return -1; }\n;;         written += n;\n;;     }\n;;     return (int)written;\n;; }\n;; (define-c-lambda ffi-write-string-to-fd (char-string int) int\n;;   \"ffi_write_string_to_fd\")",
+    "notes": "This deadlock only manifests in Gambit SMP builds (multiple VPs). The device manager is a dedicated OS thread that holds its mutex while in poll(-1). Any Gambit port creation for a pipe or socket fd will try to acquire this mutex and deadlock. Regular file fds (non-pipe) are less likely to trigger this. The string port + raw write approach works because: external commands write directly to the inherited fd 1 (via dup2), and builtins write to the string port. After execution, any builtin output is written to fd 1 via raw write(), then fd 1 is restored. Ordering caveat: for mixed builtin+external compound commands, builtin output appears AFTER external output in the pipe (out-of-order). Pure builtin or pure external commands work correctly."
+  },
+  {
+    "id": "gambit-smp-vp-gc-safe-polling-loop",
+    "title": "VP-safe polling loop using thread-sleep! to prevent GC deadlocks in SMP",
+    "tags": [
+      "gambit",
+      "smp",
+      "gc",
+      "deadlock",
+      "thread-sleep",
+      "VP",
+      "blocking",
+      "poll",
+      "Qt"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PROBLEM: In Gambit SMP, stop-the-world GC requires ALL virtual processors\n;; to reach a synchronization point. Any VP blocked in C code (nanosleep,\n;; pthread_cond_wait, poll, etc.) cannot respond to GC sync signals → deadlock.\n;;\n;; SOLUTION: Use thread-sleep! in Scheme for polling loops. thread-sleep!\n;; releases the VP to the Gambit scheduler, allowing GC to proceed normally.\n;;\n;; EXAMPLE: Qt app-exec! polling loop (correct SMP design)\n;; The Qt event loop runs in a dedicated C thread (g_qt_thread).\n;; The Scheme side polls the running flag without blocking the VP.\n\n;; C side (qt_shim.cpp):\n;; static std::atomic<int> g_event_loop_running{0};\n;; extern \"C\" int qt_application_exec(qt_application_t app) {\n;;     (void)app;\n;;     return 0;  // intentional no-op — Scheme polls via thread-sleep!\n;; }\n;; extern \"C\" int qt_application_is_running(void) {\n;;     return g_event_loop_running.load(std::memory_order_acquire) ? 1 : 0;\n;; }\n;; // In qt_thread_main: set g_event_loop_running=true before sem_post,\n;; // false after app->exec() returns.\n\n;; Scheme side: poll from Scheme so the VP is NEVER blocked in C\n(def (qt-app-exec! app)\n  (qt_application_exec app)  ; no-op\n  (let loop ()\n    (thread-sleep! 0.01)     ; releases VP to GC — critical!\n    (when (= 1 (qt_application_is_running))\n      (loop))))\n\n;; WRONG — blocks VP in C, GC deadlocks:\n;; (def (qt-app-exec! app)\n;;   (let loop ()              ; nanosleep/pthread_cond_wait inside\n;;     (qt_application_exec app)  ; blocks VP → GC cannot complete\n;;     (loop)))",
+    "notes": "thread-sleep! is the key: it yields the current Gambit green thread back to the scheduler, which can then service GC sync requests. C-level sleep (nanosleep, pthread_cond_wait, poll with timeout) holds the VP thread hostage. Even SIGALRM-based approaches are unsafe — calling pthread_cond_wait from a SIGALRM handler is not async-signal-safe. ___BEGIN_BLOCKING_POINT may not exist in all Gambit builds. The polling interval (0.01s = 10ms) adds at most 10ms latency for detecting Qt shutdown — acceptable for an interactive app. For Qt FFI: run QApplication in a dedicated C thread, signal readiness via sem_post, and use this polling pattern in Scheme."
+  },
+  {
+    "id": "qt-suppress-x11-session-manager",
+    "title": "Suppress X11 session manager \"Die\" command on Qt restart after crash",
+    "tags": [
+      "qt",
+      "x11",
+      "session-manager",
+      "ICE",
+      "crash",
+      "restart",
+      "QApplication",
+      "unsetenv"
+    ],
+    "imports": [],
+    "code": ";; PROBLEM: When a Qt app is killed (SIGKILL) or crashes, the X11 session\n;; manager (ICE protocol) records the session. On the NEXT launch, it sends\n;; a \"Die\" command to the new instance, causing QApplication::exec() to\n;; return immediately — the app exits before doing anything.\n;;\n;; SYMPTOM:\n;;   Qt: Session management error: Could not open network socket\n;;   QObject::killTimer: Timers cannot be stopped from another thread\n;;   (app exits within milliseconds of starting)\n;;\n;; DIAGNOSIS: g_event_loop_running goes false immediately after app->exec()\n;; returns. The Scheme polling loop sees is_running=0 and exits.\n;;\n;; FIX: Unset SESSION_MANAGER before creating QApplication in the Qt thread.\n;; This disconnects from the X11 session manager entirely.\n\n// In qt_thread_main (C++):\nstatic void* qt_thread_main(void* arg) {\n    (void)arg;\n\n    // Suppress X11 session management — prevents \"Die\" command on restart\n    // after abnormal termination (SIGKILL, crash).\n    unsetenv(\"SESSION_MANAGER\");\n\n    g_qt_main_thread = QThread::currentThread();\n    auto* app = new QApplication(s_argc, s_argv);\n    QAccessible::setActive(false);\n\n    g_event_loop_running.store(true, std::memory_order_release);\n    sem_post(&g_qt_ready_sem);\n\n    app->exec();  // blocks until Qt quits\n\n    g_event_loop_running.store(false, std::memory_order_release);\n    delete app;\n    return nullptr;\n}",
+    "notes": "This only affects the X11 session manager (ICE protocol), not Wayland. On Wayland there is no session management via ICE. The unsetenv must happen BEFORE new QApplication() — QApplication reads SESSION_MANAGER in its constructor. Alternatively, call QApplication::setFallbackSessionManagementEnabled(false) in Qt 5.6+, but unsetenv is more portable. Also relevant: QObject::killTimer warnings during shutdown are cosmetic — they happen when Qt objects are destroyed from a thread that isn't the Qt main thread (common when the Scheme side calls qt_application_destroy from VP 0)."
+  },
+  {
+    "id": "gambit-smp-qt-destroy-nonblocking",
+    "title": "Non-blocking Qt application destroy to avoid GC deadlock in SMP",
+    "tags": [
+      "gambit",
+      "smp",
+      "qt",
+      "gc",
+      "deadlock",
+      "pthread_join",
+      "destroy",
+      "shutdown",
+      "thread-sleep"
+    ],
+    "imports": [
+      ":gerbil-qt/qt"
+    ],
+    "code": ";; PROBLEM: qt_application_destroy calls pthread_join(g_qt_thread) to wait\n;; for the Qt thread to exit after the event loop ends. In Gambit SMP,\n;; pthread_join is NOT interruptible by GC signals. If GC starts while the\n;; VP is blocked in pthread_join, GC deadlocks — all other VPs wait at the\n;; GC barrier, but this VP can never reach it.\n;;\n;; GDB signature of this bug (gdb -batch -p PID -ex \"thread apply all bt 3\"):\n;;   Thread N: __futex_abstimed_wait (pthread_join) → qt_application_destroy\n;;   Thread M: poll(-1) inside QCoreApplication::exec() (Qt event loop running)\n;;   Thread 1: ___sync_wait (setup.c) → GC barrier\n;;\n;; DIAGNOSIS via /proc:\n;;   cat /proc/PID/task/TID/wchan  → \"futex_do_wait\" (VP blocked in pthread_join)\n;;   cat /proc/PID/task/TID/wchan  → \"poll_schedule_timeout\" (Qt thread in poll)\n;;\n;; ROOT CAUSE: QApplication destructor (delete app) can re-enter event dispatch,\n;; causing the Qt thread to remain in poll longer than expected before fully\n;; exiting. The Scheme side sees g_event_loop_running=false and calls destroy,\n;; but the Qt thread hasn't yet exited pthread_start.\n;;\n;; SOLUTION: Make qt_application_destroy non-blocking. Use an atomic \"done\"\n;; flag that the Qt thread sets before returning, and poll it from Scheme\n;; with thread-sleep! (same pattern as qt-app-exec!).\n\n;; C side (qt_shim.cpp):\n;;\n;; static std::atomic<bool> g_qt_thread_exited{false};\n;;\n;; static void* qt_thread_main(void*) {\n;;     ... QApplication setup ...\n;;     app->exec();                    // blocks until quit\n;;     g_event_loop_running.store(false, std::memory_order_release);\n;;     delete app;\n;;     g_qt_thread_exited.store(true, std::memory_order_release);\n;;     return nullptr;\n;; }\n;;\n;; extern \"C\" int qt_application_is_done(void) {\n;;     return g_qt_thread_exited.load(std::memory_order_acquire) ? 1 : 0;\n;; }\n;;\n;; extern \"C\" void qt_application_destroy(qt_application_t app) {\n;;     (void)app;\n;;     // DO NOT call pthread_join here — blocks VP → GC deadlock.\n;;     // Scheme polls qt_application_is_done() with thread-sleep! instead.\n;; }\n\n;; Scheme side: poll until Qt thread has fully exited\n(def (qt-app-destroy! app)\n  ;; Signal Qt to quit (posts QuitEvent — thread-safe)\n  (qt-app-quit! app)\n  ;; Poll until the Qt thread sets g_qt_thread_exited\n  (let loop ()\n    (thread-sleep! 0.001)           ; releases VP — GC can proceed\n    (unless (= 1 (qt_application_is_done))\n      (loop))))\n;; This is the same pattern as qt-app-exec! — never block a VP in C code.",
+    "notes": "This bug manifests when: (1) the user closes the Qt window, (2) QApplication::quit() causes app->exec() to return, (3) g_event_loop_running becomes false, (4) the Scheme polling loop in qt-app-exec! exits, (5) the finally clause calls qt_application_destroy, (6) qt_application_destroy calls pthread_join — which blocks the VP waiting for the Qt thread to finish delete app. Meanwhile GC triggers. The Qt thread may still be in poll() inside the QApplication destructor. pthread_join is not signal-interruptible, so the GC barrier deadlocks. Fix: add g_qt_thread_exited flag, poll from Scheme with thread-sleep! instead of blocking in C.",
+    "related": [
+      "gambit-smp-vp-gc-safe-polling-loop",
+      "gambit-smp-open-output-file-devfd-deadlock"
+    ]
+  },
+  {
+    "id": "gambit-smp-deadlock-gdb-diagnosis",
+    "title": "Diagnose Gambit SMP GC deadlocks with GDB and /proc/wchan",
+    "tags": [
+      "gambit",
+      "smp",
+      "gdb",
+      "deadlock",
+      "wchan",
+      "diagnosis",
+      "gc",
+      "futex",
+      "debug"
+    ],
+    "imports": [],
+    "code": ";; Quick triage: check what each thread is blocked on\n;; \"futex_do_wait\" = blocked on mutex/condvar (GC barrier or pthread_join)\n;; \"poll_schedule_timeout\" = blocked in poll() (Qt event loop, device manager, glib)\n\n;; Step 1: identify all threads and their wait states\n;; $ for tid in $(ls /proc/PID/task/); do\n;;     echo \"TID $tid: $(cat /proc/PID/task/$tid/wchan)\";\n;;   done\n;;\n;; GC deadlock signature:\n;;   Several TIDs: futex_do_wait   ← Gambit VPs waiting at GC barrier\n;;   Several TIDs: poll_schedule_timeout ← Qt/device manager/glib threads\n\n;; Step 2: get full backtraces with GDB (non-interactive)\n;; $ gdb -batch -p PID \\\n;;     -ex \"set pagination off\" \\\n;;     -ex \"info threads\" \\\n;;     -ex \"thread apply all bt 5\" 2>&1 | grep -v \"^warning\"\n;;\n;; Key patterns in backtraces:\n;;\n;; VP blocked in GC barrier:\n;;   ___sync_wait (setup.c) ← waiting for all VPs to sync\n;;   service_sync_op (setup.c)\n;;   ___H___kernel (_kernel.c)\n;;\n;; VP blocked in pthread_join (e.g. qt_application_destroy):\n;;   __futex_abstimed_wait ... expected=TID_of_target_thread\n;;   __pthread_clockjoin_ex (pthread_join_common.c)\n;;   qt_application_destroy\n;;   ___gerbil_2d_qt____libqt_23_NNN  ← mangled name of (qt-app-destroy! ...)\n;;\n;; Device manager VP in poll:\n;;   __GI___poll (poll.c)\n;;   g_main_context_iteration (libglib-2.0)\n;;   QEventDispatcherGlib::processEvents\n;;   QEventLoop::exec → QCoreApplication::exec\n;;   qt_thread_main\n;;\n;; Step 3: identify which futex a VP is waiting on\n;; futex_word=0x63c81e5a0dd8 <___gstate0+5880>  → waiting at GC barrier (VP N)\n;; futex_word=0x703c98837990                     → waiting for thread 0x703c988376c0\n;;   (the difference 0xCD0 is the tid field offset in glibc pthread TCB)\n;;   This pattern = pthread_join waiting for that specific thread to exit\n\n;; Step 4: identify which Gerbil green thread ran last on a VP\n;; The verbose log (via verbose-log!) records the Gambit thread object string:\n;;   [2026-03-12 02:25:46] [#<thread #2 master-timer>] ...\n;; But green threads migrate between VPs — the pthread address in the log\n;; (e.g. t123405230360256) is the VP's OS thread ID at that moment, NOT\n;; the green thread's permanent address. Decode: 123405230360256 decimal\n;; = 0x703C72CDF6C0 hex = the pthread address shown in GDB \"info threads\".\n\n;; Step 5: decode mangled C symbol names\n;; ___gerbil_2d_qt____libqt_23_114 → module gerbil-qt/libqt, internal node 23_114\n;; Use: gerbil_demangle \"___gerbil_2d_qt____libqt_23_114\"\n;; Or look up in .gerbil/lib/static/gerbil-qt__libqt.c at the referenced line",
+    "notes": "Gambit SMP GC deadlocks always show the same /proc/wchan pattern: mix of \"futex_do_wait\" (VPs at GC barrier) and \"poll_schedule_timeout\" (C threads in poll). The GDB backtrace distinguishes between: (1) ___sync_wait = VP waiting for other VPs at GC barrier, (2) pthread_join = VP waiting for a specific thread to exit (not interruptible by GC signals!). The futex_word address tells you what's being waited on: ___gstate0+N addresses are Gambit VP state (GC barrier), while addresses matching another thread's TCB (pthread_t+0xCD0) are pthread_join waits. Green threads can migrate between VPs, so the thread name in verbose-log! may no longer be on the same VP when GDB is attached.",
+    "related": [
+      "gambit-smp-vp-gc-safe-polling-loop",
+      "gambit-smp-qt-destroy-nonblocking",
+      "gambit-smp-open-output-file-devfd-deadlock"
+    ]
+  },
+  {
+    "id": "gambit-smp-thread-pinning",
+    "title": "Pin a green thread to a specific Gambit SMP processor (prevent work-stealing migration)",
+    "tags": [
+      "gambit",
+      "smp",
+      "thread",
+      "pin",
+      "affinity",
+      "processor",
+      "work-stealing",
+      "migration",
+      "qt",
+      "gui"
+    ],
+    "imports": [],
+    "code": ";; Pin the current thread to processor 0 (the main OS thread).\n;; This prevents the SMP work-stealing scheduler from migrating\n;; the green thread to a different OS thread.\n(##thread-pin! (current-thread) (##processor 0))\n\n;; Pin a new thread before starting it:\n(let ((t (make-thread my-gui-loop)))\n  (##thread-pin! t (##processor 0))\n  (thread-start! t))\n\n;; Start a thread on a specific processor (initial placement only,\n;; does NOT prevent later work-stealing — combine with ##thread-pin!):\n(##thread-start-on! 0 my-thread)\n\n;; Migrate the currently running thread to another processor:\n(##thread-migrate-to! 1)  ;; move to processor 1\n\n;; Query processor info:\n(##current-processor)      ;; current processor object\n(##current-processor-id)   ;; current processor id (integer)\n(##processor 0)            ;; get processor object by id\n(##current-vm-processor-count)  ;; number of active processors",
+    "notes": "CRITICAL for Qt/GUI applications: Qt requires all widget operations on one OS thread. Gambit SMP's work-stealing scheduler migrates green threads between OS threads at heartbeat preemption points. ##thread-pin! prevents this migration by setting the thread's `pinned` field, which the scheduler checks in two places: (1) work-stealing skips pinned threads (lib/_thread.scm:2893), (2) run-queue insertion places pinned threads on their assigned processor's queue (lib/_thread.scm:694-705). Processor 0 is always the main OS thread (lib/os_thread.c:178). All ## primitives are internal/unstable but functionally complete. ##thread-migrate-to! has a busy-wait hack (TODO in source). ##thread-start-on! does NOT set the pinned field — always combine with ##thread-pin! for persistent guarantee. See ~/mine/gambit-thread-pinning.md for full API reference with source locations.",
+    "related": [
+      "gambit-smp-processor-count"
+    ]
+  },
+  {
+    "id": "gambit-smp-processor-count",
+    "title": "Control Gambit SMP processor count (single-threaded mode)",
+    "tags": [
+      "gambit",
+      "smp",
+      "processor",
+      "single-threaded",
+      "GAMBCOPT",
+      "p1",
+      "vm-resize",
+      "performance"
+    ],
+    "imports": [],
+    "code": ";; Force single-processor mode via environment (MUST be set BEFORE process starts):\n;; GAMBCOPT=,-:p1 ./my-gambit-binary\n;; The comma prefix appends to existing options.\n;; Gambit reads GAMBCOPT at startup, before Scheme main runs.\n;; Setting (setenv \"GAMBCOPT\" ...) in Scheme code is TOO LATE for the\n;; current process — it only affects child processes.\n\n;; Query current processor count at runtime:\n(##current-vm-processor-count)  ;; => 1 with -:p1, or N with default\n\n;; Resize VM processor count at runtime (remove processors):\n;; Args: (processors-to-add processors-to-remove)\n(##current-vm-resize 0 1)  ;; remove 1 processor\n;; WARNING: cannot add processors back once removed",
+    "notes": "GAMBCOPT=,-:p1 is the simplest way to disable SMP. Green threads still work — they are cooperatively scheduled on the single VP via thread-sleep!. The -:p1 flag prevents Gambit from creating additional OS-level Virtual Processors. This eliminates GC stop-the-world deadlocks (only one VP to sync), device manager mutex contention (only one VP contending), and green thread migration between OS threads (only one VP). CRITICAL: setenv in Scheme runs AFTER Gambit has already initialized VPs, so it cannot affect the current process. Must be set in the shell environment or Makefile before launching. For Qt apps, prefer ##thread-pin! (see gambit-smp-thread-pinning recipe) over p1 — pinning gives you SMP parallelism for background tasks while keeping the UI thread safe.",
+    "related": [
+      "gambit-smp-thread-pinning"
+    ]
+  },
+  {
+    "id": "gambit-smp-qt-deadlock-patterns",
+    "title": "Gambit SMP deadlock patterns when embedding Qt (or other foreign event loops)",
+    "tags": [
+      "gambit",
+      "smp",
+      "qt",
+      "deadlock",
+      "hang",
+      "sigchld",
+      "device-manager",
+      "mutex",
+      "gc",
+      "blocking",
+      "process-status"
+    ],
+    "imports": [],
+    "code": ";; === DEADLOCK PATTERN 1: GC stop-the-world ===\n;; A VP blocked in C code (pthread_join, poll, QApplication::exec)\n;; cannot reach GC sync barrier. Another VP triggers GC → permanent deadlock.\n;; FIX: Never block a VP in C. Use thread-sleep! polling loops instead.\n(let loop ()\n  (thread-sleep! 0.01)  ;; releases VP, allows GC to sync\n  (when (still-running?) (loop)))\n\n;; === DEADLOCK PATTERN 2: Device manager mutex ===\n;; Gambit's device manager holds mutex during poll(-1).\n;; Opening a Gambit port from a raw fd (open-output-file \"/dev/fd/N\")\n;; tries to register with device manager → needs mutex → DEADLOCK.\n;; FIX: Use open-output-string or raw C write() for pipe fds.\n\n;; === DEADLOCK PATTERN 3: Qt SIGCHLD reaps Gambit's children ===\n;; Qt installs SIGCHLD handler calling waitpid(-1, WNOHANG).\n;; Gambit's process-status calls waitpid(pid, 0).\n;; If Qt reaps first → Gambit gets ECHILD → hangs forever.\n;; FIX: Never use process-status in Qt layer. Use read-line for EOF.\n(let ((line (read-line proc #f)))  ;; blocks until EOF, no waitpid\n  (close-port proc))\n\n;; === DEADLOCK PATTERN 4: Qt callback on non-VP thread ===\n;; Qt signals fire on Qt's pthread (not a Gambit VP).\n;; c-define callbacks have ___ps == NULL → crash or enqueue.\n;; FIX: Use ##thread-pin! to keep UI green thread on processor 0,\n;; OR use BlockingQueuedConnection dispatch wrappers in C shim.\n\n;; === DEADLOCK PATTERN 5: Callback queue starvation ===\n;; Qt signal handlers enqueue callbacks. If Scheme polling loop\n;; pumps Qt events but never drains callback queue → infinite loop.\n;; FIX: Always call drain after process-events in poll loops.\n(let loop ()\n  (qt-app-process-events!)\n  (qt-drain-pending-callbacks!)  ;; MUST drain after every pump\n  (thread-sleep! 0.02)\n  (unless done? (loop)))",
+    "notes": "These 5 deadlock patterns were discovered building gemacs (Qt-based Emacs in Gerbil). Each caused permanent unrecoverable hangs. The root cause is architectural: Gambit's M:N cooperative threading (device manager, VP scheduling, GC barriers) conflicts with Qt's thread-affine event loop, signal handlers, and fd management. PREFERRED SOLUTION: Use ##thread-pin! (see gambit-smp-thread-pinning recipe) to pin the UI green thread to processor 0, keeping Qt calls on the correct OS thread while allowing SMP parallelism for background work. FALLBACK: Use GAMBCOPT=,-:p1 to disable SMP entirely. See ~/mine/gambit-smp-woes.md for the full post-mortem with commit hashes and code references.",
+    "related": [
+      "gambit-smp-thread-pinning",
+      "gambit-smp-processor-count"
+    ]
   }
 ]

@@ -712,5 +712,45 @@
       "assertion",
       "struct-mismatch"
     ]
+  },
+  {
+    "id": "gambit-smp-open-output-file-devfd-pipe-deadlock",
+    "title": "open-output-file on /dev/fd/N pipe deadlocks Gambit SMP device manager",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "open-output-file.*\\\"/dev/fd/",
+    "message": "Opening a Gambit output port to /dev/fd/N where N is a pipe write-end deadlocks in Gambit SMP mode. The device manager thread holds its mutex while blocked in poll(-1). Registering a new pipe device requires this mutex, so VP 0 blocks in futex_wait forever. This manifests as a complete hang with no error message. Commonly triggered in command substitution that tries to redirect current-output-port to a pipe for capturing builtin command output.",
+    "remediation": "Use open-output-string instead to capture builtin output in memory. After execution, write the string contents to the raw fd using a raw write() FFI call (e.g., ffi-write-string-to-fd) that bypasses the Gambit device manager. External commands write directly to the inherited fd via dup2 and are unaffected by this change.",
+    "related_recipe": "gambit-smp-open-output-file-devfd-deadlock",
+    "tags": [
+      "smp",
+      "device-manager",
+      "deadlock",
+      "pipe",
+      "dev-fd",
+      "gambit",
+      "qt",
+      "mutex",
+      "poll"
+    ]
+  },
+  {
+    "id": "c-shim-pthread-join-blocks-vp",
+    "title": "pthread_join in C shim blocks Gambit VP — GC deadlock in SMP",
+    "severity": "high",
+    "scope": "c-shim",
+    "pattern": "pthread_join\\s*\\(",
+    "message": "pthread_join blocks the calling OS thread until the target thread exits. In Gambit SMP, if a Gambit VP calls this C function, the VP is stuck in non-interruptible C code. GC stop-the-world cannot complete because all VPs must reach the sync barrier — a VP blocked in pthread_join never will. This causes a complete, silent GC deadlock.",
+    "remediation": "Never call pthread_join from C code that may be invoked from a Gambit VP. Instead: (1) Set an atomic flag in the thread's exit path (e.g. g_thread_exited.store(true)), (2) Expose a C function that reads the flag without blocking, (3) On the Scheme side, poll with (thread-sleep! 0.001) until the flag is set. thread-sleep! releases the VP to the Gambit scheduler, allowing GC to proceed.",
+    "related_recipe": "gambit-smp-qt-destroy-nonblocking",
+    "tags": [
+      "pthread",
+      "join",
+      "smp",
+      "gc",
+      "deadlock",
+      "blocking",
+      "VP"
+    ]
   }
 ]

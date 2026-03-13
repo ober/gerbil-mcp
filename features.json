@@ -163,7 +163,7 @@
     "use_case": "Every time an upstream dependency is rebuilt and the downstream project is then built, stale artifacts cause the build to hang or produce broken binaries. This happens multiple times per session when iterating on library + consumer projects.",
     "example_scenario": "Rebuilt gerbil-aws (added s3/connection.ss, changed s3-client struct). Then ran gerbil_build_and_report on kunabi. The exe linker used stale gerbil-aws__s3__api.scm from kunabi's .gerbil/lib/static/ which referenced the old 5-field s3-client, not the new 6-field version. Build hung indefinitely. Had to manually kill, rm stale files, rebuild. This exact pattern has happened 3+ times in this session alone.",
     "estimated_token_reduction": "~2000-5000 tokens per occurrence (kill stuck build, diagnose, clean, retry). Occurs multiple times per cross-project session.",
-    "votes": 1
+    "votes": 2
   },
   {
     "id": "smp-deadlock-detector",
@@ -181,7 +181,7 @@
     "use_case": "When writing concurrent network code that will be compiled with SMP-enabled Gambit. Prevents shipping binaries that deadlock under load.",
     "example_scenario": "User writes 8 worker threads each calling http-get in a loop. Code compiles fine and passes low-volume tests but deadlocks in production with 1000+ requests. This tool would flag the pattern at development time.",
     "estimated_token_reduction": "~2000 tokens per debugging session (eliminates hours of strace investigation)",
-    "votes": 0
+    "votes": 1
   },
   {
     "id": "gambit-primitive-lookup-coverage-gc-system",
@@ -234,6 +234,67 @@
     "use_case": "When a build fails with 'Incomplete form, EOF reached' and gerbil_check_balance reports the unclosed position but you need to know which function definition is broken.",
     "example_scenario": "Build fails on qt/commands-edit2.ss with 'Incomplete form, EOF reached'. gerbil_check_balance says unclosed at line 1615. gerbil_read_forms shows 'Forms [0]-[65] read OK, error at line 1615' — making clear that forms [66] and [67] (cmd-wdired-finish-edit and cmd-wdired-abort) are the broken ones. Without read_forms, you need to manually search near line 1615 for the unclosed function.",
     "estimated_token_reduction": "~300 tokens per balance-debugging session — eliminates the need to call gerbil_read_forms as a separate follow-up step",
+    "votes": 0
+  },
+  {
+    "id": "stale-static-check-c-o-files",
+    "title": "gerbil_stale_static exe_check should also compare global .c and .o files, not just .scm",
+    "description": "When exe_check:true is used, gerbil_stale_static only compares .scm files between global ~/.gerbil/lib/static/ and project-local .gerbil/lib/static/. But the exe linker also uses pre-compiled .c and .o files from the global dir. If you delete a stale .scm file but leave the stale .c/.o, the linker still uses the old compiled object — causing the same SIGSEGV at ___JUMPGLONOTSAFE. The tool should report stale .c and .o files alongside .scm files, and its suggested rm commands should include all three types.",
+    "impact": "high",
+    "tags": [
+      "stale",
+      "static",
+      "exe",
+      "c-file",
+      "o-file",
+      "linker",
+      "segfault",
+      "JUMPGLONOTSAFE"
+    ],
+    "use_case": "After adding a new module to a Gerbil exe project, gerbil_stale_static exe_check detects the stale .scm and the user deletes it and rebuilds. But the stale .o (compiled from the old .scm) is still in global static and still used by the linker, causing SIGSEGV at runtime on the new symbol.",
+    "example_scenario": "Added debug-repl.ss to gemacs. gerbil_stale_static found stale gemacs__debug-repl.scm. Deleted it, ran make build, ran gemacs-qt --repl 7777 — still SIGSEGV at ___JUMPGLONOTSAFE trying to call start-debug-repl!. Root cause: ~/.gerbil/lib/static/gemacs__debug-repl.c and .o still existed from the prior build, compiled from the old .scm that lacked start-debug-repl!. Had to manually discover and delete .c and .o as well. gerbil_stale_static never mentioned them.",
+    "estimated_token_reduction": "~800 tokens per occurrence — eliminates a second debug cycle (rebuild, run, SIGSEGV again, diagnose .c/.o staleness, delete, rebuild again)",
+    "votes": 0
+  },
+  {
+    "id": "gambit-smp-device-manager-deadlock-checker",
+    "title": "Detect Gambit SMP device manager deadlock patterns (open-output-file on pipe, C blocking in VP)",
+    "description": "Extend gerbil_sigchld_check or add a new gerbil_smp_deadlock_check tool that detects patterns causing Gambit SMP device manager deadlocks: (1) open-output-file/open-input-file on /dev/fd/N where N is a pipe or socket fd — registers a Gambit device, requiring the device manager mutex which the device manager holds during poll(-1); (2) c-lambda calls that block a VP in C code (nanosleep, pthread_cond_wait, poll with -1 timeout) — blocks the VP from participating in stop-the-world GC; (3) open-output-file/open-input-file inside command substitution or pipe-redirect contexts. These patterns work fine in single-VP Gambit but deadlock in SMP builds used by Qt apps and compiled executables.",
+    "impact": "high",
+    "tags": [
+      "smp",
+      "deadlock",
+      "device-manager",
+      "gambit",
+      "qt",
+      "poll",
+      "pipe",
+      "VP",
+      "GC"
+    ],
+    "use_case": "When embedding Gambit in Qt applications, writing FFI code that runs in SMP mode, or debugging mysterious hangs that only appear in compiled Qt executables (not in gxi interpreter).",
+    "example_scenario": "gsh command-substitute uses open-output-file \\\"/dev/fd/1\\\" to redirect Gambit's current-output-port to a pipe write-end for capturing builtin command output. In single-VP Gambit (gxi interpreter), this works fine. In SMP Gambit (gemacs-qt compiled exe with 4 VPs), VP 0 hangs in futex_wait waiting for the device manager mutex. The device manager is in poll(-1) with the mutex held. Complete deadlock — no error, no timeout. Strace shows: VP 0: futex(addr, FUTEX_WAIT_BITSET, val=TID_devmgr, ∞), devmgr: poll(3 fds, -1). Took 2+ hours of strace analysis to diagnose.",
+    "estimated_token_reduction": "~3000 tokens per occurrence — eliminates hours of strace/GDB investigation to identify the root cause of a complete hang with no error message",
+    "votes": 1
+  },
+  {
+    "id": "gambit-smp-c-shim-blocking-call-checker",
+    "title": "Detect blocking C calls in FFI shims that deadlock Gambit SMP GC",
+    "description": "A static analysis tool (extending gerbil_security_scan or as a standalone gerbil_smp_blocking_check) that scans C shim files (.c, .cpp, .h) for calls to blocking C functions that will deadlock Gambit SMP GC when invoked from a Gambit VP: pthread_join, nanosleep, sleep, usleep, pthread_cond_wait (with infinite timeout), poll/epoll_wait with timeout=-1, sem_wait (unbounded), and open/creat on device files (/dev/fd/N) that register Gambit ports. The tool should distinguish safe patterns (called from dedicated non-VP threads like qt_thread_main) vs unsafe patterns (called from c-lambda bodies that execute on Gambit VPs). It should also scan .ss files for c-lambda wrappers that call these patterns directly from Scheme.",
+    "impact": "high",
+    "tags": [
+      "smp",
+      "blocking",
+      "c-shim",
+      "gc",
+      "deadlock",
+      "pthread",
+      "poll",
+      "ffi"
+    ],
+    "use_case": "When writing or reviewing C shim code for Qt FFI, GTK FFI, or any SMP Gambit application where C functions are called from Gambit VPs via c-lambda. Essential when porting synchronous C APIs to SMP Gambit.",
+    "example_scenario": "qt_application_destroy() calls pthread_join(g_qt_thread) to wait for the Qt event loop thread to exit. This seems correct — the Qt thread set g_event_loop_running=false before exiting. But QApplication destructor (delete app) can re-enter Qt's event dispatch loop, keeping the Qt thread alive longer. The Gambit VP calling qt_application_destroy is stuck in pthread_join. GC starts (triggered by allocation in shutdown code). GC can never complete — this VP is not interruptible. Complete hang with no error message, diagnosed only after 1+ hour of GDB thread analysis reading ___gstate0+N futex addresses.",
+    "estimated_token_reduction": "~3000 tokens per occurrence — eliminates multi-hour GDB/strace debugging sessions to identify VP-blocking C calls as the root cause of mysterious SMP hangs during shutdown or cleanup paths",
     "votes": 0
   }
 ]
