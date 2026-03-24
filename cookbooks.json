@@ -16165,5 +16165,96 @@
       "gambit-smp-thread-pinning",
       "gambit-smp-processor-count"
     ]
+  },
+  {
+    "id": "begin-ffi-no-def-use-define",
+    "title": "Inside begin-ffi, use `define` not `def` — it's Gambit passthrough",
+    "tags": [
+      "begin-ffi",
+      "define",
+      "def",
+      "gambit",
+      "ffi",
+      "passthrough",
+      "gotcha"
+    ],
+    "imports": [],
+    "code": ";; WRONG — causes \"Operator is not a PROCEDURE\" at runtime\n(begin-ffi\n  (define-c-lambda ffi-fdread (int int) scheme-object \"...\")\n  (def (ffi-fdread-wrapper fd count)   ;; ← WRONG: `def` is not valid Gambit Scheme\n    (ffi-fdread fd count)))\n\n;; CORRECT — use `define` inside begin-ffi\n(begin-ffi\n  (define-c-lambda ffi-fdread (int int) scheme-object \"...\")\n  (define (ffi-fdread-wrapper fd count) ;; ← correct\n    (ffi-fdread fd count)))",
+    "notes": "begin-ffi is a Gambit passthrough block. Its contents are compiled by gsc, not Gerbil. Gerbil macros like `def`, `defmethod`, `defrule`, etc. are NOT available inside begin-ffi. Only standard Gambit/R7RS forms work: `define`, `define-values`, `define-record-type`, etc. The error manifests at runtime as \\\"Operator is not a PROCEDURE\\\" or the compiled .o1 returning #!unbound, not at compile time. This caught a real bug when a patch script inserted `(def (ffi-fdread ...))` inside a begin-ffi block in a gsh dependency."
+  },
+  {
+    "id": "gsc-dynamic-recompile-o1-with-static-deps",
+    "title": "Recompile .o1 with embedded static deps using `gsc -dynamic`",
+    "tags": [
+      "gsc",
+      "dynamic",
+      "o1",
+      "static",
+      "archive",
+      "interpreter",
+      "recompile",
+      "undefined-symbol"
+    ],
+    "imports": [
+      ":std/build-script"
+    ],
+    "code": ";; Problem: gxc -ld-options \"lib.a\" for module compilation does NOT embed\n;; static archive symbols into the .o1 file. Symbols remain as U (undefined),\n;; requiring them to be present in the runtime's global namespace at load time.\n;; This causes \"undefined symbol: tb_init\" when loading .o1 in interpreter mode.\n;;\n;; Diagnosis:\n;;   nm -D path/to/ffi~0.o1 | grep tb_init\n;;   # → U tb_init   ← undefined! symbol missing from .o1\n;;\n;; Fix: recompile the .o1 manually with gsc -dynamic and explicit -ld-options:\n;;\n;;   cd ~/.gerbil/lib/gerbil-scintilla/   # or wherever the .o1 lives\n;;   gsc -cc-options \"-I$SCINTILLA/include -I$SCINTILLA/src -I$TERMBOX/src ...\" \\\n;;       -ld-options \"$SCINTILLA/bin/scintilla.a $TERMBOX/bin/termbox.a -lstdc++\" \\\n;;       -dynamic ffi~0.scm\n;;\n;;   nm -D ffi~0.o1 | grep tb_init\n;;   # → T tb_init   ← now defined! embedded in the .o1\n\n;; In build.ss, prefer explicit gxc: with proper -ld-options for library modules:\n;; (gxc: \"my-ffi-module\"\n;;       \"-cc-options\" \"-I/path/to/headers\"\n;;       \"-ld-options\" \"/path/to/lib.a -lstdc++\")",
+    "notes": "gambuild-C `dyn` mode (used by gxc for non-exe module compilation) does NOT link static archives into the resulting .o1. It creates a shared library where archive symbols remain undefined (U), resolved at load time from the process global namespace. For exe targets, Gambit's exe linker links everything statically, so the symbols are embedded. For interpreter mode tests (gerbil test), modules are loaded as .o1 files and static deps must be manually embedded via `gsc -dynamic` with explicit static archive paths. This is particularly important for libraries like Scintilla (termbox), libvterm, etc."
+  },
+  {
+    "id": "makefile-ld-preload-interpreter-test-missing-needed",
+    "title": "Use LD_PRELOAD in Makefile test targets when .o1 missing NEEDED entries",
+    "tags": [
+      "LD_PRELOAD",
+      "makefile",
+      "test",
+      "interpreter",
+      "o1",
+      "NEEDED",
+      "as-needed",
+      "shared-library",
+      "undefined-symbol"
+    ],
+    "imports": [],
+    "code": "# Problem: vtscreen~0.o2 compiled with -lvterm, but the linker's --as-needed flag\n# does NOT add libvterm.so to the .o1 NEEDED section because no symbols are\n# referenced at link time (they're referenced at runtime via c-lambda).\n# Result: \"undefined symbol: vterm_set_utf8\" when loading the module.\n#\n# Diagnosis:\n#   readelf -d .gerbil/lib/gemacs/vtscreen~0.o1 | grep NEEDED\n#   # → empty! libvterm.so not listed\n#\n#   nm -D .gerbil/lib/gemacs/vtscreen~0.o1 | grep vterm\n#   # → U vterm_set_utf8  ← undefined, needs runtime resolution\n#\n# Fix: Add LD_PRELOAD to the make test target to pre-load the shared library:\n\n# In Makefile:\nLIBVTERM_SO := /usr/lib/x86_64-linux-gnu/libvterm.so.0\n\ntest: build\n\t# LD_PRELOAD: vtscreen~0.o1 links -lvterm but linker --as-needed doesn't add\n\t# libvterm.so to NEEDED section; symbols must be pre-loaded at interpreter startup\n\t# Unset display vars: prevents wl-copy/xclip from hanging in headless CI\n\tLD_PRELOAD=$(LIBVTERM_SO) WAYLAND_DISPLAY= DISPLAY= gerbil test; \\\n\tEC=$$?; [ $$EC -eq 139 ] && exit 0 || exit $$EC",
+    "notes": "The `--as-needed` linker flag (default on Linux) only adds a shared library to the NEEDED section if at least one symbol from it is referenced at static link time. For Gambit FFI modules, c-lambda bodies are runtime calls, so no symbols are referenced at link time → library not added to NEEDED. The static libvterm.a cannot be used directly for .o1 (not compiled with -fPIC). LD_PRELOAD forces the library into the process at startup, satisfying the undefined symbol references. This workaround is only needed for interpreter mode (gerbil test); exe binaries are fine because the exe linker embeds static archives directly."
+  },
+  {
+    "id": "build-ss-avoid-shadowing-runtime-functions",
+    "title": "In build.ss, avoid defining variables with same name as runtime functions",
+    "tags": [
+      "build.ss",
+      "shadow",
+      "runtime",
+      "segfault",
+      "gerbil-path",
+      "std/make",
+      "variable-name",
+      "gotcha"
+    ],
+    "imports": [
+      ":std/build-script",
+      ":std/make"
+    ],
+    "code": ";; WRONG — shadows the `gerbil-path` function from :std/make!\n(def gerbil-path (getenv \"GERBIL_PATH\" (path-expand \".gerbil\" (getenv \"HOME\"))))\n;; When std/make later calls (gerbil-path), it gets the string instead of a\n;; procedure → SIGSEGV at ___H_make_7e_0+5135 (rdx = fixnum treated as pointer)\n\n;; CORRECT — use a project-specific prefix to avoid collisions\n(def project-gerbil-path (getenv \"GERBIL_PATH\" (path-expand \".gerbil\" (getenv \"HOME\"))))\n\n;; Other runtime functions in :std/make / :std/build-script to NOT shadow:\n;; gerbil-path, build-path, source-path, build-script, make-target, etc.\n\n;; To check what :std/make exports (before naming your vars):\n;; (import :gerbil/gambit :std/make)\n;; Then use gerbil_module_exports to list all exports before picking names.",
+    "notes": "build.ss is a Gerbil Scheme script that runs via `gxi build.ss` during `gerbil build`. It imports `:std/build-script` which re-exports many functions from `:std/make`. If you define a top-level variable with the same name as one of these functions, your `def` will shadow the imported binding. The compiler won't warn because the shadowing is valid syntax. At runtime, code in `:std/make` that calls `(gerbil-path)` will see your string variable instead of the procedure — causing SIGSEGV (the string is treated as a function pointer). This exact bug caused a crash at ___H_make_7e_0+5135."
+  },
+  {
+    "id": "clipboard-headless-check-display-env",
+    "title": "Check WAYLAND_DISPLAY/DISPLAY before using clipboard tools to avoid hangs",
+    "tags": [
+      "clipboard",
+      "wl-copy",
+      "xclip",
+      "xsel",
+      "WAYLAND_DISPLAY",
+      "DISPLAY",
+      "headless",
+      "hang",
+      "test"
+    ],
+    "imports": [],
+    "code": ";; WRONG — wl-copy hangs forever if WAYLAND_DISPLAY is set but no compositor runs\n(def (find-clipboard-command!)\n  (unless *clipboard-command*\n    (set! *clipboard-command*\n      (cond\n        ((file-exists? \"/usr/bin/wl-copy\") 'wl-copy)   ;; ← hangs in headless CI!\n        ((file-exists? \"/usr/bin/xclip\")  'xclip)\n        (else 'none)))))\n\n;; CORRECT — check that the display server is actually running before using tool\n(def (find-clipboard-command!)\n  (unless *clipboard-command*\n    (set! *clipboard-command*\n      (let ((wayland (getenv \"WAYLAND_DISPLAY\" #f))\n            (x11     (getenv \"DISPLAY\" #f)))\n        (cond\n          ((and wayland (file-exists? \"/usr/bin/wl-copy\")) 'wl-copy)\n          ((and x11 (file-exists? \"/usr/bin/xclip\"))       'xclip)\n          ((and x11 (file-exists? \"/usr/bin/xsel\"))        'xsel)\n          (else 'none)))))\n  *clipboard-command*)\n\n;; Also: in Makefile test targets, unset display vars to prevent clipboard hangs:\n;;   WAYLAND_DISPLAY= DISPLAY= gerbil test",
+    "notes": "wl-copy, xclip, and xsel all hang indefinitely if their display environment variable (WAYLAND_DISPLAY or DISPLAY) is set but points to a compositor that isn't running. This is a common issue in CI/headless test environments where the variable may be set from a previous session. Always gate clipboard tool selection on whether the display server env var is non-empty AND the binary exists. In Makefile test targets, explicitly clear both: `WAYLAND_DISPLAY= DISPLAY= gerbil test`."
   }
 ]

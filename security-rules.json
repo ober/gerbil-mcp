@@ -752,5 +752,24 @@
       "blocking",
       "VP"
     ]
+  },
+  {
+    "id": "begin-ffi-gerbil-def-passthrough",
+    "title": "Gerbil `def` used inside begin-ffi Gambit passthrough block",
+    "severity": "high",
+    "scope": "scheme",
+    "pattern": "\\(def\\s+\\([a-z]",
+    "message": "A Gerbil `(def (fn ...)` form may appear inside a `begin-ffi` block. begin-ffi is a Gambit passthrough — its contents are compiled by gsc, not Gerbil. Gerbil macros (`def`, `defmethod`, `defrule`, etc.) are not available inside begin-ffi and will cause 'Operator is not a PROCEDURE' at runtime.",
+    "remediation": "Replace `def` with `define` inside begin-ffi blocks. Check that all function definitions inside begin-ffi use standard R7RS `define` syntax, not Gerbil-specific macros.",
+    "related_recipe": "begin-ffi-no-def-use-define",
+    "tags": [
+      "begin-ffi",
+      "def",
+      "define",
+      "gambit",
+      "passthrough",
+      "ffi",
+      "runtime-error"
+    ]
   }
 ]

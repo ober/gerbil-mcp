@@ -296,5 +296,43 @@
     "example_scenario": "qt_application_destroy() calls pthread_join(g_qt_thread) to wait for the Qt event loop thread to exit. This seems correct — the Qt thread set g_event_loop_running=false before exiting. But QApplication destructor (delete app) can re-enter Qt's event dispatch loop, keeping the Qt thread alive longer. The Gambit VP calling qt_application_destroy is stuck in pthread_join. GC starts (triggered by allocation in shutdown code). GC can never complete — this VP is not interruptible. Complete hang with no error message, diagnosed only after 1+ hour of GDB thread analysis reading ___gstate0+N futex addresses.",
     "estimated_token_reduction": "~3000 tokens per occurrence — eliminates multi-hour GDB/strace debugging sessions to identify VP-blocking C calls as the root cause of mysterious SMP hangs during shutdown or cleanup paths",
     "votes": 0
+  },
+  {
+    "id": "begin-ffi-gambit-syntax-check",
+    "title": "Detect Gerbil-only forms (def, defrule, etc.) inside begin-ffi blocks",
+    "description": "gerbil_lint or gerbil_check_syntax should flag uses of Gerbil-specific forms inside `begin-ffi` blocks: `def`, `defmethod`, `defrule`, `defsyntax`, `defstruct`, `defclass`, etc. These blocks are Gambit passthrough — their contents are compiled by gsc, not Gerbil — so Gerbil macros are not available. Using `def` instead of `define` compiles without error but produces broken runtime behavior (operator-not-a-procedure or #!unbound).",
+    "impact": "medium",
+    "tags": [
+      "begin-ffi",
+      "def",
+      "define",
+      "gambit",
+      "passthrough",
+      "lint",
+      "ffi"
+    ],
+    "use_case": "When writing or patching FFI code that includes helper functions inside begin-ffi blocks — a common pattern when wrapping c-lambda calls.",
+    "example_scenario": "A patch script inserted `(def (ffi-fdread fd count) ...)` inside a `begin-ffi` block in gsh/ffi.ss. The code compiled without warnings. At runtime, the module returned `#!unbound` for ffi-fdread and then crashed with \\\"Operator is not a PROCEDURE\\\" (trying to call `def` as a function). Took significant debugging to trace back to the begin-ffi/def interaction. The fix was trivial (change `def` to `define`), but detection required reading GDB backtraces and binary inspection.",
+    "estimated_token_reduction": "~800 tokens per occurrence — eliminates a confusing runtime debugging session for what is a trivially detectable static error",
+    "votes": 0
+  },
+  {
+    "id": "build-ss-runtime-function-shadow-detection",
+    "title": "Detect build.ss top-level definitions that shadow imported runtime functions",
+    "description": "gerbil_build_ss_audit or a new gerbil_build_ss_shadow_check should detect when top-level `def` or `define` forms in build.ss define a variable with the same name as a function imported from `:std/make` or `:std/build-script`. Shadowing a runtime function with a variable (e.g., `(def gerbil-path ...)` shadows `gerbil-path` from :std/make) causes SIGSEGV at runtime when the imported module calls the function — it gets the variable value instead of the procedure.",
+    "impact": "high",
+    "tags": [
+      "build.ss",
+      "shadow",
+      "runtime",
+      "segfault",
+      "std/make",
+      "variable-name",
+      "audit"
+    ],
+    "use_case": "When writing or modifying build.ss scripts that define local variables for build paths, options, etc. — a common pattern in all Gerbil projects with custom build logic.",
+    "example_scenario": "In gemacs build.ss, defined `(def gerbil-path ...)` to hold the project's GERBIL_PATH string. This shadowed the `gerbil-path` function imported from :std/make. During `gerbil build`, std/make called `(gerbil-path)` expecting a procedure — got a string instead — caused SIGSEGV at ___H_make_7e_0+5135. The crash looked like a memory corruption bug (rdx register contained a fixnum string pointer being called as a function pointer). Took GDB analysis and binary search through build.ss to find the root cause. Fix was trivially renaming the variable to `project-gerbil-path`.",
+    "estimated_token_reduction": "~1500 tokens per occurrence — the SIGSEGV is deeply confusing and requires GDB + binary search to diagnose; static detection would catch it instantly at audit time",
+    "votes": 0
   }
 ]
