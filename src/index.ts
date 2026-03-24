@@ -218,7 +218,7 @@ const INSTRUCTIONS = `You have access to a live Gerbil Scheme environment via th
 - To check environment: use gerbil_version to see Gerbil/Gambit versions, home directory, and system info.
 - To diagnose MCP issues: use gerbil_preflight_check to verify server prerequisites (gxi/gxc availability, Gerbil version, GERBIL_HOME/PATH, dist/ folder, basic eval). Use when tools are not working.
 - To create a new project: use gerbil_scaffold to generate a project template with gerbil.pkg and build.ss.
-- To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages.
+- To manage packages: use gerbil_package_manage to install, update, or uninstall Gerbil packages. Use project_path to install into project/.gerbil instead of ~/.gerbil (hermetic isolation).
 - To find symbol usages: use gerbil_find_callers to search a directory for files that reference a given symbol.
 - To get structured diagnostics: use gerbil_diagnostics for file/project compilation diagnostics with file, line, column, severity.
 - To list symbols in a file: use gerbil_document_symbols for all definitions with name, kind, and line number.

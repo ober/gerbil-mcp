@@ -14,6 +14,8 @@ export function registerPackageManageTool(server: McpServer): void {
         'Install, update, or uninstall Gerbil packages. ' +
         'Package names can include @tag for version pinning (e.g. "github.com/user/repo@v1.0"). ' +
         'Use "all" with the update action to update all installed packages. ' +
+        'Use project_path to install packages into project/.gerbil instead of ~/.gerbil, ' +
+        'keeping the project hermetically sealed. ' +
         'Safety: when the server is running in a project directory (with gerbil.pkg), ' +
         'the tool automatically defaults to HOME as the working directory to prevent ' +
         'gxpkg from operating on the local package context. Use the cwd parameter ' +
@@ -45,9 +47,16 @@ export function registerPackageManageTool(server: McpServer): void {
           .string()
           .optional()
           .describe('Working directory for local package context'),
+        project_path: z
+          .string()
+          .optional()
+          .describe(
+            'Project directory whose .gerbil/ should receive the package installation. ' +
+            'Sets GERBIL_PATH=project_path/.gerbil so packages install there instead of ~/.gerbil.',
+          ),
       },
     },
-    async ({ action, package: pkg, global_env, force, cwd }) => {
+    async ({ action, package: pkg, global_env, force, cwd, project_path }) => {
       // Safety: if no explicit cwd is provided, check if the server's working
       // directory contains a gerbil.pkg. If so, default to HOME to prevent
       // gxpkg from operating on the local package context (which can destroy
@@ -94,9 +103,16 @@ export function registerPackageManageTool(server: McpServer): void {
       if (force) args.push('--force');
       args.push(pkg);
 
+      // If a project_path is given, install packages into project/.gerbil instead
+      // of the global ~/.gerbil, keeping the project hermetically sealed.
+      const pkgEnv: Record<string, string> | undefined = project_path
+        ? { GERBIL_PATH: join(project_path, '.gerbil') }
+        : undefined;
+
       const result = await runGxpkg(args, {
         cwd: effectiveCwd,
         timeout: 120_000,
+        env: pkgEnv,
       });
 
       if (result.timedOut) {

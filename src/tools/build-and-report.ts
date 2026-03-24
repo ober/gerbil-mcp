@@ -4,7 +4,6 @@ import { readFile, writeFile, stat, access, constants, rm } from 'node:fs/promis
 import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, basename } from 'node:path';
-import { homedir } from 'node:os';
 import { runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 import { parseGxcErrors, parseCCompilerErrors, type Diagnostic } from './parse-utils.js';
 
@@ -83,7 +82,8 @@ export function registerBuildAndReportTool(server: McpServer): void {
         'structured file:line:column diagnostics. ' +
         'Uses the modern `gerbil` CLI (not gxpkg). ' +
         'Auto-detects external dependencies from gerbil.pkg depend: entries and ' +
-        'adds ~/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided. ' +
+        'adds project/.gerbil/lib to GERBIL_LOADPATH automatically when loadpath is not explicitly provided. ' +
+        'Always sets GERBIL_PATH=project/.gerbil so builds install artifacts locally, never to ~/.gerbil. ' +
         'Use modules_only: true to skip exe linking targets and only compile library modules ' +
         '(dramatically faster when iterating on code and running tests).',
       annotations: {
@@ -136,7 +136,14 @@ export function registerBuildAndReportTool(server: McpServer): void {
       const effectiveLoadpath = loadpath ?? await autoDetectLoadpath(project_path);
 
       const args = ['build', ...(flags ?? [])];
+      // Always set GERBIL_PATH to the project-local .gerbil directory so that
+      // `gerbil build` installs compiled artifacts into project/.gerbil/lib/
+      // instead of the global ~/.gerbil/lib/. This keeps the project hermetically sealed.
+      const hermeticEnv: Record<string, string> = {
+        GERBIL_PATH: join(project_path, '.gerbil'),
+      };
       const loadpathEnv = effectiveLoadpath.length > 0 ? buildLoadpathEnv(effectiveLoadpath) : undefined;
+      const buildEnv = { ...hermeticEnv, ...loadpathEnv };
 
       // modules_only: temporarily filter exe targets from build.ss
       const buildSsPath = join(project_path, 'build.ss');
@@ -159,7 +166,7 @@ export function registerBuildAndReportTool(server: McpServer): void {
         result = await runGerbilCmd(args, {
           cwd: project_path,
           timeout: 120_000,
-          env: loadpathEnv,
+          env: buildEnv,
         });
       } finally {
         // Always restore original build.ss if we modified it
@@ -465,18 +472,15 @@ function parseMakeTargets(content: string): string[] {
 
 /**
  * Auto-detect loadpath from gerbil.pkg depend: entries.
- * If the project has external dependencies, add ~/.gerbil/lib to loadpath.
+ * If the project has external dependencies, use the project-local .gerbil/lib
+ * so the project remains hermetically sealed (never falls back to ~/.gerbil/lib).
  */
 async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
   try {
     const content = await readFile(join(projectPath, 'gerbil.pkg'), 'utf-8');
     // Look for depend: followed by a list of package names
     if (/\bdepend:/.test(content)) {
-      const gerbilLib = join(
-        process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'),
-        'lib',
-      );
-      return [gerbilLib];
+      return [join(projectPath, '.gerbil', 'lib')];
     }
   } catch {
     // No gerbil.pkg or can't read it — no auto-detection

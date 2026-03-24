@@ -4,7 +4,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { runGxc, buildLoadpathEnv } from '../gxi.js';
 
 export function registerCompileCheckTool(server: McpServer): void {
@@ -262,10 +262,9 @@ function detectStaleModule(modPath: string): string[] {
   const parts = modPath.split('/');
   const relPath = parts.join('/');
 
-  const gerbilPath = process.env.GERBIL_PATH ?? join(homedir(), '.gerbil');
+  // Only search the project-local .gerbil/lib/ — never the global ~/.gerbil/lib/.
+  // Projects must be hermetically sealed: all artifacts live under project/.gerbil.
   const searchDirs = [
-    join(gerbilPath, 'lib'),
-    // Also check CWD-local .gerbil/lib
     join(process.cwd(), '.gerbil', 'lib'),
   ];
 

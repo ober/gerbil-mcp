@@ -2,23 +2,19 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { join, dirname, basename } from 'node:path';
 import { readFile, readdir, stat, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { runGxiFile, runGerbilCmd, buildLoadpathEnv } from '../gxi.js';
 
 /**
  * Auto-detect loadpath from gerbil.pkg depend: entries.
- * If the project has external dependencies, add ~/.gerbil/lib to loadpath.
- * Same logic as build-and-report.ts autoDetectLoadpath.
+ * Always uses the project-local .gerbil/lib — never ~/.gerbil/lib — so the
+ * project remains hermetically sealed.
  */
 async function autoDetectLoadpath(projectPath: string): Promise<string[]> {
   try {
     const content = await readFile(join(projectPath, 'gerbil.pkg'), 'utf-8');
     if (/\bdepend:/.test(content)) {
-      const gerbilLib = join(
-        process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'),
-        'lib',
-      );
-      return [gerbilLib];
+      return [join(projectPath, '.gerbil', 'lib')];
     }
   } catch {
     // No gerbil.pkg or can't read it — no auto-detection
@@ -46,10 +42,9 @@ async function cleanStaleArtifacts(testDir: string, projectPath?: string): Promi
     }
   } catch { /* ignore */ }
 
-  // Check .gerbil/lib/ and ~/.gerbil/lib/ for stale artifacts
+  // Only clean from the project-local .gerbil/lib/ — never touch ~/.gerbil/lib/
   const artifactDirs = [
     join(baseDir, '.gerbil', 'lib'),
-    join(process.env.GERBIL_PATH ?? join(homedir(), '.gerbil'), 'lib'),
   ];
 
   for (const artDir of artifactDirs) {
@@ -143,7 +138,7 @@ export function registerRunTestsTool(server: McpServer): void {
           .optional()
           .describe(
             'Clean stale compiled artifacts before running tests. ' +
-            'Removes compiled modules from .gerbil/lib/ and ~/.gerbil/lib/ ' +
+            'Removes compiled modules from the project-local .gerbil/lib/ ' +
             'that could shadow source files (common cause of test failures when ' +
             'a module exports main for exe builds).',
           ),
@@ -200,7 +195,11 @@ export function registerRunTestsTool(server: McpServer): void {
 
       // Build effective loadpath from loadpath array and project_path
       const effectiveLoadpath: string[] = [...(loadpath ?? [])];
+      // When project_path is provided, set GERBIL_PATH to project-local .gerbil so
+      // artifacts go there (not ~/.gerbil) and module resolution is hermetic.
+      let hermeticProjectEnv: Record<string, string> | undefined;
       if (project_path) {
+        hermeticProjectEnv = { GERBIL_PATH: join(project_path, '.gerbil') };
         effectiveLoadpath.push(join(project_path, '.gerbil', 'lib'));
         // Auto-detect loadpath from gerbil.pkg depend: when not explicitly provided
         if (!loadpath || loadpath.length === 0) {
@@ -208,10 +207,13 @@ export function registerRunTestsTool(server: McpServer): void {
           effectiveLoadpath.push(...autoPath);
         }
       }
+      const mergedExtraEnv = hermeticProjectEnv
+        ? { ...hermeticProjectEnv, ...extraEnv }
+        : extraEnv;
 
       const result = verbose
-        ? await runVerboseTest(file_path!, timeout, effectiveLoadpath, extraEnv)
-        : await runSingleFileTest(file_path!, timeout, effectiveLoadpath, extraEnv);
+        ? await runVerboseTest(file_path!, timeout, effectiveLoadpath, mergedExtraEnv)
+        : await runSingleFileTest(file_path!, timeout, effectiveLoadpath, mergedExtraEnv);
       if (staleWarnings.length > 0 && result.content?.[0]) {
         const existing = (result.content[0] as { text: string }).text;
         (result.content[0] as { text: string }).text = staleWarnings.join('\n') + '\n\n' + existing;
@@ -318,9 +320,20 @@ async function runDirectoryTests(
   if (opts.filter) args.push('-r', opts.filter);
   args.push(directory + '/...');
 
+  // Set GERBIL_PATH to the project-local .gerbil directory so tests install
+  // artifacts locally and load from there, never from ~/.gerbil.
+  const hermeticEnv: Record<string, string> = {
+    GERBIL_PATH: join(directory, '.gerbil'),
+  };
+  const autoPath = await autoDetectLoadpath(directory);
+  const hermeticEnvWithLoadpath = autoPath.length > 0
+    ? { ...hermeticEnv, ...buildLoadpathEnv(autoPath) }
+    : hermeticEnv;
+
   const testResult = await runGerbilCmd(args, {
     cwd: directory,
     timeout: effectiveTimeout,
+    env: hermeticEnvWithLoadpath,
   });
 
   if (testResult.timedOut) {

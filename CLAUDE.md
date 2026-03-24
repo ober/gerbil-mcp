@@ -223,6 +223,7 @@ All 575 tests must pass before considering any change complete (575 passing + 3 
 - Run tests verbose fix (string-append instead of nonexistent :std/format)
 - Export re-export conflict tool (transitive export resolution, overlapping symbol detection, only-in fix suggestions)
 - Exe macro check tool (macro expansion unbound identifier detection, runtime symbol scanning, import suggestion)
+- Hermetic project isolation (GERBIL_PATH=project/.gerbil on all build/test/install subprocesses; autoDetectLoadpath uses project-local path; buildLoadpathEnv no longer merges global GERBIL_LOADPATH; cleanStaleArtifacts only touches project-local; package-manage project_path parameter)
 
 
 ### MANDATORY: Update Documentation After Every Change

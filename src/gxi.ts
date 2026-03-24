@@ -199,7 +199,7 @@ async function findGxpkg(): Promise<string> {
 
 export async function runGxpkg(
   args: string[],
-  options?: { timeout?: number; cwd?: string },
+  options?: { timeout?: number; cwd?: string; env?: Record<string, string> },
 ): Promise<GxiResult> {
   const gxpkgPath = await findGxpkg();
   const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
@@ -211,7 +211,7 @@ export async function runGxpkg(
       {
         timeout,
         maxBuffer: MAX_BUFFER,
-        env: { ...process.env },
+        env: { ...process.env, ...options?.env },
         cwd: options?.cwd,
       },
       (error, stdout, stderr) => {
@@ -333,15 +333,16 @@ export function escapeSchemeString(s: string): string {
 
 /**
  * Build environment overlay for GERBIL_LOADPATH.
- * Merges with any existing GERBIL_LOADPATH from process.env.
+ * Sets GERBIL_LOADPATH to exactly the provided paths — does NOT merge with
+ * any existing GERBIL_LOADPATH from process.env. Projects must be hermetically
+ * sealed: all dependencies must be declared explicitly via loadpath, never
+ * inherited from the shell environment or ~/.gerbil.
  */
 export function buildLoadpathEnv(
   loadpath: string[],
 ): Record<string, string> {
   if (loadpath.length === 0) return {};
-  const existing = process.env.GERBIL_LOADPATH ?? '';
-  const parts = [...loadpath, ...(existing ? [existing] : [])];
-  return { GERBIL_LOADPATH: parts.join(':') };
+  return { GERBIL_LOADPATH: loadpath.join(':') };
 }
 
 // ── Run gxi with a file argument ──────────────────────────────────
